@@ -22,12 +22,14 @@
 
 #include <google/protobuf/map.h>
 
+#include "kfs_frontend/kfs_grpc_inference_service.hpp"
 #include "modelversion.hpp"
 #include "shape.hpp"
 #include "tensorinfo.hpp"
 
 namespace ovms {
 class Status;
+
 namespace request_validation_utils {
 
 template <typename RequestType>
@@ -44,7 +46,15 @@ Status validate(
 template <typename T>
 static bool computeExpectedBufferSizeReturnFalseIfOverflow(const std::vector<T>& shape, const size_t& itemsize, size_t& expectedBufferSize) {
     expectedBufferSize = 1;
+    if (itemsize == 0) {
+        expectedBufferSize = 0;
+        return true;
+    }
     for (const T& dim : shape) {
+        if (dim == 0) {
+            expectedBufferSize = 0;
+            return true;
+        }
         if (expectedBufferSize > std::numeric_limits<size_t>::max() / dim)
             return false;
         expectedBufferSize *= dim;
@@ -54,6 +64,8 @@ static bool computeExpectedBufferSizeReturnFalseIfOverflow(const std::vector<T>&
     expectedBufferSize *= itemsize;
     return true;
 }
+
+size_t getElementsCount(const KFSTensorInputProto& proto, ovms::Precision expectedPrecision);
 
 }  // namespace request_validation_utils
 }  // namespace ovms

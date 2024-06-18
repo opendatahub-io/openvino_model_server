@@ -3,10 +3,11 @@
 
 ## Download the model
 
-In this experiment we are going to use a TensorFlow model from [tfhub.dev ](https://tfhub.dev/google/universal-sentence-encoder-multilingual/3).
+In this experiment we are going to use a TensorFlow model from [Kaggle](https://www.kaggle.com/models/google/universal-sentence-encoder/tensorFlow2/multilingual/2).
 
 ```bash
-curl --create-dir  https://storage.googleapis.com/tfhub-modules/google/universal-sentence-encoder-multilingual/3.tar.gz -o universal-sentence-encoder-multilingual/1/3.tar.gz
+mkdir -p universal-sentence-encoder-multilingual/1/
+curl -L -o universal-sentence-encoder-multilingual/1/3.tar.gz https://www.kaggle.com/api/v1/models/google/universal-sentence-encoder/tensorFlow2/multilingual/2/download
 tar -xzf universal-sentence-encoder-multilingual/1/3.tar.gz -C universal-sentence-encoder-multilingual/1/
 rm universal-sentence-encoder-multilingual/1/3.tar.gz
 chmod -R 755 universal-sentence-encoder-multilingual
@@ -14,7 +15,6 @@ tree universal-sentence-encoder-multilingual/
 
 universal-sentence-encoder-multilingual/
 └── 1
-    ├── assets
     ├── saved_model.pb
     └── variables
         ├── variables.data-00000-of-00001
@@ -24,7 +24,7 @@ universal-sentence-encoder-multilingual/
 
 ## Use OpenVINO tokenizers library
 
-Model universal-sentence-encoder-multilingual includes a layer SentencepieceTokenizer which is not supported by core OpenVINO at the moment. It can be however implemented using a [CPU extension](https://github.com/openvinotoolkit/openvino_contrib/tree/master/modules/custom_operations/user_ie_extensions/tokenizer), which is a dynamic library performing the execution of the model layer.
+Model universal-sentence-encoder-multilingual includes a layer SentencepieceTokenizer which is supported via [OpenVINO custom extension](https://github.com/openvinotoolkit/openvino_tokenizers). It is dynamic library performing the execution of the model layer, it extends original set of supported OpenVINO operations.
 
 The image `openvino/model_server:2023.3` and newer includes ready to use OpenVINO Model Server with the CPU extension.
 
@@ -88,7 +88,6 @@ Start TFS container:
 docker run -it -p 8500:8500 -p 9500:9500 -v $(pwd)/universal-sentence-encoder-multilingual:/models/usem -e MODEL_NAME=usem tensorflow/serving --port=9500 --rest_api_port=8500
 ```
 
-
 Run the client
 ```bash
 python model_server/demos/universal-sentence-encoder/send_strings.py --grpc_port 9500 --input_name inputs --output_name outputs --string "I enjoy taking long walks along the beach with my dog."
@@ -103,4 +102,3 @@ Output subset [-0.00552387  0.00599531 -0.0148055   0.01098951 -0.09355522 -0.08
 ```
 
 > NOTE: Do not use this model with `--cache_dir`, the model does not support caching.
-

@@ -122,17 +122,13 @@ def convert_history_to_text(history):
 
 
 def deserialize_prompts(batch_size, input_tensor):
-    if batch_size == 1:
-        return [bytes(input_tensor).decode()]
     np_arr = deserialize_bytes_tensor(bytes(input_tensor))
     return [arr.decode() for arr in np_arr]
 
 
 def serialize_completions(batch_size, result):
-    if batch_size == 1:
-        return [Tensor("completion", result.encode())]
     return [Tensor("completion", serialize_byte_tensor(
-        np.array(result, dtype=np.object_)).item())]
+        np.array(result, dtype=np.object_)).item(), shape=[batch_size], datatype="BYTES")]
 
 
 class OvmsPythonModel:
@@ -171,8 +167,10 @@ class OvmsPythonModel:
             generate_kwargs["stopping_criteria"] = StoppingCriteriaList(stop_tokens)
 
         ov_model_exec = self.ov_model.clone()
+        token_count: List[int]= []
         def generate():
-            ov_model_exec.generate(**tokens, **generate_kwargs)
+            result = ov_model_exec.generate(**tokens, **generate_kwargs)
+            token_count.append(len([1 for x in result.numpy().flatten() if x not in tokenizer.convert_tokens_to_ids(tokenizer.all_special_tokens)]))
 
         if SEED is not None: set_seed(int(SEED))
         t1 = threading.Thread(target=generate)
@@ -180,5 +178,8 @@ class OvmsPythonModel:
 
         for partial_result in streamer:
             yield serialize_completions(batch_size, partial_result)
+        t1.join()
+        token_count[0] -= len(tokens["input_ids"].flatten())
+        yield [Tensor("token_count", np.array(token_count, dtype=np.int32))]
         yield [Tensor("end_signal", "".encode())]
         print('end', flush=True)

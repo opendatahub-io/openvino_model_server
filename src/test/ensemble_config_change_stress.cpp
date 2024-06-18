@@ -23,6 +23,9 @@
 #include "../dags/pipeline_factory.hpp"
 #include "../dags/pipelinedefinition.hpp"
 #include "../get_model_metadata_impl.hpp"
+#if (MEDIAPIPE_DISABLE == 0)
+#include "../kfs_frontend/kfs_graph_executor_impl.hpp"
+#endif
 #include "../kfs_frontend/kfs_utils.hpp"
 #include "../localfilesystem.hpp"
 #include "../logging.hpp"
@@ -137,7 +140,7 @@ void mediaexec<KFSRequest, KFSResponse>(std::shared_ptr<MediapipeGraphExecutor>&
 
 template <>
 void mediacreate<KFSRequest, KFSResponse>(std::shared_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, KFSRequest& request, KFSResponse& response, ovms::Status& status) {
-    status = manager.createPipeline(executorPtr, request.model_name(), &request, &response);
+    status = manager.createPipeline(executorPtr, request.model_name());
 }
 #endif
 

@@ -8,15 +8,18 @@ We addressed both the situation when the original model requires tokens on input
 
 When the model server is configured to serve python script (via MediaPipe Graph with PythonExecutorCalculator), it is possible to send a string or a list of strings. Refer to full [Python execution documentation](python_support/reference.md) or end-to-end [LLM text generation demo](../demos/python_demos/llm_text_generation/README.md).
 
-## Serving a model with a string in input layer
+## Serving a model with a string in input or output layer
 
 Some AI models support the layers with string format on the input or output. They include the layers performing the tokenization operations inside the neural network.
+
 OpenVINO supports such layers with string data type using a CPU extension.
-Model Server includes a built-in extension for wide list of custom [tokenizers and detokenizers](https://github.com/openvinotoolkit/openvino_contrib/tree/master/modules/custom_operations/user_ie_extensions/tokenizer) layers.
+Model Server includes a built-in extension for wide list of custom [tokenizers and detokenizers](https://github.com/openvinotoolkit/openvino_tokenizers) layers.
 The extension performs tokenization operation for the string data type. 
 
 A demonstration of such use case is in the MUSE model which can be imported directly but the models server. The client can send the text data without any preprocessing and take advantage of much faster execution time.
 Check the [MUSE demo](../demos/universal-sentence-encoder/README.md).
+
+Example usage of a model with string on output is our [image classification with string output demo](../demos/image_classification_with_string_output/README.md). The original model used in this demo returns probabilities but we are adding to the model postprocessing function which returns the most likely label name as a string.
 
 ## DAG pipeline to delegate tokenization to the server (deprecated)
 When the model is using tokens on input or output, you can create a DAG pipeline which include custom nodes performing pre and post processing.
@@ -30,10 +33,7 @@ Example of batch size 2 of the string input - `abcd` and `ab`:
 ]
 ```
 Such data in a tensor format can be passed to the custom node to perform the preprocessing like string tokenization. The output of the preprocessing node can be passed to the model.
-There is a built-in [Tokenizer](https://github.com/openvinotoolkit/model_server/tree/main/src/custom_nodes/tokenizer) custom node for that use case based on Blingfire library.
 
 Similarly, a custom node can perform string detokenization and return a string to the model server client.
-
-Check the [end-to-end demonstration](../demos/gptj_causal_lm/python/README.md) of such use case with GPT based text generation.
 
 The client API snippets with string data format are included in [KServe API](./clients_kfs.md) and [TFS API](./clients_tfs.md).
