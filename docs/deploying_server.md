@@ -110,7 +110,7 @@ sudo apt update -y && apt install -y libpugixml1v5 libtbb2
 Download precompiled package:
 
 ```{code} sh
-wget https://github.com/openvinotoolkit/model_server/releases/download/v2024.0/ovms_ubuntu22.tar.gz
+wget https://github.com/openvinotoolkit/model_server/releases/download/v2024.2/ovms_ubuntu22.tar.gz
 ```
 
 or build it yourself:
@@ -136,7 +136,7 @@ sudo apt update -y && apt install -y libpugixml1v5 libtbb12
 Download precompiled package:
 
 ```{code} sh
-wget https://github.com/openvinotoolkit/model_server/releases/download/v2024.0/ovms_redhat.tar.gz
+wget https://github.com/openvinotoolkit/model_server/releases/download/v2024.2/ovms_redhat.tar.gz
 ```
 
 or build it yourself:
