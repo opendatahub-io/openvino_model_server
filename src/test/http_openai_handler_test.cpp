@@ -32,29 +32,8 @@
 #include "tensorflow_serving/util/net_http/server/public/server_request_interface.h"
 #pragma GCC diagnostic pop
 
+#include "test_http_utils.hpp"
 #include "test_utils.hpp"
-
-class MockedServerRequestInterface final : public tensorflow::serving::net_http::ServerRequestInterface {
-public:
-    MOCK_METHOD(absl::string_view, uri_path, (), (const, override));
-    MOCK_METHOD(absl::string_view, http_method, (), (const, override));
-    MOCK_METHOD(void, WriteResponseBytes, (const char*, int64_t), (override));
-    MOCK_METHOD(void, WriteResponseString, (absl::string_view), (override));
-    MOCK_METHOD((std::unique_ptr<char[], tensorflow::serving::net_http::ServerRequestInterface::BlockDeleter>), ReadRequestBytes, (int64_t*), (override));
-    MOCK_METHOD(absl::string_view, GetRequestHeader, (absl::string_view), (const, override));
-    MOCK_METHOD((std::vector<absl::string_view>), request_headers, (), (const, override));
-    MOCK_METHOD(void, OverwriteResponseHeader, (absl::string_view, absl::string_view), (override));
-    MOCK_METHOD(void, AppendResponseHeader, (absl::string_view, absl::string_view), (override));
-    MOCK_METHOD(void, PartialReplyWithStatus, (tensorflow::serving::net_http::HTTPStatusCode), (override));
-    MOCK_METHOD(void, PartialReply, (std::string), (override));
-    MOCK_METHOD(tensorflow::serving::net_http::ServerRequestInterface::CallbackStatus, PartialReplyWithFlushCallback, ((std::function<void()>)), (override));
-    MOCK_METHOD(tensorflow::serving::net_http::ServerRequestInterface::BodyStatus, response_body_status, (), (override));
-    MOCK_METHOD(tensorflow::serving::net_http::ServerRequestInterface::BodyStatus, request_body_status, (), (override));
-    MOCK_METHOD(void, ReplyWithStatus, (tensorflow::serving::net_http::HTTPStatusCode), (override));
-    MOCK_METHOD(void, Reply, (), (override));
-    MOCK_METHOD(void, Abort, (), (override));
-    MOCK_METHOD(void, PartialReplyEnd, (), (override));
-};
 
 class HttpOpenAIHandlerTest : public ::testing::Test {
 protected:
@@ -104,10 +83,10 @@ TEST_F(HttpOpenAIHandlerTest, Unary) {
     )";
 
     ASSERT_EQ(
-        handler->dispatchToProcessor("/v3/test/", requestBody, &response, comp, responseComponents, &writer),
+        handler->dispatchToProcessor("/v3/completions/", requestBody, &response, comp, responseComponents, &writer),
         ovms::StatusCode::OK);
 
-    std::string expectedResponse = R"(/v3/test/
+    std::string expectedResponse = R"(/v3/completions/
 
         {
             "model": "gpt",
@@ -130,10 +109,10 @@ TEST_F(HttpOpenAIHandlerTest, UnaryWithHeaders) {
     comp.headers.push_back(std::pair<std::string, std::string>("test2", "header"));
 
     ASSERT_EQ(
-        handler->dispatchToProcessor("/v3/test/", requestBody, &response, comp, responseComponents, &writer),
+        handler->dispatchToProcessor("/v3/completions/", requestBody, &response, comp, responseComponents, &writer),
         ovms::StatusCode::OK);
 
-    std::string expectedResponse = R"(/v3/test/
+    std::string expectedResponse = R"(/v3/completions/
 test1headertest2header
         {
             "model": "gpt",
@@ -156,9 +135,10 @@ TEST_F(HttpOpenAIHandlerTest, Stream) {
     EXPECT_CALL(writer, PartialReplyEnd()).Times(1);
     EXPECT_CALL(writer, PartialReply(::testing::_)).Times(9);
     EXPECT_CALL(writer, WriteResponseString(::testing::_)).Times(0);
+    EXPECT_CALL(writer, IsDisconnected()).Times(9);
 
     ASSERT_EQ(
-        handler->dispatchToProcessor("/v3/test", requestBody, &response, comp, responseComponents, &writer),
+        handler->dispatchToProcessor("/v3/completions", requestBody, &response, comp, responseComponents, &writer),
         ovms::StatusCode::PARTIAL_END);
 
     ASSERT_EQ(response, "");
@@ -170,8 +150,9 @@ TEST_F(HttpOpenAIHandlerTest, BodyNotAJson) {
     EXPECT_CALL(writer, PartialReplyEnd()).Times(0);
     EXPECT_CALL(writer, PartialReply(::testing::_)).Times(0);
     EXPECT_CALL(writer, WriteResponseString(::testing::_)).Times(0);
+    EXPECT_CALL(writer, IsDisconnected()).Times(0);
 
-    auto status = handler->dispatchToProcessor("/v3/test", requestBody, &response, comp, responseComponents, &writer);
+    auto status = handler->dispatchToProcessor("/v3/completions", requestBody, &response, comp, responseComponents, &writer);
     ASSERT_EQ(status, ovms::StatusCode::JSON_INVALID);
     ASSERT_EQ(status.string(), "The file is not valid json - Cannot parse JSON body");
 }
@@ -182,8 +163,9 @@ TEST_F(HttpOpenAIHandlerTest, JsonBodyValidButNotAnObject) {
     EXPECT_CALL(writer, PartialReplyEnd()).Times(0);
     EXPECT_CALL(writer, PartialReply(::testing::_)).Times(0);
     EXPECT_CALL(writer, WriteResponseString(::testing::_)).Times(0);
+    EXPECT_CALL(writer, IsDisconnected()).Times(0);
 
-    auto status = handler->dispatchToProcessor("/v3/test", requestBody, &response, comp, responseComponents, &writer);
+    auto status = handler->dispatchToProcessor("/v3/completions", requestBody, &response, comp, responseComponents, &writer);
     ASSERT_EQ(status, ovms::StatusCode::JSON_INVALID);
     ASSERT_EQ(status.string(), "The file is not valid json - JSON body must be an object");
 }
@@ -199,10 +181,11 @@ TEST_F(HttpOpenAIHandlerTest, ModelFieldMissing) {
     EXPECT_CALL(writer, PartialReplyEnd()).Times(0);
     EXPECT_CALL(writer, PartialReply(::testing::_)).Times(0);
     EXPECT_CALL(writer, WriteResponseString(::testing::_)).Times(0);
+    EXPECT_CALL(writer, IsDisconnected()).Times(0);
 
-    auto status = handler->dispatchToProcessor("/v3/test", requestBody, &response, comp, responseComponents, &writer);
+    auto status = handler->dispatchToProcessor("/v3/completions", requestBody, &response, comp, responseComponents, &writer);
     ASSERT_EQ(status, ovms::StatusCode::JSON_INVALID);
-    ASSERT_EQ(status.string(), "The file is not valid json - \"model\" field is missing in JSON body");
+    ASSERT_EQ(status.string(), "The file is not valid json - model field is missing in JSON body");
 }
 
 TEST_F(HttpOpenAIHandlerTest, ModelFieldNotAString) {
@@ -217,10 +200,11 @@ TEST_F(HttpOpenAIHandlerTest, ModelFieldNotAString) {
     EXPECT_CALL(writer, PartialReplyEnd()).Times(0);
     EXPECT_CALL(writer, PartialReply(::testing::_)).Times(0);
     EXPECT_CALL(writer, WriteResponseString(::testing::_)).Times(0);
+    EXPECT_CALL(writer, IsDisconnected()).Times(0);
 
-    auto status = handler->dispatchToProcessor("/v3/test", requestBody, &response, comp, responseComponents, &writer);
+    auto status = handler->dispatchToProcessor("/v3/completions", requestBody, &response, comp, responseComponents, &writer);
     ASSERT_EQ(status, ovms::StatusCode::JSON_INVALID);
-    ASSERT_EQ(status.string(), "The file is not valid json - \"model\" field is not a string");
+    ASSERT_EQ(status.string(), "The file is not valid json - model field is not a string");
 }
 
 TEST_F(HttpOpenAIHandlerTest, StreamFieldNotABoolean) {
@@ -235,10 +219,11 @@ TEST_F(HttpOpenAIHandlerTest, StreamFieldNotABoolean) {
     EXPECT_CALL(writer, PartialReplyEnd()).Times(0);
     EXPECT_CALL(writer, PartialReply(::testing::_)).Times(0);
     EXPECT_CALL(writer, WriteResponseString(::testing::_)).Times(0);
+    EXPECT_CALL(writer, IsDisconnected()).Times(0);
 
-    auto status = handler->dispatchToProcessor("/v3/test", requestBody, &response, comp, responseComponents, &writer);
+    auto status = handler->dispatchToProcessor("/v3/completions", requestBody, &response, comp, responseComponents, &writer);
     ASSERT_EQ(status, ovms::StatusCode::JSON_INVALID);
-    ASSERT_EQ(status.string(), "The file is not valid json - \"stream\" field is not a boolean");
+    ASSERT_EQ(status.string(), "The file is not valid json - stream field is not a boolean");
 }
 
 TEST_F(HttpOpenAIHandlerTest, GraphWithANameDoesNotExist) {
@@ -253,18 +238,8 @@ TEST_F(HttpOpenAIHandlerTest, GraphWithANameDoesNotExist) {
     EXPECT_CALL(writer, PartialReplyEnd()).Times(0);
     EXPECT_CALL(writer, PartialReply(::testing::_)).Times(0);
     EXPECT_CALL(writer, WriteResponseString(::testing::_)).Times(0);
+    EXPECT_CALL(writer, IsDisconnected()).Times(0);
 
-    auto status = handler->dispatchToProcessor("/v3/test", requestBody, &response, comp, responseComponents, &writer);
+    auto status = handler->dispatchToProcessor("/v3/completions", requestBody, &response, comp, responseComponents, &writer);
     ASSERT_EQ(status, ovms::StatusCode::MEDIAPIPE_DEFINITION_NAME_MISSING);
 }
-
-// TODO (negative paths):
-// - test that /v3/chat/completions endpoint is not reachable for builds without MediaPipe
-// - test negative path for accessing /v3/chat/completions graph via KFS API
-// - test negative path for accessing regular graph via /v3/chat/completions endpoint
-
-// TODO (positive paths):
-// - partial error is sent via "req" object
-
-// TODO(mkulakow)
-// Test actual flow once the type is changed from std::string to HttpPayload

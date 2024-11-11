@@ -17,6 +17,7 @@
 #include <functional>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -302,8 +303,8 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerGatherPipelineExecutionTest, Multip
     // Most basic configuration, just process single add-sub custom node pipeline request
     // input  (differentOps    dummy   chooseMax ) XN    output
     //  O-----(----->O---------->O------->O------>...----->O
-    const uint demultiplicationLayersCount = 10;
-    // values choosen in a way that first choosen different ops result will be addition. all following ones will be multiplications
+    const uint32_t demultiplicationLayersCount = 10;
+    // values chosen in a way that first chosen different ops result will be addition. all following ones will be multiplications
     const std::vector<float> inputValues{0.2, 0.7, -0.4, -0.1, 0.0001, -0.8, 0.7, 0.8, 0.9, 0.1};
     const std::vector<float> inputFactors{1, -1, 2, 2};
     parameters_t parameters{
@@ -317,7 +318,7 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerGatherPipelineExecutionTest, Multip
                 if (iterations == 0) {
                     f += inputFactors[0];
                 } else {
-                    f *= inputFactors[2];  // different ops mutliply will be choosen
+                    f *= inputFactors[2];  // different ops multiply will be chosen
                 }
                 f += 1;  // dummy
             }
@@ -374,8 +375,8 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerGatherPipelineExecutionTest, Multip
     // Most basic configuration, just process single add-sub custom node pipeline request
     // input  (differentOps dummy)xN   chooseMax xN    output
     //  O-----(----->O------->O---...----->O---->...----->O
-    const uint demultiplicationLayersCount = 4;
-    // values choosen in a way that first choosen different ops result will be addition. all following ones will be multiplications
+    const uint32_t demultiplicationLayersCount = 4;
+    // values chosen in a way that first chosen different ops result will be addition. all following ones will be multiplications
     const std::vector<float> inputValues{0.2, 0.7, -0.4, -0.1, 0.0001, -0.8, 0.7, 0.8, 0.9, 0.1};
     const std::vector<float> inputFactors{1, -1, 2, 2};
     parameters_t parameters{
@@ -389,7 +390,7 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerGatherPipelineExecutionTest, Multip
                 if (iterations == 0) {
                     f += inputFactors[0];
                 } else {
-                    f *= inputFactors[2];  // different ops mutliply will be choosen
+                    f *= inputFactors[2];  // different ops multiply will be chosen
                 }
                 f += 1;  // dummy
             }
@@ -504,7 +505,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, SeriesOfCustomNodes) {
     ASSERT_EQ(pipeline.execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     ASSERT_EQ(response.outputs().size(), 1);
 
-    this->checkResponse<float>(inputValues, [N, addValues, subValues](float value) -> float {
+    this->checkResponse<float>(inputValues, [N, addValues, subValues, PARAMETERS_PAIRS_COUNT](float value) -> float {
         for (int i = 0; i < PARAMETERS_PAIRS_COUNT; i++) {
             value += (N / PARAMETERS_PAIRS_COUNT) * addValues[i];
             value -= (N / PARAMETERS_PAIRS_COUNT) * subValues[i];
@@ -571,7 +572,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, ParallelCustomNodes) {
         this->checkResponse<float>(
             pipelineOutputName + std::to_string(i),
             inputValues,
-            [i, addValues, subValues](float value) -> float {
+            [i, addValues, subValues, PARAMETERS_PAIRS_COUNT](float value) -> float {
                 value += addValues[i % PARAMETERS_PAIRS_COUNT];
                 value -= subValues[i % PARAMETERS_PAIRS_COUNT];
                 return value;
@@ -1147,7 +1148,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, FailInCustomNodeDeinitialize
         {"custom_node", {{customNodeOutputName, pipelineOutputName}}}};
 
     std::unique_ptr<Pipeline> pipeline;
-    // creating definition, pipeline and then executing works propely due to correct initialization
+    // creating definition, pipeline and then executing works properly due to correct initialization
     ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
     ASSERT_EQ(factory.create(pipeline, "my_new_pipeline", &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
@@ -2395,8 +2396,8 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerLoadConfigThenExecuteTest, Demultip
     std::vector<float> input(4 * DUMMY_MODEL_OUTPUT_SIZE);
     std::fill(input.begin(), input.end(), 1.0);
 
-    uint iterations = -1;
-    uint number = 0;
+    uint32_t iterations = -1;
+    uint32_t number = 0;
     std::transform(input.begin(), input.end(), input.begin(),
         [&iterations, &number](float f) -> float {
             iterations++;
@@ -5637,6 +5638,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, MultipleDeinitializeCallsOnR
     //  O--------->O--------->O--------->O---------->O
     //          add-sub    add-sub    add-sub
     ResourcesAccessModelManager manager;
+    manager.setResourcesCleanupIntervalMillisec(20);  // Mock cleaner to work in 20ms intervals instead of >1s
     manager.startCleaner();
     ASSERT_EQ(manager.getResourcesSize(), 0);
     PipelineFactory factory;
@@ -5698,6 +5700,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, ReloadPipelineWithoutNodeDei
     //  O--------->O--------->O--------->O---------->O
     //          add-sub    add-sub    add-sub
     ResourcesAccessModelManager manager;
+    manager.setResourcesCleanupIntervalMillisec(20);  // Mock cleaner to work in 20ms intervals instead of >1s
     manager.startCleaner();
     ASSERT_EQ(manager.getResourcesSize(), 0);
     PipelineFactory factory;
@@ -5741,7 +5744,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, ReloadPipelineWithoutNodeDei
         {"custom_node_3", {{customNodeOutputName, pipelineOutputName}}}};
 
     ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
-    waitForOVMSResourcesCleanup(manager);
+    waitForOVMSResourcesCleanup(manager);  // 20ms * 1.8 wait time
     ASSERT_EQ(manager.getResourcesSize(), 3);
 
     // Nodes
@@ -5753,7 +5756,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, ReloadPipelineWithoutNodeDei
     connections[EXIT_NODE_NAME] = {
         {"custom_node_2", {{customNodeOutputName, pipelineOutputName}}}};
     ASSERT_EQ(factory.reloadDefinition("my_new_pipeline", std::move(info), std::move(connections), manager), StatusCode::OK);
-    waitForOVMSResourcesCleanup(manager);
+    waitForOVMSResourcesCleanup(manager);  // 20ms * 1.8 wait time
     ASSERT_EQ(manager.getResourcesSize(), 2);
     manager.join();
     // Each custom node has effectively 1 internalManager initialized, because they use same library instance

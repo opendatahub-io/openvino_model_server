@@ -64,7 +64,7 @@ void BenchmarkCLIParser::parse(int argc, char** argv) {
                 "LOG_LEVEL")
             ("config_path",
                 "Config file path for OVMS to read",
-                cxxopts::value<std::string>()->default_value("/ovms/src/test/c_api/config_benchmark.json"),
+                cxxopts::value<std::string>()->default_value("/ovms/src/test/configs/config_benchmark.json"),
                 "CONFIG_PATH")
 // benchmark options
             ("niter",
@@ -404,7 +404,7 @@ int main(int argc, char** argv) {
     // datatype handling
     OVMS_DataType datatype;
     if (dt == OVMS_DATATYPE_STRING || dt == OVMS_DATATYPE_U64 || dt == OVMS_DATATYPE_I64 || dt == OVMS_DATATYPE_FP64) {
-        std::cerr << "Benchmarking models with following input types is currently upsupported: STRING, U64, I64, FP64" << std::endl;
+        std::cerr << "Benchmarking models with following input types is currently unsupported: STRING, U64, I64, FP64" << std::endl;
         return 1;
     }
     if (dt != OVMS_DATATYPE_UNDEFINED) {
@@ -449,7 +449,7 @@ int main(int argc, char** argv) {
         const char* details = 0;
         OVMS_StatusCode(res, &code);
         OVMS_StatusDetails(res, &details);
-        std::cerr << "Error occured during inference. Code:" << code
+        std::cerr << "Error occurred during inference. Code:" << code
                   << ", details:" << details << std::endl;
         OVMS_StatusDelete(res);
         OVMS_InferenceRequestDelete(request);

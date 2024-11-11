@@ -58,6 +58,7 @@ def check_function(fd):
 def check_dir(start_dir):
     no_header = []
     exclude_files = [
+        '.user.bazelrc',
         '.bandit',
         '.bin',
         '.dockerignore',
@@ -82,6 +83,7 @@ def check_dir(start_dir):
         '__pycache__',
         'add.xml',
         'azure_sdk.patch',
+        'cb.patch',
         'bazel-',
         'check_coverage.bat',
         'genhtml',
@@ -126,6 +128,7 @@ def check_dir(start_dir):
         "BUILD.bazel",
         "package.json",
         "graph.pbtxt",
+        "graph_gpu.pbtxt",
         "holistic_tracking.pbtxt",
         "ssdlite_object_detection_labelmap.txt",
         "build_dependencies.sh",
@@ -135,7 +138,13 @@ def check_dir(start_dir):
         "aipc.txt",
         "internal_tests",
         "pugixml_v1.13_flags.patch",
-        "rag_demo.ipynb"
+        "rag_demo.ipynb",
+        ".bazelversion",
+        "lib_files.txt",
+        "lib_files_python.txt",
+        "lib_custom_nodes_files",
+        "spelling-whitelist.txt",
+        "results.txt",
         ]
 
     exclude_directories = ['/dist/', 'release_files/thirdparty-licenses']
@@ -219,9 +228,11 @@ def check_func(start_dir):
         'BUILD.bazel',
         'package.json',
         'graph.pbtxt',
+        'graph_gpu.pbtxt',
         "build_dependencies.sh",
         "iris_tracking.pbtxt",
-        "internal_tests"
+        "internal_tests",
+        ".bazelversion",
     ]
 
     exclude_directories = ['/dist/']

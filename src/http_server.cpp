@@ -15,6 +15,9 @@
 //*****************************************************************************
 #include "http_server.hpp"
 
+#ifdef _WIN32
+#include <map>
+#endif
 #include <memory>
 #include <regex>
 #include <string>
@@ -41,7 +44,11 @@ namespace ovms {
 namespace net_http = tensorflow::serving::net_http;
 
 static const net_http::HTTPStatusCode http(const ovms::Status& status) {
+#ifdef __linux__
     const std::unordered_map<const StatusCode, net_http::HTTPStatusCode> httpStatusMap = {
+#elif _WIN32
+    const std::map<const StatusCode, net_http::HTTPStatusCode> httpStatusMap = {
+#endif
         {StatusCode::OK, net_http::HTTPStatusCode::OK},
         {StatusCode::OK_RELOADED, net_http::HTTPStatusCode::CREATED},
         {StatusCode::OK_NOT_RELOADED, net_http::HTTPStatusCode::OK},
@@ -66,6 +73,7 @@ static const net_http::HTTPStatusCode http(const ovms::Status& status) {
         {StatusCode::REST_COULD_NOT_PARSE_INPUT, net_http::HTTPStatusCode::BAD_REQUEST},
         {StatusCode::REST_COULD_NOT_PARSE_OUTPUT, net_http::HTTPStatusCode::BAD_REQUEST},
         {StatusCode::REST_COULD_NOT_PARSE_PARAMETERS, net_http::HTTPStatusCode::BAD_REQUEST},
+        {StatusCode::REST_BINARY_DATA_SIZE_PARAMETER_INVALID, net_http::HTTPStatusCode::BAD_REQUEST},
         {StatusCode::REST_PROTO_TO_STRING_ERROR, net_http::HTTPStatusCode::ERROR},
         {StatusCode::REST_UNSUPPORTED_PRECISION, net_http::HTTPStatusCode::BAD_REQUEST},
         {StatusCode::REST_SERIALIZE_TENSOR_CONTENT_INVALID_SIZE, net_http::HTTPStatusCode::ERROR},
@@ -89,6 +97,8 @@ static const net_http::HTTPStatusCode http(const ovms::Status& status) {
         {StatusCode::MEDIAPIPE_DEFINITION_NOT_LOADED_ANYMORE, net_http::HTTPStatusCode::NOT_FOUND},
         {StatusCode::MODEL_VERSION_MISSING, net_http::HTTPStatusCode::NOT_FOUND},
         {StatusCode::MEDIAPIPE_EXECUTION_ERROR, net_http::HTTPStatusCode::BAD_REQUEST},
+        {StatusCode::MEDIAPIPE_PRECONDITION_FAILED, net_http::HTTPStatusCode::PRECOND_FAILED},
+        {StatusCode::MEDIAPIPE_GRAPH_ADD_PACKET_INPUT_STREAM, net_http::HTTPStatusCode::PRECOND_FAILED},
         {StatusCode::MODEL_VERSION_NOT_LOADED_ANYMORE, net_http::HTTPStatusCode::NOT_FOUND},
         {StatusCode::MODEL_VERSION_NOT_LOADED_YET, net_http::HTTPStatusCode::NOT_FOUND},
         {StatusCode::PIPELINE_DEFINITION_NOT_LOADED_YET, net_http::HTTPStatusCode::NOT_FOUND},

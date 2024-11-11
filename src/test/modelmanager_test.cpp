@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //*****************************************************************************
+#include <condition_variable>
+#include <mutex>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -154,6 +157,14 @@ public:
     }
     std::shared_ptr<ovms::Model> modelFactory(const std::string& name, const bool isStateful) override {
         return modelMock;
+    }
+
+    int getResourcesSize() {
+        return resources.size();
+    }
+
+    void setResourcesCleanupIntervalMillisec(uint32_t value) {
+        this->resourcesCleanupIntervalMillisec = value;
     }
 };
 
@@ -973,7 +984,7 @@ TEST_F(ModelManagerWatcher, StartFromFileWhenModelFilesMissingRelativePath) {
 }
 
 TEST_F(ModelManagerWatcher, ConfigReloadingShouldAddNewModel) {
-    std::string fileToReload = this->getFilePath("ovms_config_file2.json");
+    std::string fileToReload = this->getFilePath("/ovms_config_file2.json");
     createConfigFileWithContent(getConfig1Model(this->getFilePath("/models/dummy1")), fileToReload);
     modelMock = std::make_shared<MockModel>();
     MockModelManager manager;
@@ -986,12 +997,7 @@ TEST_F(ModelManagerWatcher, ConfigReloadingShouldAddNewModel) {
     EXPECT_EQ(models, 1);
     EXPECT_EQ(status, ovms::StatusCode::OK);
     createConfigFileWithContent(getConfig2Models(this->getFilePath("/models/dummy1"), this->getFilePath("/models/dummy2")), fileToReload);
-    bool isNeeded = false;
-    manager.configFileReloadNeeded(isNeeded);
-    std::thread s([&manager]() {
-        waitForOVMSConfigReload(manager);
-    });
-    s.join();
+    waitForOVMSConfigReload(manager);
     models = manager.getModels().size();
     EXPECT_EQ(models, 2);
     manager.join();
@@ -1012,12 +1018,7 @@ TEST_F(ModelManagerWatcher, ConfigReloadingShouldAddNewModelRelativePath) {
     EXPECT_EQ(models, 1);
     EXPECT_EQ(status, ovms::StatusCode::OK);
     createConfigFileWithContent(relative_config_2_models, fileToReload);
-    bool isNeeded = false;
-    manager.configFileReloadNeeded(isNeeded);
-    std::thread s([&manager]() {
-        waitForOVMSConfigReload(manager);
-    });
-    s.join();
+    waitForOVMSConfigReload(manager);
     models = manager.getModels().size();
     EXPECT_EQ(models, 2);
     manager.join();
@@ -1035,47 +1036,6 @@ public:
         deinitializeSum += deinitialize(ptr);
     }
 };
-
-TEST(ModelManagerCleaner, ConfigReloadShouldCleanupResources) {
-    ResourcesAccessModelManager manager;
-    manager.startCleaner();
-    ASSERT_EQ(manager.getResourcesSize(), 0);
-
-    // Reset mocked wrapper deinitializeSum
-    CNLIMWrapperMock::deinitializeSum = 0;
-
-    int num1 = 1;
-    int num2 = 19;
-    int num3 = 11;
-    {
-        std::shared_ptr<CNLIMWrapperMock> ptr1 = std::make_shared<CNLIMWrapperMock>(&num1, [](void* ptr) {
-            int* number = static_cast<int*>(ptr);
-            return *number;
-        });
-        std::shared_ptr<CNLIMWrapperMock> ptr2 = std::make_shared<CNLIMWrapperMock>(&num2, [](void* ptr) {
-            int* number = static_cast<int*>(ptr);
-            return *number;
-        });
-        std::shared_ptr<CNLIMWrapperMock> ptr3 = std::make_shared<CNLIMWrapperMock>(&num3, [](void* ptr) {
-            int* number = static_cast<int*>(ptr);
-            return *number;
-        });
-
-        manager.addResourceToCleaner(ptr1);
-        manager.addResourceToCleaner(ptr2);
-        manager.addResourceToCleaner(std::move(ptr3));
-        ASSERT_EQ(manager.getResourcesSize(), 3);
-
-        waitForOVMSResourcesCleanup(manager);
-        ASSERT_EQ(manager.getResourcesSize(), 2);
-        ASSERT_EQ(CNLIMWrapperMock::deinitializeSum, num3);
-    }
-    waitForOVMSResourcesCleanup(manager);
-    ASSERT_EQ(manager.getResourcesSize(), 0);
-    ASSERT_EQ(CNLIMWrapperMock::deinitializeSum, (num1 + num2 + num3));
-
-    manager.join();
-}
 
 struct MockedFunctorSequenceCleaner : public ovms::FunctorSequenceCleaner {
 public:
@@ -1114,6 +1074,93 @@ public:
     const float TIMEOUT_MULTIPLIER_FACTOR = 10;
 };
 
+TEST_F(ModelManagerCleanerThread, ManagerCleanerShouldCleanupResources) {
+    std::mutex mx[2];
+    std::condition_variable cv[2];
+
+    auto waitForCleanerCycleFinishSignal = [&mx, &cv]() {
+        std::unique_lock<std::mutex> lock(mx[1]);
+        SPDLOG_INFO("Waiting for cleaner to signal that cleanup cycle is finished");
+        cv[1].wait(lock);
+    };
+
+    auto signalCleanerThatNextCycleCanContinue = [&cv]() {
+        SPDLOG_INFO("Signaling the cleaner thread that next cycle can start");
+        cv[0].notify_one();
+    };
+
+    auto waitForSignalThatCleanerCycleCanContinue = [&mx, &cv]() {
+        std::unique_lock<std::mutex> lock(mx[0]);
+        SPDLOG_INFO("Waiting for signal that cleaner cycle can continue");
+        cv[0].wait(lock);
+    };
+
+    auto signalMainThreadThatCleanerCycleFinished = [&cv]() {
+        SPDLOG_INFO("Signaling the main thread that the cleaner cycle finished");
+        cv[1].notify_one();
+    };
+
+    ASSERT_EQ(modelManager.getResourcesSize(), 0);
+
+    EXPECT_CALL(mockedFunctorResourcesCleaner, cleanup()).WillRepeatedly(testing::Invoke([this, &waitForSignalThatCleanerCycleCanContinue, &signalMainThreadThatCleanerCycleFinished]() {
+        signalMainThreadThatCleanerCycleFinished();
+        waitForSignalThatCleanerCycleCanContinue();
+        this->mockedFunctorResourcesCleaner.ovms::FunctorResourcesCleaner::cleanup();  // fall back to actual work
+    }));
+
+    // Reset mocked wrapper deinitializeSum
+    CNLIMWrapperMock::deinitializeSum = 0;
+
+    uint32_t resourcesIntervalMiliseconds = 20;
+    uint32_t sequenceIntervalMiliseconds = 60000;
+
+    std::thread t(ovms::cleanerRoutine, resourcesIntervalMiliseconds, std::ref(mockedFunctorResourcesCleaner), sequenceIntervalMiliseconds, std::ref(mockedFunctorSequenceCleaner), std::ref(exitSignal));
+
+    waitForCleanerCycleFinishSignal();
+
+    int num1 = 1;
+    int num2 = 19;
+    int num3 = 11;
+    {
+        std::shared_ptr<CNLIMWrapperMock> ptr1 = std::make_shared<CNLIMWrapperMock>(&num1, [](void* ptr) {
+            int* number = static_cast<int*>(ptr);
+            return *number;
+        });
+        std::shared_ptr<CNLIMWrapperMock> ptr2 = std::make_shared<CNLIMWrapperMock>(&num2, [](void* ptr) {
+            int* number = static_cast<int*>(ptr);
+            return *number;
+        });
+        std::shared_ptr<CNLIMWrapperMock> ptr3 = std::make_shared<CNLIMWrapperMock>(&num3, [](void* ptr) {
+            int* number = static_cast<int*>(ptr);
+            return *number;
+        });
+
+        modelManager.addResourceToCleaner(ptr1);
+        modelManager.addResourceToCleaner(ptr2);
+        modelManager.addResourceToCleaner(std::move(ptr3));
+        ASSERT_EQ(modelManager.getResourcesSize(), 3);
+
+        signalCleanerThatNextCycleCanContinue();  // signal after one of the resource lifetime is ended (ptr3)
+        waitForCleanerCycleFinishSignal();
+
+        ASSERT_EQ(modelManager.getResourcesSize(), 2);
+        ASSERT_EQ(CNLIMWrapperMock::deinitializeSum, num3);
+    }
+
+    signalCleanerThatNextCycleCanContinue();  // signals after scope of all resources end
+    waitForCleanerCycleFinishSignal();
+
+    ASSERT_EQ(modelManager.getResourcesSize(), 0);
+    ASSERT_EQ(CNLIMWrapperMock::deinitializeSum, (num1 + num2 + num3));
+
+    cleanerExitTrigger.set_value();
+    signalCleanerThatNextCycleCanContinue();  // Just to unlock so cleaner exit trigger can take effect
+
+    if (t.joinable()) {
+        t.join();
+    }
+}
+
 TEST_F(ModelManagerCleanerThread, CleanerShouldCleanupResourcesAndSequenceWhenResourcesIntervalIsShorterAndWaitTimeIsGreaterThanSequenceWaitTime) {
     uint32_t resourcesIntervalMiliseconds = 200;
     uint32_t sequenceIntervalMiliseconds = 252;
@@ -1125,7 +1172,7 @@ TEST_F(ModelManagerCleanerThread, CleanerShouldCleanupResourcesAndSequenceWhenRe
     EXPECT_CALL(mockedFunctorResourcesCleaner, cleanup()).Times(1).WillOnce(testing::Invoke([&resourcesCleanerDone]() { resourcesCleanerDone.Notify(); }));
     std::thread t(ovms::cleanerRoutine, resourcesIntervalMiliseconds, std::ref(mockedFunctorResourcesCleaner), sequenceIntervalMiliseconds, std::ref(mockedFunctorSequenceCleaner), std::ref(exitSignal));
 
-    const uint timeout = resourcesIntervalMiliseconds > sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
+    const uint32_t timeout = resourcesIntervalMiliseconds > sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
     sequenceCleanerDone.WaitForNotificationWithTimeout(absl::Milliseconds(timeout));
     resourcesCleanerDone.WaitForNotificationWithTimeout(absl::Milliseconds(timeout));
     cleanerExitTrigger.set_value();
@@ -1145,7 +1192,7 @@ TEST_F(ModelManagerCleanerThread, CleanerShouldCleanupResourcesWhenResourcesInte
     EXPECT_CALL(mockedFunctorResourcesCleaner, cleanup()).Times(1).WillOnce(testing::Invoke([&resourcesCleanerDone]() { resourcesCleanerDone.Notify(); }));
     std::thread t(ovms::cleanerRoutine, resourcesIntervalMiliseconds, std::ref(mockedFunctorResourcesCleaner), sequenceIntervalMiliseconds, std::ref(mockedFunctorSequenceCleaner), std::ref(exitSignal));
 
-    const uint timeout = resourcesIntervalMiliseconds < sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
+    const uint32_t timeout = resourcesIntervalMiliseconds < sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
     resourcesCleanerDone.WaitForNotificationWithTimeout(absl::Milliseconds(timeout));
     cleanerExitTrigger.set_value();
 
@@ -1165,7 +1212,7 @@ TEST_F(ModelManagerCleanerThread, CleanerShouldCleanupResourcesAndSequenceWhenSe
     EXPECT_CALL(mockedFunctorResourcesCleaner, cleanup()).Times(1).WillOnce(testing::Invoke([&resourcesCleanerDone]() { resourcesCleanerDone.Notify(); }));
     std::thread t(ovms::cleanerRoutine, resourcesIntervalMiliseconds, std::ref(mockedFunctorResourcesCleaner), sequenceIntervalMiliseconds, std::ref(mockedFunctorSequenceCleaner), std::ref(exitSignal));
 
-    const uint timeout = resourcesIntervalMiliseconds > sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
+    const uint32_t timeout = resourcesIntervalMiliseconds > sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
     sequenceCleanerDone.WaitForNotificationWithTimeout(absl::Milliseconds(timeout));
     resourcesCleanerDone.WaitForNotificationWithTimeout(absl::Milliseconds(timeout));
     cleanerExitTrigger.set_value();
@@ -1184,7 +1231,7 @@ TEST_F(ModelManagerCleanerThread, CleanerShouldCleanupSequenceWhenSequenceInterv
     EXPECT_CALL(mockedFunctorResourcesCleaner, cleanup()).Times(0);
     std::thread t(ovms::cleanerRoutine, resourcesIntervalMiliseconds, std::ref(mockedFunctorResourcesCleaner), sequenceIntervalMiliseconds, std::ref(mockedFunctorSequenceCleaner), std::ref(exitSignal));
 
-    const uint timeout = resourcesIntervalMiliseconds < sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
+    const uint32_t timeout = resourcesIntervalMiliseconds < sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
     sequenceCleanerDone.WaitForNotificationWithTimeout(absl::Milliseconds(timeout));
     cleanerExitTrigger.set_value();
 
@@ -1204,7 +1251,7 @@ TEST_F(ModelManagerCleanerThread, CleanerShouldCleanupResourcesAndSequenceWhenIn
     EXPECT_CALL(mockedFunctorResourcesCleaner, cleanup()).Times(1).WillOnce(testing::Invoke([&resourcesCleanerDone]() { resourcesCleanerDone.Notify(); }));
     std::thread t(ovms::cleanerRoutine, resourcesIntervalMiliseconds, std::ref(mockedFunctorResourcesCleaner), sequenceIntervalMiliseconds, std::ref(mockedFunctorSequenceCleaner), std::ref(exitSignal));
 
-    const uint timeout = resourcesIntervalMiliseconds < sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
+    const uint32_t timeout = resourcesIntervalMiliseconds < sequenceIntervalMiliseconds ? resourcesIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR : sequenceIntervalMiliseconds * TIMEOUT_MULTIPLIER_FACTOR;
     sequenceCleanerDone.WaitForNotificationWithTimeout(absl::Milliseconds(timeout));
     resourcesCleanerDone.WaitForNotificationWithTimeout(absl::Milliseconds(timeout));
     cleanerExitTrigger.set_value();
@@ -1470,6 +1517,9 @@ public:
     void registerVersionToLoad(ovms::model_version_t version) {
         toRegister.emplace_back(version);
     }
+    void setWatcherIntervalMillisec(uint32_t watcherIntervalMillisec) {
+        this->watcherIntervalMillisec = watcherIntervalMillisec;
+    }
 
 private:
     std::vector<ovms::model_version_t> toRegister;
@@ -1482,6 +1532,7 @@ TEST_F(ModelManager, ConfigReloadingShouldRetireModelInstancesOfModelRemovedFrom
     createConfigFileWithContent(getConfig2Models(this->getFilePath("/models/dummy1"), this->getFilePath("/models/dummy2")), fileToReload);
     modelMock = std::make_shared<MockModel>();
     MockModelManagerWithModelInstancesJustChangingStates manager;
+    manager.setWatcherIntervalMillisec(10);  // this makes the watcher check for MD5 changes every 10 ms
     manager.registerVersionToLoad(1);
     manager.registerVersionToLoad(2);
     auto status = manager.startFromFile(fileToReload);
@@ -1518,6 +1569,7 @@ TEST_F(ModelManager, ConfigReloadingShouldRetireModelInstancesOfModelRemovedFrom
     createConfigFileWithContent(relative_config_2_models, fileToReload);
     modelMock = std::make_shared<MockModel>();
     MockModelManagerWithModelInstancesJustChangingStates manager;
+    manager.setWatcherIntervalMillisec(10);  // this makes the watcher check for MD5 changes every 10 ms
     manager.registerVersionToLoad(1);
     manager.registerVersionToLoad(2);
     auto status = manager.startFromFile(fileToReload);
@@ -2119,7 +2171,7 @@ const int AVAILABLE_STATE_DELAY_MILLISECONDS = 5;
 
 class ModelInstanceLoadedWaitInLoadingState : public ovms::ModelInstance {
 public:
-    ModelInstanceLoadedWaitInLoadingState(ov::Core& ieCore, const uint modelInstanceLoadDelayInMilliseconds) :
+    ModelInstanceLoadedWaitInLoadingState(ov::Core& ieCore, const uint32_t modelInstanceLoadDelayInMilliseconds) :
         ModelInstance("UNUSED_NAME", UNUSED_MODEL_VERSION, ieCore),
         modelInstanceLoadDelayInMilliseconds(modelInstanceLoadDelayInMilliseconds) {}
 
@@ -2137,12 +2189,12 @@ protected:
     }
 
 private:
-    const uint modelInstanceLoadDelayInMilliseconds;
+    const uint32_t modelInstanceLoadDelayInMilliseconds;
 };
 
 class ModelWithModelInstanceLoadedWaitInLoadingState : public ovms::Model {
 public:
-    ModelWithModelInstanceLoadedWaitInLoadingState(const std::string& name, const uint modelInstanceLoadDelayInMilliseconds) :
+    ModelWithModelInstanceLoadedWaitInLoadingState(const std::string& name, const uint32_t modelInstanceLoadDelayInMilliseconds) :
         Model(name, false, nullptr),
         modelInstanceLoadDelayInMilliseconds(modelInstanceLoadDelayInMilliseconds) {}
     std::shared_ptr<ovms::ModelInstance> modelInstanceFactory(const std::string&, const ovms::model_version_t, ov::Core& ieCore, ovms::MetricRegistry* registry = nullptr, const ovms::MetricConfig* metricConfig = nullptr) override {
@@ -2150,7 +2202,7 @@ public:
     }
 
 private:
-    const uint modelInstanceLoadDelayInMilliseconds;
+    const uint32_t modelInstanceLoadDelayInMilliseconds;
 };
 
 std::shared_ptr<ModelWithModelInstanceLoadedWaitInLoadingState> modelWithModelInstanceLoadedWaitInLoadingState;
@@ -2176,7 +2228,7 @@ TEST_F(ModelInstanceModelLoadedNotify, WhenChangedStateFromLoadingToAvailableInN
     manager.setWaitForModelLoadedTimeoutMs(modelLoadingTimeoutMs);
     ovms::ModelConfig config = DUMMY_MODEL_CONFIG;
     modelWithModelInstanceLoadedWaitInLoadingState = std::make_shared<ModelWithModelInstanceLoadedWaitInLoadingState>(
-        config.getName(), modelLoadingTimeoutMs / 1.5);
+        config.getName(), modelLoadingTimeoutMs / 3);
     ASSERT_EQ(manager.reloadModelWithVersions(config), ovms::StatusCode::OK_RELOADED);
     std::shared_ptr<ovms::ModelInstance> modelInstance;
     std::unique_ptr<ovms::ModelInstanceUnloadGuard> modelInstanceUnloadGuardPtr;
@@ -2193,7 +2245,7 @@ TEST_F(ModelInstanceModelLoadedNotify, WhenChangedStateFromLoadingToAvailableInR
     manager.setWaitForModelLoadedTimeoutMs(modelLoadingTimeoutMs);
     ovms::ModelConfig config = DUMMY_MODEL_CONFIG;
 
-    const auto MODEL_LOADING_LONGER_THAN_WAIT_FOR_LOADED_TIMEOUT_MS = 1.5 * modelLoadingTimeoutMs;
+    const auto MODEL_LOADING_LONGER_THAN_WAIT_FOR_LOADED_TIMEOUT_MS = 3 * modelLoadingTimeoutMs;
     modelWithModelInstanceLoadedWaitInLoadingState = std::make_shared<ModelWithModelInstanceLoadedWaitInLoadingState>(
         config.getName(), MODEL_LOADING_LONGER_THAN_WAIT_FOR_LOADED_TIMEOUT_MS);
     ASSERT_EQ(manager.reloadModelWithVersions(config), ovms::StatusCode::OK_RELOADED);

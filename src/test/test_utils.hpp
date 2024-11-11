@@ -19,6 +19,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -665,7 +666,7 @@ static std::vector<google::protobuf::int32> asVector(google::protobuf::RepeatedF
 }
 
 // returns path to a file.
-std::string createConfigFileWithContent(const std::string& content, std::string filename = "/tmp/ovms_config_file.json");
+bool createConfigFileWithContent(const std::string& content, std::string filename = "/tmp/ovms_config_file.json");
 #pragma GCC diagnostic pop
 
 template <typename T>
@@ -711,6 +712,7 @@ public:
     MockedMetadataModelIns(ov::Core& ieCore) :
         ModelInstance("UNUSED_NAME", 42, ieCore) {}
     MOCK_METHOD(const ovms::tensor_map_t&, getInputsInfo, (), (const, override));
+    MOCK_METHOD(const ovms::tensor_map_t&, getOutputsInfo, (), (const, override));
     MOCK_METHOD(std::optional<ovms::Dimension>, getBatchSize, (), (const, override));
     MOCK_METHOD(const ovms::ModelConfig&, getModelConfig, (), (const, override));
     const ovms::Status mockValidate(const tensorflow::serving::PredictRequest* request) {
@@ -728,6 +730,10 @@ class ResourcesAccessModelManager : public ConstructorEnabledModelManager {
 public:
     int getResourcesSize() {
         return resources.size();
+    }
+
+    void setResourcesCleanupIntervalMillisec(uint32_t value) {
+        this->resourcesCleanupIntervalMillisec = value;
     }
 };
 
@@ -986,6 +992,12 @@ public:
 
 std::shared_ptr<const ovms::TensorInfo> createTensorInfoCopyWithPrecision(std::shared_ptr<const ovms::TensorInfo> src, ovms::Precision precision);
 
+template <typename T>
+void checkBuffers(const T* expected, const T* actual, size_t bufferSize) {
+    EXPECT_EQ(0, std::memcmp(actual, expected, bufferSize))
+        << readableError(expected, actual, bufferSize / sizeof(T));
+}
+
 #if (MEDIAPIPE_DISABLE == 0)
 class DummyMediapipeGraphDefinition : public ovms::MediapipeGraphDefinition {
 public:
@@ -1009,6 +1021,12 @@ public:
             return it->second.get();
         }
     }
+
+    ovms::Status validateForConfigLoadablenessPublic() {
+        return this->validateForConfigLoadableness();
+    }
+
+    ovms::LLMNodeResourcesMap& getLLMNodeResourcesMap() { return this->llmNodeResourcesMap; }
 
     DummyMediapipeGraphDefinition(const std::string name,
         const ovms::MediapipeGraphConfig& config,

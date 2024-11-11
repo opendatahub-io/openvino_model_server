@@ -21,7 +21,7 @@
 
 #include <rapidjson/document.h>
 
-#include "../llm/http_payload.hpp"
+#include "../http_payload.hpp"
 #include "../mediapipe_internal/packettypes.hpp"
 #include "../status.hpp"
 #pragma GCC diagnostic push
@@ -60,7 +60,7 @@ const std::string& getRequestId(
 // Whenever MediaPipe graph produces some packet, this function is triggered.
 // Implementation should transform packet into KServe gRPC response and send it.
 // Data race safety:
-// MediaPipe packet available callbacks can be triggered simultanously, from different threads.
+// MediaPipe packet available callbacks can be triggered simultaneously, from different threads.
 // However, the graph executor synchronizes it with locking mechanism.
 Status onPacketReadySerializeAndSendImpl(
     const std::string& requestId,

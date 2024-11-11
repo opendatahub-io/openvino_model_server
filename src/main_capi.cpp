@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
     OVMS_ServerSettingsSetRestPort(serverSettings, 11338);
 
     OVMS_ServerSettingsSetLogLevel(serverSettings, OVMS_LOG_DEBUG);
-    OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/c_api/config_standard_dummy.json");
+    OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_standard_dummy.json");
 
     OVMS_Status* res = OVMS_ServerStartFromConfigurationFile(srv, serverSettings, modelsSettings);
 
@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
         const char* details = 0;
         OVMS_StatusCode(res, &code);
         OVMS_StatusDetails(res, &details);
-        std::cout << "Error occured during inference. Code:" << code
+        std::cout << "Error occurred during inference. Code:" << code
                   << ", details:" << details << std::endl;
         OVMS_StatusDelete(res);
         OVMS_InferenceRequestDelete(request);

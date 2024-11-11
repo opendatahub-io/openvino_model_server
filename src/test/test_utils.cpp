@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
+#include <optional>
 #include <unordered_set>
 
 #include "../capi_frontend/capi_utils.hpp"
@@ -105,7 +106,7 @@ void waitForOVMSConfigReload(ovms::ModelManager& manager) {
     // This is effectively multiplying by 5 to have at least 1 config reload in between
     // two test steps, but we check if config files changed to exit earlier if changes are already applied
     const float WAIT_MULTIPLIER_FACTOR = 5;
-    const uint waitTime = WAIT_MULTIPLIER_FACTOR * manager.getWatcherIntervalMillisec() * 1000;
+    const uint32_t waitTime = WAIT_MULTIPLIER_FACTOR * manager.getWatcherIntervalMillisec() * 1000;
     bool reloadIsNeeded = true;
     int timestepMs = 10;
 
@@ -121,21 +122,23 @@ void waitForOVMSResourcesCleanup(ovms::ModelManager& manager) {
     // This is effectively multiplying by 1.8 to have 1 config reload in between
     // two test steps
     const float WAIT_MULTIPLIER_FACTOR = 1.8;
-    const uint waitTime = WAIT_MULTIPLIER_FACTOR * manager.getResourcesCleanupIntervalSec() * 1000;
+    const uint32_t waitTime = WAIT_MULTIPLIER_FACTOR * manager.getResourcesCleanupIntervalMillisec();
+    SPDLOG_DEBUG("waitForOVMSResourcesCleanup {} ms", waitTime);
     std::this_thread::sleep_for(std::chrono::milliseconds(waitTime));
 }
 
-std::string createConfigFileWithContent(const std::string& content, std::string filename) {
+bool createConfigFileWithContent(const std::string& content, std::string filename) {
     std::ofstream configFile{filename};
     SPDLOG_INFO("Creating config file: {}\n with content:\n{}", filename, content);
     configFile << content << std::endl;
     configFile.close();
     if (configFile.fail()) {
         SPDLOG_INFO("Closing configFile failed");
+        return false;
     } else {
         SPDLOG_INFO("Closing configFile succeed");
     }
-    return filename;
+    return true;
 }
 
 ovms::tensor_map_t prepareTensors(
@@ -169,7 +172,6 @@ std::string readableSetError(std::unordered_set<std::string> actual, std::unorde
             }
         }
     }
-
     return ss.str();
 }
 
@@ -190,8 +192,7 @@ void checkDummyResponse(const std::string outputName,
     float* actual_output = (float*)output_proto.tensor_content().data();
     float* expected_output = responseData.data();
     const int dataLengthToCheck = DUMMY_MODEL_OUTPUT_SIZE * batchSize * sizeof(float);
-    EXPECT_EQ(0, std::memcmp(actual_output, expected_output, dataLengthToCheck))
-        << readableError(expected_output, actual_output, dataLengthToCheck / sizeof(float));
+    checkBuffers(actual_output, expected_output, dataLengthToCheck);
 }
 
 void checkScalarResponse(const std::string outputName,
@@ -284,9 +285,7 @@ void checkAddResponse(const std::string outputName,
     const float* actual_output = (const float*)content.data();
     float* expected_output = responseData.data();
     const int dataLengthToCheck = DUMMY_MODEL_OUTPUT_SIZE * batchSize * sizeof(float);
-    EXPECT_EQ(actual_output[0], expected_output[0]);
-    EXPECT_EQ(0, std::memcmp(actual_output, expected_output, dataLengthToCheck))
-        << readableError(expected_output, actual_output, dataLengthToCheck / sizeof(float));
+    checkBuffers(actual_output, expected_output, dataLengthToCheck);
 }
 
 void checkIncrement4DimShape(const std::string outputName,

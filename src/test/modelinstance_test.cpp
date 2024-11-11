@@ -24,6 +24,7 @@
 #include "../get_model_metadata_impl.hpp"
 #include "../modelinstance.hpp"
 #include "../modelinstanceunloadguard.hpp"
+#include "gpuenvironment.hpp"
 #include "test_utils.hpp"
 
 using testing::Return;
@@ -188,6 +189,43 @@ protected:
     }
 };
 
+using ovms::Status;
+using ovms::StatusCode;
+using testing::_;
+namespace {
+class MockModelInstanceEmptyInputs : public ovms::ModelInstance {
+public:
+    MockModelInstanceEmptyInputs(ov::Core& ieCore) :
+        ModelInstance("UNUSED_NAME", UNUSED_MODEL_VERSION, ieCore) {}
+    MOCK_METHOD(ovms::Status, loadInputTensorsImpl, (const ovms::ModelConfig&, const ovms::DynamicModelParameter&), (override));
+};
+class MockModelInstanceEmptyOutputs : public ovms::ModelInstance {
+public:
+    MockModelInstanceEmptyOutputs(ov::Core& ieCore) :
+        ModelInstance("UNUSED_NAME", UNUSED_MODEL_VERSION, ieCore) {}
+    MOCK_METHOD(ovms::Status, loadOutputTensorsImpl, (const ovms::ModelConfig&), (override));
+};
+}  // namespace
+
+TEST_F(TestLoadModel, ShouldFailWithEmptyInputs) {
+    MockModelInstanceEmptyInputs mockModelInstance(*ieCore);
+    EXPECT_CALL(mockModelInstance, loadInputTensorsImpl(_, _))
+        .WillOnce(Return(Status(StatusCode::OK)));
+    auto status = mockModelInstance.loadModel(DUMMY_MODEL_CONFIG);
+    EXPECT_EQ(status, StatusCode::OV_NO_INPUTS) << status.string();
+    EXPECT_EQ(ovms::ModelVersionState::LOADING, mockModelInstance.getStatus().getState());
+    EXPECT_EQ(ovms::ModelVersionStatusErrorCode::UNKNOWN, mockModelInstance.getStatus().getErrorCode());
+}
+TEST_F(TestLoadModel, ShouldFailWithEmptyOutputs) {
+    MockModelInstanceEmptyOutputs mockModelInstance(*ieCore);
+    EXPECT_CALL(mockModelInstance, loadOutputTensorsImpl(_))
+        .WillOnce(Return(Status(StatusCode::OK)));
+    auto status = mockModelInstance.loadModel(DUMMY_MODEL_CONFIG);
+    EXPECT_EQ(status, StatusCode::OV_NO_OUTPUTS) << status.string();
+    EXPECT_EQ(ovms::ModelVersionState::LOADING, mockModelInstance.getStatus().getState());
+    EXPECT_EQ(ovms::ModelVersionStatusErrorCode::UNKNOWN, mockModelInstance.getStatus().getErrorCode());
+}
+
 class MockModelInstanceWithRTMap : public ovms::ModelInstance {
 private:
     ov::RTMap inputRtMap;
@@ -343,6 +381,55 @@ TEST_F(TestLoadModel, CheckIfNonExistingXmlFileReturnsFileInvalid) {
     };
     auto status = modelInstance.loadModel(config);
     EXPECT_EQ(status, ovms::StatusCode::FILE_INVALID) << status.string();
+}
+class TestLoadModelWithRemoteTensorFactoriesSucceeds : public ::testing::Test {
+protected:
+    ovms::ModelConfig config;
+    std::unique_ptr<ov::Core> ieCore;
+    void SetUp() {
+        ieCore = std::make_unique<ov::Core>();
+
+        config = ovms::ModelConfig{
+            "NOT_USED_NAME",
+            dummy_model_location,  // base path
+            "SOME",                // target device
+            "1",                   // batchsize
+            1,                     // NIREQ
+            false,                 // is stateful
+            false,                 // idle sequence cleanup enabled
+            false,                 // low latency transformation enabled
+            500,                   // stateful sequence max number,
+            "",                    // cache dir
+            1,                     // version
+            dummy_model_location,  // local path
+        };
+    }
+};
+TEST_F(TestLoadModelWithRemoteTensorFactoriesSucceeds, OpenCL_CheckIfLoadingSucceedsForGPU) {
+    SKIP_AND_EXIT_IF_NO_GPU();
+    this->config.setTargetDevice("GPU");
+    ovms::ModelInstance modelInstance("UNUSED_NAME", UNUSED_MODEL_VERSION, *ieCore);
+    auto status = modelInstance.loadModel(config);
+    EXPECT_EQ(status, ovms::StatusCode::OK) << status.string();
+}
+TEST_F(TestLoadModelWithRemoteTensorFactoriesSucceeds, OpenCL_CheckIfLoadingSucceedsForHeteroCPUGPU) {
+    SKIP_AND_EXIT_IF_NO_GPU();
+    this->config.setTargetDevice("HETERO:GPU,CPU");
+    ovms::ModelInstance modelInstance("UNUSED_NAME", UNUSED_MODEL_VERSION, *ieCore);
+    auto status = modelInstance.loadModel(config);
+    EXPECT_EQ(status, ovms::StatusCode::OK) << status.string();
+}
+TEST_F(TestLoadModelWithRemoteTensorFactoriesSucceeds, CheckIfLoadingSucceedsForAutoCPUGPU) {
+    this->config.setTargetDevice("AUTO:GPU,CPU");
+    ovms::ModelInstance modelInstance("UNUSED_NAME", UNUSED_MODEL_VERSION, *ieCore);
+    auto status = modelInstance.loadModel(config);
+    EXPECT_EQ(status, ovms::StatusCode::OK) << status.string();
+}
+TEST_F(TestLoadModelWithRemoteTensorFactoriesSucceeds, CheckIfLoadingSucceedsForMultiCPUGPU) {
+    this->config.setTargetDevice("MULTI:GPU,CPU");
+    ovms::ModelInstance modelInstance("UNUSED_NAME", UNUSED_MODEL_VERSION, *ieCore);
+    auto status = modelInstance.loadModel(config);
+    EXPECT_EQ(status, ovms::StatusCode::OK) << status.string();
 }
 
 TEST_F(TestLoadModel, CheckIfNonExistingBinFileReturnsFileInvalid) {
@@ -1090,7 +1177,7 @@ TEST(CpuThroughputStreamsNotSpecified, NotSetWhenPerfHintSpecified) {
     config.setTargetDevice("CPU");
     ovms::plugin_config_t pluginConfig = ovms::ModelInstance::prepareDefaultPluginConfig(config);
     EXPECT_EQ(pluginConfig.count("CPU_THROUGHPUT_STREAMS"), 0);
-    config.setPluginConfig({{"PERFORMANCE_HINT", "THROUGHTPUT"}});
+    config.setPluginConfig({{"PERFORMANCE_HINT", "THROUGHPUT"}});
     pluginConfig = ovms::ModelInstance::prepareDefaultPluginConfig(config);
     EXPECT_EQ(pluginConfig.count("CPU_THROUGHPUT_STREAMS"), 0);
 }

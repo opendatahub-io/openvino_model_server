@@ -20,12 +20,16 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#ifdef __linux__
 #include <dlfcn.h>
+#include <sysexits.h>
+#endif
 #include <errno.h>
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -39,7 +43,6 @@
 #include "customloaderconfig.hpp"
 #include "customloaderinterface.hpp"
 #include "customloaders.hpp"
-#include "dags/custom_node_library_internal_manager_wrapper.hpp"
 #include "dags/custom_node_library_manager.hpp"
 #include "dags/entry_node.hpp"  // need for ENTRY_NODE_NAME
 #include "dags/exit_node.hpp"   // need for EXIT_NODE_NAME
@@ -93,7 +96,12 @@ ModelManager::ModelManager(const std::string& modelCacheDirectory, MetricRegistr
             std::filesystem::create_directories(this->modelCacheDirectory);
             SPDLOG_LOGGER_WARN(modelmanager_logger, "Cache directory {} did not exist, created", this->modelCacheDirectory);
         }
-        int result = access(this->modelCacheDirectory.c_str(), W_OK);
+        // TODO: check on windows
+#ifdef __linux__
+        int result = access(this->modelCacheDirectory.c_str(), EX_OK);
+#elif _WIN32
+        int result = access(this->modelCacheDirectory.c_str(), 0);
+#endif
         if (result != 0) {
             SPDLOG_LOGGER_WARN(modelmanager_logger, "Cache directory {} is not writable; access() result: {}", this->modelCacheDirectory, result);
         } else {
@@ -114,6 +122,17 @@ ModelManager::ModelManager(const std::string& modelCacheDirectory, MetricRegistr
             SPDLOG_CRITICAL("Custom CPU extension loading has failed with an unknown error!");
             throw;
         }
+    }
+    try {
+        const std::string TOKENIZERS_PATH = "libopenvino_tokenizers.so";
+        SPDLOG_INFO("Loading tokenizer CPU extension from {}", TOKENIZERS_PATH);
+        ieCore->add_extension(TOKENIZERS_PATH);
+        OV_LOGGER("ov::Core: {}, registered default extension from {}", reinterpret_cast<const void*>(this->ieCore.get()), TOKENIZERS_PATH);
+    } catch (std::exception& ex) {
+        SPDLOG_WARN("Loading of libopenvino_tokenizers has failed! Reason: {}", ex.what());
+    } catch (...) {
+        SPDLOG_CRITICAL("Loading of libopenvino_tokenizers has failed with an unknown error!");
+        throw;
     }
     this->logPluginConfiguration();
 }
@@ -138,12 +157,12 @@ ModelManager::~ModelManager() {
 }
 
 Status ModelManager::start(const Config& config) {
-    this->watcherIntervalMillisec = config.filesystemPollWaitSeconds() * 1000;
+    this->watcherIntervalMillisec = config.filesystemPollWaitMilliseconds();
     sequenceCleaupIntervalMinutes = config.sequenceCleanerPollWaitMinutes();
-    resourcesCleanupIntervalSec = config.resourcesCleanerPollWaitSeconds();
-    if (resourcesCleanupIntervalSec < 1) {
+    resourcesCleanupIntervalMillisec = config.resourcesCleanerPollWaitSeconds() * 1000;
+    if (resourcesCleanupIntervalMillisec < 1) {
         SPDLOG_LOGGER_WARN(modelmanager_logger, "Parameter: custom_node_resources_cleaner_interval_seconds has to be greater than 0. Applying default value(1 second)");
-        resourcesCleanupIntervalSec = 1;
+        resourcesCleanupIntervalMillisec = 1000;
     }
     Status status;
     bool startFromConfigFile = (config.configPath() != "");
@@ -173,7 +192,7 @@ void ModelManager::startWatcher(bool watchConfigFile) {
 void ModelManager::startCleaner() {
     if ((!cleanerStarted)) {
         std::future<void> exitSignal = cleanerExitTrigger.get_future();
-        std::thread t(std::thread(&ModelManager::cleanerRoutine, this, resourcesCleanupIntervalSec, sequenceCleaupIntervalMinutes, std::move(exitSignal)));
+        std::thread t(std::thread(&ModelManager::cleanerRoutine, this, resourcesCleanupIntervalMillisec, sequenceCleaupIntervalMinutes, std::move(exitSignal)));
         cleanerStarted = true;
         cleanerThread = std::move(t);
     }
@@ -601,12 +620,12 @@ Status ModelManager::createCustomLoader(CustomLoaderConfig& loaderConfig) {
             SPDLOG_LOGGER_ERROR(modelmanager_logger, "Path {} escape with .. is forbidden.", loaderConfig.getLibraryPath());
             return StatusCode::PATH_INVALID;
         }
+#ifdef __linux__
         void* handleCL = dlopen(const_cast<char*>(loaderConfig.getLibraryPath().c_str()), RTLD_LAZY | RTLD_LOCAL);
         if (!handleCL) {
             SPDLOG_LOGGER_ERROR(modelmanager_logger, "Cannot open library:  {} {}", loaderConfig.getLibraryPath(), dlerror());
             return StatusCode::CUSTOM_LOADER_LIBRARY_INVALID;
         }
-
         // load the symbols
         createCustomLoader_t* customObj = (createCustomLoader_t*)dlsym(handleCL, "createCustomLoader");
         const char* dlsym_error = dlerror();
@@ -626,6 +645,14 @@ Status ModelManager::createCustomLoader(CustomLoaderConfig& loaderConfig) {
             return StatusCode::CUSTOM_LOADER_INIT_FAILED;
         }
         customloaders.add(loaderName, customLoaderIfPtr, handleCL);
+#elif _WIN32
+        // TODO: implement LoadLibrary for windows
+        void* handleCL = NULL;
+        if (!handleCL) {
+            SPDLOG_LOGGER_ERROR(modelmanager_logger, "Cannot open library:  {} {}", loaderConfig.getLibraryPath(), "e");
+            return StatusCode::CUSTOM_LOADER_LIBRARY_INVALID;
+        }
+#endif
     } else {
         // Loader is already in the existing loaders. Move it to new loaders.
         // Reload of customloader is not supported yet
@@ -710,7 +737,7 @@ Status ModelManager::loadModels(const rapidjson::Value::MemberIterator& modelsCo
         }
         modelConfig.setCacheDir(this->modelCacheDirectory);
 
-        const auto modelName = modelConfig.getName();
+        const auto& modelName = modelConfig.getName();
         if (pipelineDefinitionExists(modelName)) {
             IF_ERROR_NOT_OCCURRED_EARLIER_THEN_SET_FIRST_ERROR(StatusCode::MODEL_NAME_OCCUPIED);
             SPDLOG_LOGGER_ERROR(modelmanager_logger, "Model name: {} is already occupied by pipeline definition.", modelName);
@@ -786,7 +813,7 @@ Status ModelManager::loadModelsConfig(rapidjson::Document& configJson, std::vect
         rapidjson::Document subconfigJson;
         rapidjson::IStreamWrapper isw(ifs);
         rapidjson::ParseResult parseResult = subconfigJson.ParseStream(isw);
-        if (!parseResult) {
+        if (parseResult.Code()) {
             SPDLOG_LOGGER_ERROR(modelmanager_logger, "Mediapipe: {} graph subconfig: {} file is not a valid JSON file. Error: {}",
                 mediapipeConfig.getGraphName(), subconfigPath, rapidjson::GetParseError_En(parseResult.Code()));
             return StatusCode::JSON_INVALID;
@@ -840,6 +867,8 @@ class LoudFileInfoReporter {
 
 public:
     LoudFileInfoReporter(const std::string& filename, std::ifstream& file) {
+        // TODO windows
+#ifdef __linux__
         struct stat statTime;
 
         if (stat(filename.c_str(), &statTime) != 0) {
@@ -858,6 +887,7 @@ public:
         }
         file.clear();
         file.seekg(0);
+#endif
     }
     void log() {
         SPDLOG_LOGGER_DEBUG(modelmanager_logger, ss.str());
@@ -885,7 +915,7 @@ Status ModelManager::parseConfig(const std::string& jsonFilename, rapidjson::Doc
         auto configContent = config.str();
         md5 = FileSystem::getStringMD5(configContent);
         rapidjson::ParseResult parseResult = configJson.Parse(configContent.c_str());
-        if (!parseResult) {
+        if (parseResult.Code()) {
             SPDLOG_LOGGER_ERROR(modelmanager_logger, "Configuration file is not a valid JSON file. Error: {}",
                 rapidjson::GetParseError_En(parseResult.Code()));
             intermediateStatus = StatusCode::JSON_INVALID;
@@ -1082,10 +1112,9 @@ void ModelManager::watcher(std::future<void> exitSignal, bool watchConfigFile) {
     SPDLOG_LOGGER_INFO(modelmanager_logger, "Stopped model manager thread");
 }
 
-void ModelManager::cleanerRoutine(uint32_t resourcesCleanupIntervalSec, uint32_t sequenceCleanerIntervalMinutes, std::future<void> cleanerExitSignal) {
+void ModelManager::cleanerRoutine(uint32_t resourcesCleanupIntervalMiliseconds, uint32_t sequenceCleanerIntervalMinutes, std::future<void> cleanerExitSignal) {
     SPDLOG_LOGGER_INFO(modelmanager_logger, "Started cleaner thread");
 
-    uint32_t resourcesCleanupIntervalMiliseconds = resourcesCleanupIntervalSec * 1000;
     uint32_t sequenceCleanerIntervalMiliseconds = sequenceCleanerIntervalMinutes * 60 * 1000;
 
     FunctorResourcesCleaner functorResourcesCleaner{*this};
@@ -1218,7 +1247,7 @@ void ModelManager::getVersionsToChange(
                 versionsToReload->push_back(version);
             }
         } catch (std::out_of_range& e) {
-            SPDLOG_LOGGER_ERROR(modelmanager_logger, "Data race occured during versions update. Could not found version. Details: {}", e.what());
+            SPDLOG_LOGGER_ERROR(modelmanager_logger, "Data race occurred during versions update. Could not found version. Details: {}", e.what());
         }
     }
 
@@ -1235,7 +1264,7 @@ void ModelManager::getVersionsToChange(
                 return modelVersionsInstances.at(version)->getStatus().willEndUnloaded();
             });
     } catch (std::out_of_range& e) {
-        SPDLOG_LOGGER_ERROR(modelmanager_logger, "Data race occured during versions update. Could not found version. Details: {}", e.what());
+        SPDLOG_LOGGER_ERROR(modelmanager_logger, "Data race occurred during versions update. Could not found version. Details: {}", e.what());
     }
     versionsToRetire->resize(it - versionsToRetire->begin());
 
@@ -1463,7 +1492,7 @@ Status ModelManager::reloadModelWithVersions(ModelConfig& config) {
     if (versionsToReload->size() > 0) {
         auto status = reloadModelVersions(model, fs, config, versionsToReload, versionsFailed);
         if (!status.ok()) {
-            blocking_status = status;
+            blocking_status = std::move(status);
         }
     }
 

@@ -14,6 +14,7 @@
 // limitations under the License.
 //*****************************************************************************
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -611,6 +612,10 @@ TEST_F(HttpRestApiHandlerTest, modelMetadataRequest) {
     ASSERT_EQ(doc["outputs"].GetArray()[0].GetObject()["shape"].GetArray().Size(), 2);
     ASSERT_EQ(doc["outputs"].GetArray()[0].GetObject()["shape"].GetArray()[0].GetInt(), 1);
     ASSERT_EQ(doc["outputs"].GetArray()[0].GetObject()["shape"].GetArray()[1].GetInt(), 10);
+    ASSERT_EQ(std::string(doc["rt_info"].GetObject()["MO_version"].GetString()), "2020.1.0-61-gd349c3ba4a");
+    ASSERT_EQ(std::string(doc["rt_info"].GetObject()["model_info"].GetObject()["resolution"].GetObject()["height"].GetString()), "200");
+    ASSERT_EQ(std::string(doc["rt_info"].GetObject()["conversion_parameters"].GetObject()["data_type"].GetString()), "float");
+    ASSERT_TRUE(doc["rt_info"].GetObject()["optimization"].GetObject().ObjectEmpty());
 }
 
 TEST_F(HttpRestApiHandlerWithScalarModelTest, modelMetadataRequest) {
@@ -1229,6 +1234,22 @@ TEST_F(HttpRestApiHandlerTest, binaryInputsBufferSmallerThanExpected_noBinaryDat
     ::KFSRequest grpc_request;
     int inferenceHeaderContentLength = (request_body.size() - binaryData.size());
     ASSERT_EQ(HttpRestApiHandler::prepareGrpcRequest(modelName, modelVersion, request_body, grpc_request, inferenceHeaderContentLength), ovms::StatusCode::REST_BINARY_BUFFER_EXCEEDED);
+}
+
+TEST_F(HttpRestApiHandlerTest, binaryInputsInferenceHeaderContentLengthSmallerThanJsonBody) {
+    std::string request_body = "{\"inputs\":[{\"name\":\"b\",\"shape\":[1,4],\"datatype\":\"INT32\",\"parameters\":{\"binary_data_size\":true}}]}";
+    int inferenceHeaderContentLength = request_body.size() - 1;
+
+    ::KFSRequest grpc_request;
+    ASSERT_EQ(HttpRestApiHandler::prepareGrpcRequest(modelName, modelVersion, request_body, grpc_request, inferenceHeaderContentLength), ovms::StatusCode::JSON_INVALID);
+}
+
+TEST_F(HttpRestApiHandlerTest, binaryInputsInferenceHeaderContentLengthLargerThanJsonBody) {
+    std::string request_body = "{\"inputs\":[{\"name\":\"b\",\"shape\":[1,4],\"datatype\":\"INT32\",\"parameters\":{\"binary_data_size\":true}}]}";
+    int inferenceHeaderContentLength = request_body.size() + 1;
+
+    ::KFSRequest grpc_request;
+    ASSERT_EQ(HttpRestApiHandler::prepareGrpcRequest(modelName, modelVersion, request_body, grpc_request, inferenceHeaderContentLength), ovms::StatusCode::REST_INFERENCE_HEADER_CONTENT_LENGTH_EXCEEDED);
 }
 
 TEST_F(HttpRestApiHandlerTest, binaryInputsInvalidBinaryDataSizeParameter) {

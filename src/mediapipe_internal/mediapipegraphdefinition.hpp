@@ -43,6 +43,7 @@ namespace ovms {
 class MediapipeGraphDefinitionUnloadGuard;
 class MetricConfig;
 class MetricRegistry;
+class MediapipeServableMetricReporter;
 class ModelManager;
 class MediapipeGraphExecutor;
 class Status;
@@ -86,7 +87,7 @@ public:
     static const std::string SCHEDULER_CLASS_NAME;
     static const std::string PYTHON_NODE_CALCULATOR_NAME;
     static const std::string LLM_NODE_CALCULATOR_NAME;
-    Status waitForLoaded(std::unique_ptr<MediapipeGraphDefinitionUnloadGuard>& unloadGuard, const uint waitForLoadedTimeoutMicroseconds = WAIT_FOR_LOADED_DEFAULT_TIMEOUT_MICROSECONDS);
+    Status waitForLoaded(std::unique_ptr<MediapipeGraphDefinitionUnloadGuard>& unloadGuard, const uint32_t waitForLoadedTimeoutMicroseconds = WAIT_FOR_LOADED_DEFAULT_TIMEOUT_MICROSECONDS);
 
     // Pipelines are not versioned and any available definition has constant version equal 1.
     static constexpr model_version_t VERSION = 1;
@@ -158,6 +159,8 @@ private:
     std::atomic<uint64_t> requestsHandlesCounter = 0;
 
     PythonBackend* pythonBackend;
+
+    std::unique_ptr<MediapipeServableMetricReporter> reporter;
 };
 
 class MediapipeGraphDefinitionUnloadGuard {

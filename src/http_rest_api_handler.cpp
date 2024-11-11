@@ -17,6 +17,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -62,6 +63,7 @@
 #include "timer.hpp"
 
 #if (MEDIAPIPE_DISABLE == 0)
+#include "http_frontend/http_client_connection.hpp"
 #include "http_frontend/http_graph_executor_impl.hpp"
 #include "mediapipe_internal/mediapipegraphexecutor.hpp"
 #endif
@@ -237,30 +239,8 @@ Status HttpRestApiHandler::processServerMetadataKFSRequest(const HttpRequestComp
     if (!status.ok()) {
         return StatusCode::INTERNAL_ERROR;
     }
-    response = output;
+    response = std::move(output);
     return StatusCode::OK;
-}
-
-void HttpRestApiHandler::parseParams(Value& scope, Document& doc) {
-    Value::ConstMemberIterator itr = scope.FindMember("parameters");
-    if (itr != scope.MemberEnd()) {
-        for (Value::ConstMemberIterator i = scope["parameters"].MemberBegin(); i != scope["parameters"].MemberEnd(); ++i) {
-            Value param(rapidjson::kObjectType);
-            if (i->value.IsInt64()) {
-                Value value(i->value.GetInt64());
-                param.AddMember("int64_param", value, doc.GetAllocator());
-            }
-            if (i->value.IsString()) {
-                Value value(i->value.GetString(), doc.GetAllocator());
-                param.AddMember("string_param", value, doc.GetAllocator());
-            }
-            if (i->value.IsBool()) {
-                Value value(i->value.GetBool());
-                param.AddMember("bool_param", value, doc.GetAllocator());
-            }
-            scope["parameters"].GetObject()[i->name.GetString()] = param;
-        }
-    }
 }
 
 static bool isInputEmpty(const ::KFSRequest::InferInputTensor& input) {
@@ -351,6 +331,10 @@ Status HttpRestApiHandler::prepareGrpcRequest(const std::string modelName, const
     KFSRestParser requestParser;
 
     size_t endOfJson = inferenceHeaderContentLength.value_or(request_body.length());
+    if (endOfJson > request_body.length()) {
+        SPDLOG_DEBUG("Inference header content length exceeded JSON size");
+        return StatusCode::REST_INFERENCE_HEADER_CONTENT_LENGTH_EXCEEDED;
+    }
     auto status = requestParser.parse(request_body.substr(0, endOfJson).c_str());
     if (!status.ok()) {
         SPDLOG_DEBUG("Parsing http request failed");
@@ -435,7 +419,7 @@ Status HttpRestApiHandler::processInferKFSRequest(const HttpRequestComponents& r
 
     if (!reporter) {
         return StatusCode::OK;
-        // TODO fix after Mediapipe metrics implementation
+        // There is no request time metric for MediaPipe endpoints
     }
     OBSERVE_IF_ENABLED(reporter->requestTimeRest, totalTime);
     return StatusCode::OK;
@@ -481,21 +465,24 @@ Status HttpRestApiHandler::processV3(const std::string_view uri, const HttpReque
 
         auto modelNameIt = doc.FindMember("model");
         if (modelNameIt == doc.MemberEnd()) {
-            return Status(StatusCode::JSON_INVALID, "\"model\" field is missing in JSON body");
+            return Status(StatusCode::JSON_INVALID, "model field is missing in JSON body");
         }
 
         if (!modelNameIt->value.IsString()) {
-            return Status(StatusCode::JSON_INVALID, "\"model\" field is not a string");
+            return Status(StatusCode::JSON_INVALID, "model field is not a string");
         }
 
         const std::string model_name = modelNameIt->value.GetString();
 
-        auto streamIt = doc.FindMember("stream");
-        if (streamIt != doc.MemberEnd()) {
-            if (!streamIt->value.IsBool()) {
-                return Status(StatusCode::JSON_INVALID, "\"stream\" field is not a boolean");
+        bool isTextGenerationEndpoint = uri.find("completions") != std::string_view::npos;
+        if (isTextGenerationEndpoint) {
+            auto streamIt = doc.FindMember("stream");
+            if (streamIt != doc.MemberEnd()) {
+                if (!streamIt->value.IsBool()) {
+                    return Status(StatusCode::JSON_INVALID, "stream field is not a boolean");
+                }
+                streamFieldVal = streamIt->value.GetBool();
             }
-            streamFieldVal = streamIt->value.GetBool();
         }
 
         auto status = this->modelManager.createPipeline(executor, model_name);
@@ -507,18 +494,19 @@ Status HttpRestApiHandler::processV3(const std::string_view uri, const HttpReque
         request.body = request_body;
         request.parsedJson = &doc;
         request.uri = std::string(uri);
+        request.client = std::make_shared<HttpClientConnection>(serverReaderWriter);
     }
     if (streamFieldVal == false) {
-        ServableMetricReporter* smr = nullptr;                                                         // Unused
-        ExecutionContext ec{ExecutionContext::Interface::REST, ExecutionContext::Method::ModelInfer};  // Unused
-        return executor->infer(&request, &response, ec, smr);
+        ExecutionContext executionContext{ExecutionContext::Interface::REST, ExecutionContext::Method::V3Unary};
+        return executor->infer(&request, &response, executionContext);
     } else {
         serverReaderWriter->OverwriteResponseHeader("Content-Type", "text/event-stream");
         serverReaderWriter->OverwriteResponseHeader("Cache-Control", "no-cache");
         serverReaderWriter->OverwriteResponseHeader("Connection", "keep-alive");
-        auto status = executor->inferStream(request, *serverReaderWriter);
+        ExecutionContext executionContext{ExecutionContext::Interface::REST, ExecutionContext::Method::V3Stream};
+        auto status = executor->inferStream(request, *serverReaderWriter, executionContext);
         if (!status.ok()) {
-            sendErrorImpl(status.string(), *serverReaderWriter);
+            serverReaderWriter->PartialReplyWithStatus("{\"error\": \"" + status.string() + "\"}", tensorflow::serving::net_http::HTTPStatusCode::BAD_REQUEST);
         }
         serverReaderWriter->PartialReplyEnd();
         return StatusCode::PARTIAL_END;
@@ -580,6 +568,29 @@ void HttpRestApiHandler::convertShapeType(Value& scope, Document& doc) {
     }
 }
 
+void HttpRestApiHandler::convertRTInfo(Value& scope, Document& doc, ov::AnyMap& rtInfo) {
+    scope.SetObject();
+    for (auto& [key, value] : rtInfo) {
+        SPDLOG_DEBUG("building rest response: rt_info: key: {}; value: {}", key, value.as<std::string>());
+        rapidjson::Value rtInfoKey, rtInfoValue, subScope;
+        rtInfoKey.SetString(key.c_str(), doc.GetAllocator());
+        if (value.is<ov::AnyMap>()) {
+            SPDLOG_DEBUG("building submap rest response : key: {};", key);
+            subScope.SetObject();
+            convertRTInfo(subScope, doc, value.as<ov::AnyMap>());
+            scope.AddMember(rtInfoKey, subScope, doc.GetAllocator());
+        } else {
+            try {
+                rtInfoValue.SetString(value.as<std::string>().c_str(), doc.GetAllocator());
+            } catch (const std::exception& e) {
+                SPDLOG_ERROR("Error converting RT info value to string: {}", e.what());
+                rtInfoValue.SetString("Error converting value", doc.GetAllocator());
+            }
+            scope.AddMember(rtInfoKey, rtInfoValue, doc.GetAllocator());
+        }
+    }
+}
+
 Status HttpRestApiHandler::processModelMetadataKFSRequest(const HttpRequestComponents& request_components, std::string& response, const std::string& request_body) {
     ::KFSModelMetadataRequest grpc_request;
     ::KFSModelMetadataResponse grpc_response;
@@ -590,7 +601,8 @@ Status HttpRestApiHandler::processModelMetadataKFSRequest(const HttpRequestCompo
     }
     std::string modelVersionLog = request_components.model_version.has_value() ? std::to_string(request_components.model_version.value()) : DEFAULT_VERSION;
     SPDLOG_DEBUG("Processing REST request for model: {}; version: {}", modelName, modelVersionLog);
-    Status gstatus = kfsGrpcImpl.ModelMetadataImpl(nullptr, &grpc_request, &grpc_response, ExecutionContext{ExecutionContext::Interface::REST, ExecutionContext::Method::ModelMetadata});
+    KFSModelExtraMetadata extraMetadata;
+    Status gstatus = kfsGrpcImpl.ModelMetadataImpl(nullptr, &grpc_request, &grpc_response, ExecutionContext{ExecutionContext::Interface::REST, ExecutionContext::Method::ModelMetadata}, extraMetadata);
     if (!gstatus.ok()) {
         return gstatus;
     }
@@ -608,6 +620,8 @@ Status HttpRestApiHandler::processModelMetadataKFSRequest(const HttpRequestCompo
 
     convertShapeType(doc["inputs"], doc);
     convertShapeType(doc["outputs"], doc);
+    doc.AddMember("rt_info", Value(rapidjson::kObjectType), doc.GetAllocator());
+    convertRTInfo(doc["rt_info"], doc, extraMetadata.rt_info);
 
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -845,7 +859,7 @@ Status HttpRestApiHandler::processPredictRequest(
     SPDLOG_DEBUG("Total REST request processing time: {} ms", requestTime / 1000);
     if (!reporterOut) {
         return StatusCode::OK;
-        // TODO fix after Mediapipe metrics implementation
+        // There is no request time metric for MediaPipe endpoints
     }
     OBSERVE_IF_ENABLED(reporterOut->requestTimeRest, requestTime);
     return StatusCode::OK;
