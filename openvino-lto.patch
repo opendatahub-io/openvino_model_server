@@ -1,0 +1,39 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2187deb8e8..1bdb5800c1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -64,7 +64,7 @@ include(cmake/dependencies.cmake)
+ if(ENABLE_COVERAGE)
+     include(cmake/coverage.cmake)
+ endif()
+-
++set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ${ENABLE_LTO})
+ if(APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET AND
+     CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 10.15)
+     message(FATAL_ERROR "OpenVINO requires MACOSX_DEPLOYMENT_TARGET at least 10.15, specified ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+diff --git a/src/frontends/common/CMakeLists.txt b/src/frontends/common/CMakeLists.txt
+index e4d2fe63e1..bb05f64847 100644
+--- a/src/frontends/common/CMakeLists.txt
++++ b/src/frontends/common/CMakeLists.txt
+@@ -52,7 +52,7 @@ target_link_libraries(${TARGET_NAME}_obj PRIVATE openvino::util openvino::core::
+ 
+ # TODO: fix lto
+ set_target_properties(${TARGET_NAME}_obj PROPERTIES
+-    INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF)
++    INTERPROCEDURAL_OPTIMIZATION_RELEASE ${ENABLE_LTO})
+ 
+ set(FRONTEND_LIB_SUFFIX "${FRONTEND_NAME_SUFFIX}${OV_BUILD_POSTFIX}")
+ if(APPLE)
+diff --git a/thirdparty/protobuf/CMakeLists.txt b/thirdparty/protobuf/CMakeLists.txt
+index a16bd56d11..ce788eed4c 100644
+--- a/thirdparty/protobuf/CMakeLists.txt
++++ b/thirdparty/protobuf/CMakeLists.txt
+@@ -63,7 +63,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR OV_COMPILER_IS_CLANG OR OV_COMPILER_IS_INTEL_LLVM
+             CXX_VISIBILITY_PRESET default
+             C_VISIBILITY_PRESET default
+             VISIBILITY_INLINES_HIDDEN OFF
+-            INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF)
++            INTERPROCEDURAL_OPTIMIZATION_RELEASE ${ENABLE_LTO})
+     endif()
+     ov_disable_all_warnings(${_protoc_libs} libprotobuf-lite)
+     set_target_properties(libprotobuf-lite PROPERTIES
