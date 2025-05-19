@@ -40,26 +40,26 @@ spec:
     value: true
   - name: build-args
     value:
-    - BASE_IMAGE="registry.access.redhat.com/ubi9/ubi:9.6"
-    - RELEASE_BASE_IMAGE="registry.access.redhat.com/ubi9-minimal:9.6"
+    - BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.6
+    - RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9-minimal:9.6
     - BASE_OS=redhat
     - PROJECT_VERSION=2025.1.0
-    - ov_source_branch="releases/2025/1"
+    - ov_source_branch=releases/2025/1
     - ov_source_org=opendatahub-io
-    - ov_contrib_branch="releases/2025/1"
+    - ov_contrib_branch=releases/2025/1
     - ov_contrib_org=opendatahub-io
-    - ov_tokenizers_branch="releases/2025/1"
-    - ov_use_binary="0"
-    - CHECK_COVERAGE="0"
-    - RUN_TESTS="0"
+    - ov_tokenizers_branch=releases/2025/1
+    - ov_use_binary=0
+    - CHECK_COVERAGE=0
+    - RUN_TESTS=0
     - LTO_ENABLE=ON
     - LTO_CXX_FLAGS="-flto=auto -ffat-lto-objects -march=haswell"
     - LTO_LD_FLAGS="-flto=auto -ffat-lto-objects"
     - debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
     - CAPI_FLAGS="--strip=always --config=mp_off_py_off --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
     - CMAKE_BUILD_TYPE=Release
-    - GPU="1"
-    - JOBS="16"
+    - GPU=1
+    - JOBS=16
   - name: fetch-git-tags
     value: true
   - name: clone-depth
