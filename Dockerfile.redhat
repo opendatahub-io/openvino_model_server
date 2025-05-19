@@ -27,7 +27,10 @@ SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
 ARG JOBS=8
 ARG VERBOSE_LOGS=OFF
 ARG LTO_ENABLE=OFF
-ARG LTO_CXX_FLAGS=""
+ARG LTO_CXX_FLAGS="-flto=auto -ffat-lto-objects -march=haswell"
+ARG LTO_LD_FLAGS="-flto=auto -ffat-lto-objects"
+ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
+ARG CAPI_FLAGS="--strip=always --config=mp_off_py_off --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
 ARG LTO_LD_FLAGS="-Wl,-z,relro"
 
 # hadolint ignore=DL3041
