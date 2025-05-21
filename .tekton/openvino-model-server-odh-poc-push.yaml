@@ -56,6 +56,7 @@ spec:
     - CHECK_COVERAGE=0
     - RUN_TESTS=0
     - LTO_ENABLE=ON
+    - VERBOSE_LOGS=ON
 #    - LTO_CXX_FLAGS=-flto=auto -ffat-lto-objects -march=haswell
 #    - LTO_LD_FLAGS=-flto=auto -ffat-lto-objects
 #    - debug_bazel_flags=--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16
