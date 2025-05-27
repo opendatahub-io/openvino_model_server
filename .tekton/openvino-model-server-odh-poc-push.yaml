@@ -8,7 +8,7 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "4"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "konflux-poc" && !("Dockerfile.redhat.args".pathChanged()) && !(".tekton/args-file-openvino-model-server-odh-poc-push.yaml".pathChanged())
+      == "konflux-poc" && ("Dockerfile.redhat".pathChanged() || ".tekton/openvino-model-server-odh-poc-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: odh-release

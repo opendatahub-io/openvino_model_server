@@ -348,7 +348,15 @@ RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:ovms_shared
 RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:capi_cpp_example
 
 # C-API benchmark app
-RUN bazel build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark && ./bazel-bin/src/capi_benchmark --niter 2 --nstreams 1 --servable_name "dummy"
+RUN bazel build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark
+
+RUN echo "printing contents of bazel-bin/src"
+RUN ls -l bazel-bin/src/
+
+RUN echo "providing execute perms to the capi_benchmark"
+RUN chmod +x bazel-bin/src/capi_benchmark
+
+RUN ./bazel-bin/src/capi_benchmark --niter 2 --nstreams 1 --servable_name "dummy"
 # C-api C/C++ app with gcc
 COPY MakefileCapi /ovms/
 RUN make -f MakefileCapi cpp CAPI_FLAGS="${CAPI_FLAGS}" && \
