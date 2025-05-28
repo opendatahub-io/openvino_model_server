@@ -350,22 +350,19 @@ RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:capi_cpp_example
 # C-API benchmark app
 RUN bazel build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark
 
-RUN echo "printing hierarchial contents"
-RUN ls -R
+# RUN echo "printing hierarchial contents"
+# RUN ls -R
 
+
+# RUN echo "printing tree"
+# RUN tree
+
+# RUN ./bazel-bin/src/capi_benchmark --niter 2 --nstreams 1 --servable_name "dummy"
 
 # C-api C/C++ app with gc
 COPY MakefileCapi /ovms/
 RUN make -f MakefileCapi cpp CAPI_FLAGS="${CAPI_FLAGS}" && \
     make -f MakefileCapi c CAPI_FLAGS="${CAPI_FLAGS}"
-
-RUN echo "find the libs"
-RUN find /ovms/bazel-out/k8-*/bin -iname 'libovms_shared.so'
-
-RUN echo "printing tree"
-RUN tree
-
-RUN ./bazel-bin/src/capi_benchmark --niter 2 --nstreams 1 --servable_name "dummy"
 
 RUN mkdir -p /ovms_release/lib/ ; find /ovms/bazel-out/k8-*/bin -iname 'libovms_shared.so'  -exec cp -v {} /ovms_release/lib/ \;
 
