@@ -1,0 +1,156 @@
+#
+# Copyright (c) 2020-2023 Intel Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.5
+ARG BUILD_IMAGE=build
+ARG PKG_IMAGE=pkg
+ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.5
+
+FROM $BASE_IMAGE as base_build
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.5
+
+SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
+RUN "echo stage 1"
+
+ARG JOBS=8
+ARG VERBOSE_LOGS=OFF
+ARG LTO_ENABLE=OFF
+ARG LTO_CXX_FLAGS=""
+ARG LTO_LD_FLAGS="-Wl,-z,relro"
+
+
+
+RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
+RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
+RUN echo "LTO_LD_FLAGS=$LTO_LD_FLAGS"
+RUN echo "debug_bazel_flags=$debug_bazel_flags"
+RUN echo "JOBS=$JOBS"
+
+RUN echo "BASE_IMAGE=$BASE_IMAGE"
+RUN echo "PROJECT_VERSION=$PROJECT_VERSION"
+RUN echo "ov_source_branch=$ov_source_branch"
+RUN echo "ov_tokenizers_branch=$ov_tokenizers_branch"
+RUN echo "RUN_TESTS=$RUN_TESTS"
+RUN echo "LTO_ENABLE=$LTO_ENABLE"
+RUN echo "GPU=$GPU"
+
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+FROM base_build as build
+ARG BASE_IMAGE
+ARG JOBS=40
+ARG VERBOSE_LOGS=OFF
+ARG LTO_ENABLE=OFF
+
+RUN "echo stage 2"
+
+RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
+RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
+RUN echo "LTO_LD_FLAGS=$LTO_LD_FLAGS"
+RUN echo "debug_bazel_flags=$debug_bazel_flags"
+RUN echo "JOBS=$JOBS"
+
+RUN echo "BASE_IMAGE=$BASE_IMAGE"
+RUN echo "PROJECT_VERSION=$PROJECT_VERSION"
+RUN echo "ov_source_branch=$ov_source_branch"
+RUN echo "ov_tokenizers_branch=$ov_tokenizers_branch"
+RUN echo "RUN_TESTS=$RUN_TESTS"
+RUN echo "LTO_ENABLE=$LTO_ENABLE"
+RUN echo "GPU=$GPU"
+
+SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+
+FROM $BUILD_IMAGE as capi-build
+# C api shared library
+ARG CAPI_FLAGS="--strip=always  --config=mp_off_py_off --//:distro=redhat"
+ARG JOBS=40
+
+RUN "echo stage 3"
+
+RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
+RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
+RUN echo "LTO_LD_FLAGS=$LTO_LD_FLAGS"
+RUN echo "debug_bazel_flags=$debug_bazel_flags"
+RUN echo "JOBS=$JOBS"
+
+RUN echo "BASE_IMAGE=$BASE_IMAGE"
+RUN echo "PROJECT_VERSION=$PROJECT_VERSION"
+RUN echo "ov_source_branch=$ov_source_branch"
+RUN echo "ov_tokenizers_branch=$ov_tokenizers_branch"
+RUN echo "RUN_TESTS=$RUN_TESTS"
+RUN echo "LTO_ENABLE=$LTO_ENABLE"
+RUN echo "GPU=$GPU"
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+
+FROM $BUILD_IMAGE as pkg
+
+RUN "echo stage 4"
+
+RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
+RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
+RUN echo "LTO_LD_FLAGS=$LTO_LD_FLAGS"
+RUN echo "debug_bazel_flags=$debug_bazel_flags"
+RUN echo "JOBS=$JOBS"
+
+RUN echo "BASE_IMAGE=$BASE_IMAGE"
+RUN echo "PROJECT_VERSION=$PROJECT_VERSION"
+RUN echo "ov_source_branch=$ov_source_branch"
+RUN echo "ov_tokenizers_branch=$ov_tokenizers_branch"
+RUN echo "RUN_TESTS=$RUN_TESTS"
+RUN echo "LTO_ENABLE=$LTO_ENABLE"
+RUN echo "GPU=$GPU"
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+
+
+FROM $RELEASE_BASE_IMAGE as release
+LABEL "name"="OVMS"
+LABEL "vendor"="Intel Corporation"
+LABEL "version"="2025.1"
+LABEL "release"="2025"
+LABEL "summary"="OpenVINO(TM) Model Server"
+LABEL "description"="OpenVINO(TM) Model Server is a solution for serving AI models"
+LABEL "maintainer"="dariusz.trawinski@intel.com"
+ARG INSTALL_RPMS_FROM_URL=
+ARG INSTALL_DRIVER_VERSION="23.22.26516"
+ARG GPU=0
+ARG debug_bazel_flags=
+LABEL bazel-build-flags=${debug_bazel_flags}
+LABEL supported-devices="CPU=1 GPU=${GPU}"
+ARG RELEASE_BASE_IMAGE
+LABEL base-image=${RELEASE_BASE_IMAGE}
+
+RUN "echo stage 5"
+
+RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
+RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
+RUN echo "LTO_LD_FLAGS=$LTO_LD_FLAGS"
+RUN echo "debug_bazel_flags=$debug_bazel_flags"
+RUN echo "JOBS=$JOBS"
+
+RUN echo "BASE_IMAGE=$BASE_IMAGE"
+RUN echo "PROJECT_VERSION=$PROJECT_VERSION"
+RUN echo "ov_source_branch=$ov_source_branch"
+RUN echo "ov_tokenizers_branch=$ov_tokenizers_branch"
+RUN echo "RUN_TESTS=$RUN_TESTS"
+RUN echo "LTO_ENABLE=$LTO_ENABLE"
+RUN echo "GPU=$GPU"
+
+RUN exit 1
