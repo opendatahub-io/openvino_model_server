@@ -22,6 +22,20 @@ ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.5
 FROM $BASE_IMAGE as base_build
 ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.5
 
+RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
+RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
+RUN echo "LTO_LD_FLAGS=$LTO_LD_FLAGS"
+RUN echo "debug_bazel_flags=$debug_bazel_flags"
+RUN echo "JOBS=$JOBS"
+
+RUN echo "BASE_IMAGE=$BASE_IMAGE"
+RUN echo "PROJECT_VERSION=$PROJECT_VERSION"
+RUN echo "ov_source_branch=$ov_source_branch"
+RUN echo "ov_tokenizers_branch=$ov_tokenizers_branch"
+RUN echo "RUN_TESTS=$RUN_TESTS"
+RUN echo "LTO_ENABLE=$LTO_ENABLE"
+RUN echo "GPU=$GPU"
+
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
 
 ARG JOBS=8
@@ -325,12 +339,6 @@ FROM $BUILD_IMAGE as capi-build
 # C api shared library
 ARG CAPI_FLAGS="--strip=always  --config=mp_off_py_off --//:distro=redhat"
 ARG JOBS=40
-
-RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
-RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
-RUN echo "LTO_LD_FLAGS=$LTO_LD_FLAGS"
-RUN echo "debug_bazel_flags=$debug_bazel_flags"
-RUN echo "JOBS=$JOBS"
 
 RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:ovms_shared
 
