@@ -29,9 +29,6 @@ ARG VERBOSE_LOGS=OFF
 ARG LTO_ENABLE=OFF
 ARG LTO_CXX_FLAGS="-flto=auto -ffat-lto-objects -march=haswell"
 ARG LTO_LD_FLAGS="-flto=auto -ffat-lto-objects"
-ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
-ARG CAPI_FLAGS="--strip=always --config=mp_off_py_off --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16 --subcommands"
-ARG LTO_LD_FLAGS="-Wl,-z,relro"
 
 # hadolint ignore=DL3041
 RUN echo -e "max_parallel_downloads=8\nretries=50" >> /etc/dnf/dnf.conf && \
@@ -112,12 +109,6 @@ ARG JOBS=40
 ARG VERBOSE_LOGS=OFF
 ARG LTO_ENABLE=OFF
 
-ARG LTO_CXX_FLAGS="-flto=auto -ffat-lto-objects -march=haswell"
-ARG LTO_LD_FLAGS="-flto=auto -ffat-lto-objects"
-ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
-ARG CAPI_FLAGS="--strip=always --config=mp_off_py_off --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16 --subcommands"
-ARG LTO_LD_FLAGS="-Wl,-z,relro"
-
 # hadolint ignore=DL3041
 RUN dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/opencl-headers-3.0-6.20201007gitd65bcc5.el9.noarch.rpm && \
             dnf update -d6 -y && dnf install -d6 -y \
@@ -132,7 +123,7 @@ RUN dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os
             unzip \
             vim \
             xz \
-            python3-devel \ 
+            python3-devel \
             libicu-devel && \
             dnf clean all
 
@@ -174,7 +165,7 @@ ARG ov_use_binary=0
 ARG DLDT_PACKAGE_URL
 ARG TEMP_DIR=/tmp/openvino_installer
 ARG CMAKE_BUILD_TYPE=Release
-ARG debug_bazel_flags="--strip=always  --config=mp_on_py_on --//:distro=redhat"
+ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
 
 ################### BUILD OPENVINO FROM SOURCE - buildarg ov_use_binary=0  ############################
 # hadolint ignore=DL3041
@@ -332,14 +323,7 @@ RUN python3 -c "import json; m={'PROJECT_VERSION':'${PROJECT_VERSION}','OPENVINO
 
 FROM $BUILD_IMAGE as capi-build
 # C api shared library
-#ARG CAPI_FLAGS="--strip=always  --config=mp_off_py_off --//:distro=redhat"
-
-ARG LTO_CXX_FLAGS="-flto=auto -ffat-lto-objects -march=haswell"
-ARG LTO_LD_FLAGS="-flto=auto -ffat-lto-objects"
-ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
-ARG CAPI_FLAGS="--strip=always --config=mp_off_py_off --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16 --subcommands"
-ARG LTO_LD_FLAGS="-Wl,-z,relro"
-
+ARG CAPI_FLAGS="--strip=always --config=mp_off_py_off --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
 ARG JOBS=40
 RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:ovms_shared
 
@@ -348,18 +332,8 @@ RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:ovms_shared
 RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:capi_cpp_example
 
 # C-API benchmark app
-RUN bazel build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark
-
-# RUN echo "printing hierarchial contents"
-# RUN ls -R
-
-
-# RUN echo "printing tree"
-# RUN tree
-
-# RUN ./bazel-bin/src/capi_benchmark --niter 2 --nstreams 1 --servable_name "dummy"
-
-# C-api C/C++ app with gc
+RUN bazel build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark && ./bazel-bin/src/capi_benchmark --niter 2 --nstreams 1 --servable_name "dummy"
+# C-api C/C++ app with gcc
 COPY MakefileCapi /ovms/
 RUN make -f MakefileCapi cpp CAPI_FLAGS="${CAPI_FLAGS}" && \
     make -f MakefileCapi c CAPI_FLAGS="${CAPI_FLAGS}"
@@ -368,7 +342,7 @@ RUN mkdir -p /ovms_release/lib/ ; find /ovms/bazel-out/k8-*/bin -iname 'libovms_
 
 FROM $BUILD_IMAGE as pkg
 
-RUN mkdir /patchelf 
+RUN mkdir /patchelf
 WORKDIR /patchelf
 # hadolint ignore=DL3003
 RUN wget -q https://github.com/NixOS/patchelf/archive/0.10.tar.gz && \
@@ -379,14 +353,7 @@ WORKDIR /
 ARG BASE_OS=redhat
 ARG ov_use_binary=0
 ARG FUZZER_BUILD=0
-#ARG debug_bazel_flags="--strip=always  --config=mp_on_py_on --//:distro=redhat"
-
-ARG LTO_CXX_FLAGS="-flto=auto -ffat-lto-objects -march=haswell"
-ARG LTO_LD_FLAGS="-flto=auto -ffat-lto-objects"
 ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
-ARG CAPI_FLAGS="--strip=always --config=mp_off_py_off --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16 --subcommands"
-ARG LTO_LD_FLAGS="-Wl,-z,relro"
-
 COPY --from=capi-build /ovms_release/lib/libovms_shared.so /ovms_release/lib/
 COPY create_package.sh /
 RUN ./create_package.sh ; if ! [[ $debug_bazel_flags == *"_py_off"* ]]; then \
@@ -409,17 +376,10 @@ LABEL "release"="2025"
 LABEL "summary"="OpenVINO(TM) Model Server"
 LABEL "description"="OpenVINO(TM) Model Server is a solution for serving AI models"
 LABEL "maintainer"="dariusz.trawinski@intel.com"
-
-ARG LTO_CXX_FLAGS="-flto=auto -ffat-lto-objects -march=haswell"
-ARG LTO_LD_FLAGS="-flto=auto -ffat-lto-objects"
-ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
-ARG CAPI_FLAGS="--strip=always --config=mp_off_py_off --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16 --subcommands"
-ARG LTO_LD_FLAGS="-Wl,-z,relro"
-
 ARG INSTALL_RPMS_FROM_URL=
 ARG INSTALL_DRIVER_VERSION="23.22.26516"
 ARG GPU=0
-ARG debug_bazel_flags=
+ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
 LABEL bazel-build-flags=${debug_bazel_flags}
 LABEL supported-devices="CPU=1 GPU=${GPU}"
 ARG RELEASE_BASE_IMAGE
