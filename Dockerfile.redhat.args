@@ -22,6 +22,16 @@ ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.5
 FROM $BASE_IMAGE as base_build
 ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.5
 
+SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
+
+ARG JOBS=8
+ARG VERBOSE_LOGS=OFF
+ARG LTO_ENABLE=OFF
+ARG LTO_CXX_FLAGS=""
+ARG LTO_LD_FLAGS="-Wl,-z,relro"
+
+
+
 RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
 RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
 RUN echo "LTO_LD_FLAGS=$LTO_LD_FLAGS"
@@ -35,14 +45,6 @@ RUN echo "ov_tokenizers_branch=$ov_tokenizers_branch"
 RUN echo "RUN_TESTS=$RUN_TESTS"
 RUN echo "LTO_ENABLE=$LTO_ENABLE"
 RUN echo "GPU=$GPU"
-
-SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
-
-ARG JOBS=8
-ARG VERBOSE_LOGS=OFF
-ARG LTO_ENABLE=OFF
-ARG LTO_CXX_FLAGS=""
-ARG LTO_LD_FLAGS="-Wl,-z,relro"
 
 # hadolint ignore=DL3041
 RUN echo -e "max_parallel_downloads=8\nretries=50" >> /etc/dnf/dnf.conf && \
