@@ -23,7 +23,7 @@ FROM $BASE_IMAGE as base_build
 ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.5
 
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
-RUN "echo stage 1"
+RUN echo "stage 1"
 
 ARG JOBS=8
 ARG VERBOSE_LOGS=OFF
@@ -56,7 +56,7 @@ ARG JOBS=40
 ARG VERBOSE_LOGS=OFF
 ARG LTO_ENABLE=OFF
 
-RUN "echo stage 2"
+RUN echo "stage 2"
 
 RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
 RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
@@ -81,7 +81,7 @@ FROM $BUILD_IMAGE as capi-build
 ARG CAPI_FLAGS="--strip=always  --config=mp_off_py_off --//:distro=redhat"
 ARG JOBS=40
 
-RUN "echo stage 3"
+RUN echo "stage 3"
 
 RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
 RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
@@ -101,7 +101,7 @@ RUN echo "GPU=$GPU"
 
 FROM $BUILD_IMAGE as pkg
 
-RUN "echo stage 4"
+RUN echo "stage 4"
 
 RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
 RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
@@ -137,7 +137,7 @@ LABEL supported-devices="CPU=1 GPU=${GPU}"
 ARG RELEASE_BASE_IMAGE
 LABEL base-image=${RELEASE_BASE_IMAGE}
 
-RUN "echo stage 5"
+RUN echo "stage 5"
 
 RUN echo "CAPI_FLAGS=$CAPI_FLAGS"
 RUN echo "LTO_CXX_FLAGS=$LTO_CXX_FLAGS"
