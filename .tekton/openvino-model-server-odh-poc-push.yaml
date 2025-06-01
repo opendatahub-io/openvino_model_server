@@ -65,7 +65,7 @@ spec:
   - name: clone-depth
     value: "2147483647"
   - name: build-platform
-    value: linux-extra-fast/amd64
+    value: linux-fast/amd64
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while maintaining trust after pipeline customization.
