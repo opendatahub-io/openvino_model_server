@@ -8,7 +8,7 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "4"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "konflux-poc" && ("Dockerfile.redhat".pathChanged() || ".tekton/openvino-model-server-odh-poc-push.yaml".pathChanged())
+      == "konflux-poc" && ("Dockerfile.redhat.hardcoded.args".pathChanged() || ".tekton/openvino-model-server-odh-poc-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: odh-release
@@ -28,7 +28,7 @@ spec:
   - name: output-image
     value: quay.io/redhat-user-workloads/open-data-hub-tenant/openvino-model-server-odh-poc:{{revision}}
   - name: dockerfile
-    value: Dockerfile.redhat
+    value: Dockerfile.redhat.hardcoded.args
   - name: path-context
     value: .
   - name: hermetic
@@ -41,25 +41,6 @@ spec:
     value: true
   - name: skip-checks
     value: true
-  - name: build-args
-    value:
-    - BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.6
-    - RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9-minimal:9.6
-    - BASE_OS=redhat
-    - PROJECT_VERSION=2025.1.0
-    - ov_source_branch=releases/2025/1
-    - ov_source_org=opendatahub-io
-    - ov_contrib_branch=releases/2025/1
-    - ov_contrib_org=opendatahub-io
-    - ov_tokenizers_branch=releases/2025/1
-    - ov_use_binary=0
-    - CHECK_COVERAGE=0
-    - RUN_TESTS=0
-    - LTO_ENABLE=ON
-    - VERBOSE_LOGS=ON
-    - CMAKE_BUILD_TYPE=Release
-    - GPU=1
-    - JOBS=16
   - name: fetch-git-tags
     value: true
   - name: clone-depth
