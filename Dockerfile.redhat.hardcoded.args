@@ -334,7 +334,7 @@ RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:capi_cpp_example
 # C-API benchmark app
 RUN bazel build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark
 
-RUN find / -type f -name capi_benchmark
+# RUN find / -type f -name capi_benchmark
 
 RUN ./bazel-bin/src/capi_benchmark --niter 2 --nstreams 1 --servable_name "dummy"
 # C-api C/C++ app with gcc
