@@ -18,7 +18,7 @@ module ovmsclient
 
 go 1.23
 
-toolchain go1.21.9
+toolchain go1.24.5
 
 require (
 	github.com/golang/protobuf v1.5.3
