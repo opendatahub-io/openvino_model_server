@@ -101,7 +101,8 @@ RUN if [ "$VERBOSE_LOGS" == "ON" ] ; then export VERBOSE=1 ; fi && ./install_ope
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 FROM base_build as build
-ARG BASE_IMAGE
+#ARG BASE_IMAGE
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.6
 
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
 
