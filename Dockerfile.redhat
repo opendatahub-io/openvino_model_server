@@ -24,11 +24,11 @@ ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.6
 
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
 
-ARG JOBS=8
-ARG VERBOSE_LOGS=OFF
-ARG LTO_ENABLE=OFF
-ARG LTO_CXX_FLAGS=""
-ARG LTO_LD_FLAGS="-Wl,-z,relro"
+ARG JOBS=16
+ARG VERBOSE_LOGS=ON
+ARG LTO_ENABLE=ON
+ARG LTO_CXX_FLAGS="-flto=auto -ffat-lto-objects -march=haswell"
+ARG LTO_LD_FLAGS="-flto=auto -ffat-lto-objects"
 
 # hadolint ignore=DL3041
 RUN echo -e "max_parallel_downloads=8\nretries=50" >> /etc/dnf/dnf.conf && \
@@ -107,8 +107,8 @@ ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.6
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
 
 ARG JOBS=40
-ARG VERBOSE_LOGS=OFF
-ARG LTO_ENABLE=OFF
+ARG VERBOSE_LOGS=ON
+ARG LTO_ENABLE=ON
 
 # hadolint ignore=DL3041
 RUN dnf install -y https://rpmfind.net/linux/almalinux/8.10/PowerTools/x86_64/os/Packages/opencl-headers-2.2-1.20180306gite986688.el8.noarch.rpm && \
@@ -168,15 +168,16 @@ RUN  dnf install -y https://github.com/linux-test-project/lcov/releases/download
 
 ENV TF_SYSTEM_LIBS="curl"
 ENV TEST_LOG="/root/.cache/bazel/_bazel_root/bc57d4817a53cab8c785464da57d1983/execroot/ovms/bazel-out/test.log"
-ARG ov_source_branch=c01cd93e24d1cd78bfbb401eed51c08fb93e0816
-ARG ov_contrib_branch=master
-ARG ov_source_org=openvinotoolkit
-ARG ov_contrib_org=openvinotoolkit
+ARG ov_source_branch=releases/2025/1
+ARG ov_contrib_branch=releases/2025/1
+ARG ov_source_org=opendatahub-io
+ARG ov_contrib_org=opendatahub-io
 ARG ov_use_binary=0
 ARG DLDT_PACKAGE_URL
 ARG TEMP_DIR=/tmp/openvino_installer
 ARG CMAKE_BUILD_TYPE=Release
-ARG debug_bazel_flags="--strip=always  --config=mp_on_py_on --//:distro=redhat"
+ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
+
 
 ################### BUILD OPENVINO FROM SOURCE - buildarg ov_use_binary=0  ############################
 # hadolint ignore=DL3041
