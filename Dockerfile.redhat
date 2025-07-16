@@ -128,6 +128,7 @@ RUN dnf install -y https://rpmfind.net/linux/almalinux/8.10/PowerTools/x86_64/os
             libicu-devel && \
             dnf clean all
 
+
 WORKDIR /
 # hadolint ignore=DL3003
 RUN wget -nv https://go.dev/dl/go1.24.4.linux-amd64.tar.gz && \
@@ -235,7 +236,9 @@ ENV OpenVINO_DIR=/opt/intel/openvino/runtime/cmake
 ENV OPENVINO_TOKENIZERS_PATH_GENAI=/opt/intel/openvino/runtime/lib/intel64/libopenvino_tokenizers.so
 ENV LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/opt/intel/openvino/runtime/lib/intel64/:/opt/opencv/lib/:/opt/intel/openvino/runtime/3rdparty/tbb/lib/
 
-ARG ov_tokenizers_branch=85be884a69f10270703f81f970a5ee596a4c8df7
+#ARG ov_tokenizers_branch=85be884a69f10270703f81f970a5ee596a4c8df7
+
+ARG ov_tokenizers_branch=releases/2025/1
 # hadolint ignore=DL3003
 RUN git clone https://github.com/openvinotoolkit/openvino_tokenizers.git /openvino_tokenizers && cd /openvino_tokenizers && git checkout $ov_tokenizers_branch && git submodule update --init --recursive
 WORKDIR /openvino_tokenizers/build
@@ -294,7 +297,7 @@ ENV PYTHONPATH=/opt/intel/openvino/python:/ovms/bazel-bin/src/python/binding
 
 WORKDIR /ovms
 
-ARG PROJECT_VERSION="2025.2"
+ARG PROJECT_VERSION="2025.2.0"
 LABEL description="OpenVINO Model Server"
 ARG minitrace_flags
 
@@ -336,8 +339,9 @@ RUN python3 -c "import json; m={'PROJECT_VERSION':'${PROJECT_VERSION}','OPENVINO
 
 FROM $BUILD_IMAGE as capi-build
 # C api shared library
-ARG CAPI_FLAGS="--strip=always  --config=mp_off_py_off --//:distro=redhat"
-ARG JOBS=40
+ARG CAPI_FLAGS="--strip=always --config=mp_off_py_off --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16 --subcommands"
+ARG JOBS=16
+
 RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:ovms_shared
 
 # C api app with bazel
@@ -391,11 +395,12 @@ LABEL "description"="OpenVINO(TM) Model Server is a solution for serving AI mode
 LABEL "maintainer"="dariusz.trawinski@intel.com"
 ARG INSTALL_RPMS_FROM_URL=
 ARG INSTALL_DRIVER_VERSION="24.52.32224"
-ARG GPU=0
+ARG GPU=1
 ARG debug_bazel_flags=
+ARG debug_bazel_flags="--strip=always --define MEDIAPIPE_DISABLE=0 --define PYTHON_DISABLE=0 --config=mp_on_py_on --verbose_failures --//:distro=redhat --local_ram_resources=23552 --local_cpu_resources=16"
 LABEL bazel-build-flags=${debug_bazel_flags}
 LABEL supported-devices="CPU=1 GPU=${GPU}"
-ARG RELEASE_BASE_IMAGE
+ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9-minimal:9.6
 LABEL base-image=${RELEASE_BASE_IMAGE}
 
 ENV PYTHONPATH=/ovms/lib/python:/ovms/python_deps
