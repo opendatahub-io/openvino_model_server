@@ -339,14 +339,13 @@ ARG JOBS=16
 #RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:ovms_shared
 
 RUN mkdir -p /tmp/bazel-output && \
-    bash -c '\
-        set -euo pipefail && \
-        bazel --output_base=/tmp/bazel-output \
-              build --jobs=$JOBS ${CAPI_FLAGS} //src:ovms_shared && \
-        LIB_PATH=$(find /tmp/bazel-output -name libovms_shared.so | head -n1) && \
-        echo "Found built file: $LIB_PATH" && \
-        mkdir -p /ovms_release/lib && \
-        cp -v "$LIB_PATH" /ovms_release/lib/'
+    bazel --output_base=/tmp/bazel-output \
+          build --jobs=$JOBS ${CAPI_FLAGS} //src:ovms_shared && \
+    find /tmp/bazel-output -name libovms_shared.so && \
+    LIB_PATH=$(find /tmp/bazel-output -name libovms_shared.so | head -n1) && \
+    echo "Found built file: $LIB_PATH" && \
+    mkdir -p /ovms_release/lib && \
+    cp -v "$LIB_PATH" /ovms_release/lib/
 
 
 # C api app with bazel
@@ -365,14 +364,12 @@ RUN bazel build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark && \
 
 
 RUN mkdir -p /tmp/bazel-output && \
-    bash -c '\
-        set -euo pipefail && \
-        bazel --output_base=/tmp/bazel-output \
-              build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark && \
-        CAPI_BIN=$(find /tmp/bazel-output -type f -name capi_benchmark | head -n1) && \
-        echo "Found built capi_benchmark: $CAPI_BIN" && \
-        chmod +x "$CAPI_BIN" && \
-        "$CAPI_BIN" --niter 2 --nstreams 1 --servable_name "dummy"'
+    bazel --output_base=/tmp/bazel-output \
+          build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark && \
+    CAPI_BIN=$(find /tmp/bazel-output -type f -name capi_benchmark | head -n1) && \
+    echo "Found built capi_benchmark: $CAPI_BIN" && \
+    chmod +x "$CAPI_BIN" && \
+    "$CAPI_BIN" --niter 2 --nstreams 1 --servable_name "dummy"
 
 
 # C-api C/C++ app with gcc
