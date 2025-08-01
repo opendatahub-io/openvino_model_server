@@ -20,6 +20,7 @@
 #include <gmock/gmock.h>
 #include <grpcpp/create_channel.h>
 #include <gtest/gtest.h>
+#include <httplib.h>
 
 #include "../cleaner_utils.hpp"
 #include "../dags/node_library.hpp"
@@ -29,12 +30,14 @@
 #include "../model.hpp"
 #include "../modelinstanceunloadguard.hpp"
 #include "../modelmanager.hpp"
+#include "../module_names.hpp"
+#include "../ovms_exit_codes.hpp"
 #include "../prediction_service_utils.hpp"
 #include "../servablemanagermodule.hpp"
 #include "../server.hpp"
 #include "../version.hpp"
+#include "c_api_test_utils.hpp"
 #include "mockmodelinstancechangingstates.hpp"
-#include "test_utils.hpp"
 
 using ovms::ModelManager;
 using ovms::Module;
@@ -50,9 +53,12 @@ using testing::UnorderedElementsAre;
 using grpc::Channel;
 using grpc::ClientContext;
 
+const std::string portOldDefault{"9178"};
+const std::string typicalRestDefault{"9179"};
+
 struct Configuration {
     std::string address = "localhost";
-    std::string port = "9178";
+    std::string port = portOldDefault;
 };
 
 class ServingClient {
@@ -143,9 +149,48 @@ static void checkServerMetadata(const char* grpcPort, grpc::StatusCode status = 
     client.verifyServerMetadata(status);
 }
 
+static void requestRestServerAlive(const char* httpPort, httplib::StatusCode status = httplib::StatusCode::OK_200, bool expectedStatus = true) {
+    std::unique_ptr<httplib::Client> cli{nullptr};
+    try {
+        cli = std::make_unique<httplib::Client>(std::string("http://localhost:") + httpPort);
+    } catch (std::exception& e) {
+        SPDLOG_ERROR("Exception caught during rest request:{}", e.what());
+        EXPECT_TRUE(false);
+        return;
+    } catch (...) {
+        SPDLOG_ERROR("Exception caught during rest request");
+        EXPECT_TRUE(false);
+        return;
+    }
+    try {
+        auto res = cli->Get("/v2/health/live");
+        if (!res) {
+            SPDLOG_ERROR("Got error:{}", httplib::to_string(res.error()));
+            EXPECT_TRUE(!expectedStatus);
+            return;
+        } else {
+            EXPECT_TRUE(expectedStatus);
+        }
+        if (res->status != httplib::StatusCode::OK_200) {
+            SPDLOG_ERROR("Failed to get liveness status code: {}, status: {}", res->status, httplib::status_message(res->status));
+            EXPECT_TRUE(false);
+            return;
+        }
+    } catch (std::exception& e) {
+        SPDLOG_ERROR("Exception caught during rest request:{}", e.what());
+        EXPECT_TRUE(false);
+        return;
+    } catch (...) {
+        SPDLOG_ERROR("Exception caught during rest request");
+        EXPECT_TRUE(false);
+        return;
+    }
+    return;
+}
+
 TEST(Server, ServerNotAliveBeforeStart) {
     // here we should fail to connect before starting server
-    requestServerAlive("9178", grpc::StatusCode::UNAVAILABLE, false);
+    requestServerAlive(portOldDefault.c_str(), grpc::StatusCode::UNAVAILABLE, false);
 }
 
 using ovms::Config;
@@ -206,14 +251,14 @@ TEST(Server, ServerAliveBeforeLoadingModels) {
     // purpose of this test is to ensure that the server responds with alive=true before loading any models.
     // this is to make sure that eg. k8s won't restart container until all models are loaded because of not being alivea
     std::string port = "9000";
-    randomizePort(port);
+    randomizeAndEnsureFree(port);
 
     char* argv[] = {
         (char*)"OpenVINO Model Server",
         (char*)"--model_name",
         (char*)"dummy",
         (char*)"--model_path",
-        (char*)"/ovms/src/test/dummy",
+        (char*)getGenericFullPathForSrcTest("/ovms/src/test/dummy").c_str(),
         (char*)"--log_level",
         (char*)"DEBUG",
         (char*)"--port",
@@ -238,7 +283,7 @@ TEST(Server, ServerAliveBeforeLoadingModels) {
 
     SPDLOG_INFO(R"(here check that model & server still is not ready since servable manager module only started loading
     we have to wait for module to start loading)");
-    while ((server.getModuleState(SERVABLE_MANAGER_MODULE_NAME) == ovms::ModuleState::NOT_INITIALIZED) &&
+    while ((server.getModuleState(ovms::SERVABLE_MANAGER_MODULE_NAME) == ovms::ModuleState::NOT_INITIALIZED) &&
            (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count() < 5)) {
     }
     requestModelReady(argv[8], argv[2], grpc::StatusCode::NOT_FOUND, false);
@@ -288,13 +333,13 @@ TEST(Server, ServerAliveBeforeLoadingModels) {
 
 TEST(Server, ServerMetadata) {
     std::string port = "9000";
-    randomizePort(port);
+    randomizeAndEnsureFree(port);
     char* argv[] = {
         (char*)"OpenVINO Model Server",
         (char*)"--model_name",
         (char*)"dummy",
         (char*)"--model_path",
-        (char*)"/ovms/src/test/dummy",
+        (char*)getGenericFullPathForSrcTest("/ovms/src/test/dummy").c_str(),
         (char*)"--port",
         (char*)port.c_str(),
         nullptr};
@@ -303,11 +348,7 @@ TEST(Server, ServerMetadata) {
     std::thread t([&argv, &server]() {
         ASSERT_EQ(EXIT_SUCCESS, server.start(7, argv));
     });
-    auto start = std::chrono::high_resolution_clock::now();
-    while ((ovms::Server::instance().getModuleState("GRPCServerModule") != ovms::ModuleState::INITIALIZED) &&
-           (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count() < 5)) {
-    }
-
+    EnsureServerStartedWithTimeout(server, 5);
     grpc::ChannelArguments args;
     std::string address = std::string("localhost:") + port;
     requestServerAlive(port.c_str(), grpc::StatusCode::OK, true);
@@ -317,11 +358,60 @@ TEST(Server, ServerMetadata) {
     server.setShutdownRequest(0);
 }
 
+TEST(Server, GrpcWorkers2) {
+    std::string port = "9000";
+    randomizeAndEnsureFree(port);
+    std::string workers = "2";
+    char* argv[] = {
+        (char*)"OpenVINO Model Server",
+        (char*)"--model_name",
+        (char*)"dummy",
+        (char*)"--model_path",
+        (char*)getGenericFullPathForSrcTest("/ovms/src/test/dummy").c_str(),
+        (char*)"--port",
+        (char*)port.c_str(),
+        (char*)"--grpc_workers",
+        (char*)workers.c_str(),
+        (char*)"--log_level",
+        (char*)"DEBUG",
+        nullptr};
+
+    ovms::Server& server = ovms::Server::instance();
+
+#ifdef __linux__
+    std::thread t([&argv, &server]() {
+        ASSERT_EQ(EXIT_SUCCESS, server.start(11, argv));
+    });
+    auto start = std::chrono::high_resolution_clock::now();
+    while ((ovms::Server::instance().getModuleState(ovms::GRPC_SERVER_MODULE_NAME) != ovms::ModuleState::INITIALIZED) &&
+           (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count() < 5)) {
+    }
+
+    ASSERT_EQ(ovms::Server::instance().getModuleState(ovms::GRPC_SERVER_MODULE_NAME), ovms::ModuleState::INITIALIZED) << "Server not started error.";
+
+    grpc::ChannelArguments args;
+    std::string address = std::string("localhost:") + port;
+    requestServerAlive(port.c_str(), grpc::StatusCode::OK, true);
+    checkServerMetadata(port.c_str(), grpc::StatusCode::OK);
+    server.setShutdownRequest(1);
+    t.join();
+    server.setShutdownRequest(0);
+#elif _WIN32
+    std::thread t([&argv, &server]() {
+        // EXIT_FAILURE when we do not return error on argument passing and try to start grpc
+        ASSERT_EQ(OVMS_EX_USAGE, server.start(11, argv));
+    });
+    t.join();
+#endif
+}
+
 TEST(Server, ProperShutdownInCaseOfStartError) {
     std::string port = "9000";
     std::string restPort = "9000";
-    randomizePort(port);
-    randomizePort(restPort);
+    randomizeAndEnsureFree(port);
+    randomizeAndEnsureFree(restPort);
+    while (port == restPort)
+        randomizeAndEnsureFree(restPort);
     char* argv[] = {
         (char*)"OpenVINO Model Server",
         (char*)"--model_name",
@@ -346,15 +436,15 @@ TEST(Server, ProperShutdownInCaseOfStartError) {
 TEST(Server, grpcArguments) {
     std::string port = "9000";
     std::string channel_arguments_str = "grpc.max_connection_age_ms=2000,grpc.max_concurrent_streams=10";
-    std::string grpc_max_threads = "";
-    std::string grpc_memory_quota = "";
-    randomizePort(port);
+    std::string grpc_max_threads = "8";
+    std::string grpc_memory_quota = "100000";
+    randomizeAndEnsureFree(port);
     char* argv[] = {
         (char*)"OpenVINO Model Server",
         (char*)"--model_name",
         (char*)"dummy",
         (char*)"--model_path",
-        (char*)"/ovms/src/test/dummy",
+        (char*)getGenericFullPathForSrcTest("/ovms/src/test/dummy").c_str(),
         (char*)"--port",
         (char*)port.c_str(),
         (char*)"--grpc_channel_arguments",
@@ -367,16 +457,62 @@ TEST(Server, grpcArguments) {
 
     ovms::Server& server = ovms::Server::instance();
     std::thread t([&argv, &server]() {
-        ASSERT_EQ(EXIT_SUCCESS, server.start(7, argv));
+        ASSERT_EQ(EXIT_SUCCESS, server.start(13, argv));
     });
     auto start = std::chrono::high_resolution_clock::now();
-    while ((ovms::Server::instance().getModuleState("GRPCServerModule") != ovms::ModuleState::INITIALIZED) &&
+    while ((ovms::Server::instance().getModuleState(ovms::GRPC_SERVER_MODULE_NAME) != ovms::ModuleState::INITIALIZED) &&
            (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count() < 5)) {
     }
 
     std::string address = std::string("localhost:") + port;
     requestServerAlive(port.c_str(), grpc::StatusCode::OK, true);
     checkServerMetadata(port.c_str(), grpc::StatusCode::OK);
+    server.setShutdownRequest(1);
+    t.join();
+    server.setShutdownRequest(0);
+}
+TEST(Server, CAPIAliveGrpcNotHttpNot) {
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_standard_dummy.json").c_str());
+    OVMS_Server* cserver = serverGuard.server;
+    bool isLive = false;
+    OVMS_ServerLive(cserver, &isLive);
+    ASSERT_TRUE(isLive);
+    // GRPC is initialized before Servable ManagerModule
+    requestServerAlive(portOldDefault.c_str(), grpc::StatusCode::UNAVAILABLE, false);
+    requestRestServerAlive(typicalRestDefault.c_str(), httplib::StatusCode::NotFound_404, false);
+}
+TEST(Server, CAPIAliveGrpcNotHttpYes) {
+    GTEST_SKIP() << "Until we have a way to launch all tests restarting drogon";  // TODO @dkalinow to enable drogon tests
+    std::string port = "9000";
+    randomizeAndEnsureFree(port);
+    char* argv[] = {
+        (char*)"OpenVINO Model Server",
+        (char*)"--model_name",
+        (char*)"dummy",
+        (char*)"--rest_port",
+        (char*)port.c_str(),
+        (char*)"--model_path",
+        (char*)getGenericFullPathForSrcTest("/ovms/src/test/dummy").c_str(),
+        nullptr};
+
+    ovms::Server& server = ovms::Server::instance();
+    bool isLive = true;
+    auto* cserver = reinterpret_cast<OVMS_Server*>(&server);
+    OVMS_ServerLive(cserver, &isLive);
+    ASSERT_TRUE(!isLive);
+    std::thread t([&argv, &server]() {
+        ASSERT_EQ(EXIT_SUCCESS, server.start(7, argv));
+    });
+    auto start = std::chrono::high_resolution_clock::now();
+    while ((ovms::Server::instance().getModuleState(SERVABLE_MANAGER_MODULE_NAME) != ovms::ModuleState::INITIALIZED) &&
+           (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count() < 5)) {
+    }
+    isLive = false;
+    OVMS_ServerLive(cserver, &isLive);
+    ASSERT_TRUE(isLive);
+    // GrPC is initialized before Servable ManagerModule
+    requestServerAlive(portOldDefault.c_str(), grpc::StatusCode::UNAVAILABLE, false);
+    requestRestServerAlive(port.c_str());
     server.setShutdownRequest(1);
     t.join();
     server.setShutdownRequest(0);

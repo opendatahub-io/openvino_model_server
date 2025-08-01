@@ -3,37 +3,85 @@
 This guide shows how to implement [MediaPipe](../../../docs/mediapipe.md) graph using OVMS.
 
 Example usage of graph that contains only one model - resnet:
+```protobuf
+input_stream: "in"
+output_stream: "out"
+node {
+  calculator: "OpenVINOModelServerSessionCalculator"
+  output_side_packet: "SESSION:session"
+  node_options: {
+    [type.googleapis.com / mediapipe.OpenVINOModelServerSessionCalculatorOptions]: {
+      servable_name: "resnet"
+      servable_version: "1"
+    }
+  }
+}
+node {
+  calculator: "OpenVINOInferenceCalculator"
+  input_side_packet: "SESSION:session"
+  input_stream: "B:in"
+  output_stream: "A:out"
+  node_options: {
+    [type.googleapis.com / mediapipe.OpenVINOInferenceCalculatorOptions]: {
+        tag_to_input_tensor_names {
+          key: "B"
+          value: "0"
+        }
+        tag_to_output_tensor_names {
+          key: "A"
+          value: "1463"
+        }
+    }
+  }
+}
+```
+
+## Prerequisites
+
+**Model preparation**: Python 3.9 or higher with pip 
+
+**Model Server deployment**: Installed Docker Engine or OVMS binary package according to the [baremetal deployment guide](../../../docs/deploying_server_baremetal.md)
 
 ## Prepare the repository
 
 Clone the repository and enter mediapipe image_classification directory
-```bash
+```console
 git clone https://github.com/openvinotoolkit/model_server.git
 cd model_server/demos/mediapipe/image_classification
 ```
 
 ## Download ResNet50 model
 
-```bash
-mkdir -p resnetMediapipe/model/1
-wget -P resnetMediapipe/model/1 https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/models_bin/2/resnet50-binary-0001/FP32-INT1/resnet50-binary-0001.bin
-wget -P resnetMediapipe/model/1 https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/models_bin/2/resnet50-binary-0001/FP32-INT1/resnet50-binary-0001.xml
+```console
+curl --create-dirs https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/models_bin/2/resnet50-binary-0001/FP32-INT1/resnet50-binary-0001.bin -o resnetMediapipe/model/1/resnet50-binary-0001.bin
+curl --create-dirs https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/models_bin/2/resnet50-binary-0001/FP32-INT1/resnet50-binary-0001.xml -o resnetMediapipe/model/1/resnet50-binary-0001.xml
 ```
 
-## Run OpenVINO Model Server
+## Server Deployment
+:::{dropdown} **Deploying with Docker**
 ```bash
+chmod -R 755 resnetMediapipe
 docker run -d -v $PWD:/mediapipe -p 9000:9000 openvino/model_server:latest --config_path /mediapipe/config.json --port 9000
 ```
+:::
+:::{dropdown} **Deploying on Bare Metal**
+Assuming you have unpacked model server package, make sure to:
 
+- **On Windows**: run `setupvars` script
+- **On Linux**: set `LD_LIBRARY_PATH` and `PATH` environment variables
+
+as mentioned in [deployment guide](../../../docs/deploying_server_baremetal.md), in every new shell that will start OpenVINO Model Server.
+```bat
+ovms --config_path config.json --port 9000
+```
+:::
 ## Run the client:
-```bash
+```console
 cd ../../../client/python/kserve-api/samples
 
-virtualenv .venv
-. .venv/bin/activate
 pip install -r requirements.txt
 
-python grpc_infer_resnet.py --model_name resnetMediapipe --grpc_port 9008 --images_numpy_path ../../imgs.npy --transpose_input False --input_name in --output_name out                             --labels_numpy_path ../../lbs.npy
+python grpc_infer_resnet.py --model_name resnetMediapipe --grpc_port 9000 --images_numpy_path ../../imgs.npy --transpose_input False --input_name in --output_name out --labels_numpy_path ../../lbs.npy
 Image data range: 0.0 : 255.0
 Start processing:
         Model name: resnetMediapipe

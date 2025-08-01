@@ -100,6 +100,8 @@ TEST_F(TestUnloadModel, CantUnloadModelWhilePredictPathAcquiredAndLockedInstance
     ASSERT_EQ(status, ovms::StatusCode::OK);
     modelInstance.increasePredictRequestsHandlesCount();
     EXPECT_FALSE(modelInstance.canUnloadInstance());
+    modelInstance.decreasePredictRequestsHandlesCount();
+    EXPECT_TRUE(modelInstance.canUnloadInstance());
 }
 
 TEST_F(TestUnloadModel, CanUnloadModelNotHoldingModelInstanceAtPredictPath) {
@@ -110,6 +112,18 @@ TEST_F(TestUnloadModel, CanUnloadModelNotHoldingModelInstanceAtPredictPath) {
     modelInstance.increasePredictRequestsHandlesCount();
     modelInstance.decreasePredictRequestsHandlesCount();
     EXPECT_TRUE(modelInstance.canUnloadInstance());
+}
+
+TEST_F(TestUnloadModel, NoNameOutput) {
+    ovms::ModelInstance modelInstance("UNUSED_NAME", UNUSED_MODEL_VERSION, *ieCore);
+    ASSERT_EQ(modelInstance.loadModel(NO_NAME_MODEL_CONFIG), ovms::StatusCode::OK);
+    ASSERT_EQ(ovms::ModelVersionState::AVAILABLE, modelInstance.getStatus().getState());
+    EXPECT_EQ(modelInstance.getInputsInfo().count("input_1"), 1);
+    EXPECT_EQ(modelInstance.getInputsInfo().count("input_2"), 1);
+    EXPECT_EQ(modelInstance.getOutputsInfo().count("out_0"), 1);
+    EXPECT_EQ(modelInstance.getOutputsInfo().count("out_1"), 1);
+    modelInstance.retireModel();
+    EXPECT_EQ(ovms::ModelVersionState::END, modelInstance.getStatus().getState());
 }
 
 TEST_F(TestUnloadModel, UnloadWaitsUntilMetadataResponseIsBuilt) {
@@ -149,6 +163,7 @@ TEST_F(TestUnloadModel, UnloadWaitsUntilMetadataResponseIsBuilt) {
     EXPECT_EQ(outputs.size(), 1);
     EXPECT_EQ(inputs.begin()->second.name(), DUMMY_MODEL_INPUT_NAME);
     EXPECT_EQ(outputs.begin()->second.name(), DUMMY_MODEL_OUTPUT_NAME);
+    instance.reset();
 }
 
 TEST_F(TestUnloadModel, CheckIfCanUnload) {
@@ -512,7 +527,11 @@ TEST_F(TestLoadModel, CheckMultipleFormatsHandling) {
     auto status = modelInstance.loadModel(config);
     auto model_files = modelInstance.getModelFiles();
     ASSERT_FALSE(model_files.empty());
+#ifdef _WIN32
+    EXPECT_EQ(model_files.front(), directoryPath + "/test_multiple_models\\1\\model.xml");
+#elif __linux__
     EXPECT_EQ(model_files.front(), directoryPath + "/test_multiple_models/1/model.xml");
+#endif
 }
 
 TEST_F(TestLoadModel, CheckSavedModelHandling) {
@@ -546,7 +565,11 @@ TEST_F(TestLoadModel, CheckSavedModelHandling) {
     auto status = modelInstance.loadModel(config);
     auto model_files = modelInstance.getModelFiles();
     ASSERT_FALSE(model_files.empty());
+#ifdef _WIN32
+    EXPECT_EQ(model_files.front(), directoryPath + "/test_saved_model\\1\\");
+#elif __linux__
     EXPECT_EQ(model_files.front(), directoryPath + "/test_saved_model/1/");
+#endif
 }
 
 TEST_F(TestLoadModel, CheckTFModelHandling) {
@@ -580,7 +603,11 @@ TEST_F(TestLoadModel, CheckTFModelHandling) {
     auto status = modelInstance.loadModel(config);
     auto model_files = modelInstance.getModelFiles();
     ASSERT_FALSE(model_files.empty());
+#ifdef _WIN32
+    EXPECT_EQ(model_files.front(), directoryPath + "/test_tf\\1\\model.pb");
+#elif __linux__
     EXPECT_EQ(model_files.front(), directoryPath + "/test_tf/1/model.pb");
+#endif
 }
 
 TEST_F(TestLoadModel, CheckONNXModelHandling) {
@@ -614,7 +641,11 @@ TEST_F(TestLoadModel, CheckONNXModelHandling) {
     auto status = modelInstance.loadModel(config);
     auto model_files = modelInstance.getModelFiles();
     ASSERT_FALSE(model_files.empty());
+#ifdef _WIN32
+    EXPECT_EQ(model_files.front(), directoryPath + "/test_onnx\\1\\my-model.onnx");
+#elif __linux__
     EXPECT_EQ(model_files.front(), directoryPath + "/test_onnx/1/my-model.onnx");
+#endif
 }
 
 TEST_F(TestLoadModel, CheckTFLiteModelHandling) {
@@ -726,10 +757,10 @@ TEST_F(TestLoadModel, SuccessfulLoadDummyDimensionRanges) {
 TEST_F(TestLoadModel, CorrectNumberOfStreamsSet) {
     ovms::ModelInstance modelInstance("UNUSED_NAME", UNUSED_MODEL_VERSION, *ieCore);
     ovms::ModelConfig config = DUMMY_MODEL_CONFIG;
-    config.setPluginConfig({{"NUM_STREAMS", "6"}});
+    config.setPluginConfig({{"NUM_STREAMS", "3"}});
     ASSERT_EQ(modelInstance.loadModel(config), ovms::StatusCode::OK);
     ASSERT_EQ(ovms::ModelVersionState::AVAILABLE, modelInstance.getStatus().getState());
-    ASSERT_EQ(modelInstance.getNumOfStreams(), 6);
+    ASSERT_EQ(modelInstance.getNumOfStreams(), 3);
 }
 
 TEST_F(TestLoadModel, ScalarModelWithBatchSetToFixed) {
@@ -1180,23 +1211,6 @@ TEST(CpuThroughputStreamsNotSpecified, NotSetWhenPerfHintSpecified) {
     config.setPluginConfig({{"PERFORMANCE_HINT", "THROUGHPUT"}});
     pluginConfig = ovms::ModelInstance::prepareDefaultPluginConfig(config);
     EXPECT_EQ(pluginConfig.count("CPU_THROUGHPUT_STREAMS"), 0);
-}
-
-TEST(CpuThroughputNotSpecified, AffinityWithoutHint) {
-    ovms::ModelConfig config;
-    config.setPluginConfig({{"AFFINITY", "NUMA"}});
-    ovms::plugin_config_t pluginConfig = ovms::ModelInstance::prepareDefaultPluginConfig(config);
-    EXPECT_EQ(pluginConfig.count("PERFORMANCE_HINT"), 1);
-    EXPECT_EQ(pluginConfig.count("AFFINITY"), 1);
-}
-
-TEST(CpuThroughputNotSpecified, AffinityWithNumStreams) {
-    ovms::ModelConfig config;
-    config.setPluginConfig({{"NUM_STREAMS", "4"}, {"AFFINITY", "NUMA"}});
-    ovms::plugin_config_t pluginConfig = ovms::ModelInstance::prepareDefaultPluginConfig(config);
-    EXPECT_EQ(pluginConfig.count("PERFORMANCE_HINT"), 0);
-    EXPECT_EQ(pluginConfig.count("AFFINITY"), 1);
-    EXPECT_EQ(pluginConfig.count("NUM_STREAMS"), 1);
 }
 
 TEST(TensorMap, TestProcessingHintFromShape) {

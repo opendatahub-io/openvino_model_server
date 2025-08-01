@@ -19,7 +19,7 @@ With OpenVINO Model Server 2023.1 release C-API is no longer in preview state an
 
 ## API Description
 
-Server functionalities are encapsulated in shared library built from OpenVINO Model Server source. To include OpenVINO Model Server you need to link this library with your application and use C API defined in [header file](https://github.com/openvinotoolkit/model_server/blob/main/src/ovms.h). 
+Server functionalities are encapsulated in shared library built from OpenVINO Model Server source. To include OpenVINO Model Server you need to link this library with your application and use C API defined in [header file](https://github.com/openvinotoolkit/model_server/blob/main/src/ovms.h).
 
 
 Calling a method to start the model serving in your application initiates the OpenVINO Model Server as a separate thread. Then you can schedule inference both directly from app using C API and gRPC/HTTP endpoints.
@@ -44,7 +44,10 @@ The ownership of `OVMS_Status` is passed to the caller of the function. You must
 To execute inference using C API you must follow steps described below.
 
 #### Prepare inference request
-Create an inference request using `OVMS_InferenceRequestNew` specifying which servable name and optionally version to use. Then specify input tensors with `OVMS_InferenceRequestAddInput` and set the tensor data using `OVMS_InferenceRequestSetData`.
+Create an inference request using `OVMS_InferenceRequestNew` specifying which servable name and optionally version to use. Then specify input tensors with `OVMS_InferenceRequestAddInput` and set the tensor data using `OVMS_InferenceRequestInputSetData`. Optionally you can also set one or all outputs with `OVMS_InferenceRequestAddOutput` and `OVMS_InferenceRequestOutputSetData`. For asynchronous inference you also have to set callback with `OVMS_InferenceRequestSetCompletionCallback`.
+
+#### Using OpenVINO Remote Tensor
+With OpenVINO Model Server C-API you could also leverage the OpenVINO remote tensors support. Check original documentation [here](https://docs.openvino.ai/2025/openvino-workflow/running-inference/inference-devices-and-modes/gpu-device/remote-tensor-api-gpu-plugin.html). In order to use OpenCL buffers you need to first create `cl::Buffer` and then use its pointer in setting input with `OVMS_InferenceRequestInputSetData` or output with `OVMS_InferenceRequestOutputSetData` and buffer type `OVMS_BUFFERTYPE_OPENCL`. In case of VA surfaces you need to create appropriate VA surfaces and then use the same calls with buffer type `OVMS_BUFFERTYPE_VASURFACE_Y` and `OVMS_BUFFERTYPE_VASURFACE_UV`.
 
 #### Invoke inference
 Execute inference with OpenVINO Model Server using `OVMS_Inference` synchronous call. During inference execution you must not modify `OVMS_InferenceRequest` and bound memory buffers.
@@ -54,7 +57,7 @@ If the inference was successful, you receive `OVMS_InferenceRequest` object. Aft
 
 To process response, first you must check for inference error. If no error occurred, you must iterate over response outputs and parameters using `OVMS_InferenceResponseOutputCount` and `OVMS_InferenceResponseParameterCount`. Then you must extract details describing each output and parameter using `OVMS_InferenceResponseOutput` and `OVMS_InferenceResponseParameter`. Example how to use OpenVINO Model Server with C/C++ application is [here](../demos/c_api_minimal_app/README.md). While in example app you have only single thread scheduling inference request you can execute multiple inferences simultaneously using different threads.
 
-**Note**: After inference execution is finished you can reuse the same `OVMS_InferenceRequest` by using `OVMS_InferenceRequestInputRemoveData` and then setting different tensor data with `OVMS_InferenceRequestSetData`.
+**Note**: After inference execution is finished you can reuse the same `OVMS_InferenceRequest` by using `OVMS_InferenceRequestInputRemoveData`, and then setting different tensor data with `OVMS_InferenceRequestSetData`.
 
 #### Server liveness and readiness
 To check if OpenVINO Model Server is alive and will respond to requests you can use `OVMS_ServerLive`. Note that live status doesn't guarantee the model readiness. Check the readiness with `OVMS_ServerReady' call to show if initial configuration loading has finished including loading all correctly configured models.
@@ -74,7 +77,6 @@ To check server metadata use `OVMS_ServerMetadata` call. It will create new obje
 * There is no metrics endpoint exposed through C API.
 * Inference scheduled through C API does not have metrics `ovms_requests_success`,`ovms_requests_fail` and `ovms_request_time_us` counted.
 * You cannot turn gRPC endpoint off, REST API endpoint is optional.
-* There is no API for asynchronous inference.
 * There is no support for stateful models.
 * There is no support for mediapipe graphs.
-
+* Currently this interface is not enabled on Windows server version

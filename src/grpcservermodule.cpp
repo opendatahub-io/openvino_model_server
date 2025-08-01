@@ -29,19 +29,13 @@
 #include <grpcpp/server_context.h>
 #include <signal.h>
 #include <stdlib.h>
-#ifdef __linux__
-#include <netinet/in.h>
-#include <sys/socket.h>
-#elif _WIN32
-#include <winsock2.h>
-#endif
-#include <unistd.h>
 
 #include "config.hpp"
 #include "kfs_frontend/kfs_grpc_inference_service.hpp"
 #include "logging.hpp"
 #include "model_service.hpp"
 #include "modelmanager.hpp"
+#include "network_utils.hpp"
 #include "prediction_service.hpp"
 #include "servablemanagermodule.hpp"
 #include "server.hpp"
@@ -56,62 +50,6 @@ static const int GIGABYTE = 1024 * 1024 * 1024;
 // Default server shutdown deadline set to 5 seconds,
 // so it happens before docker container graceful stop.
 static const int SERVER_SHUTDOWN_DEADLINE_SECONDS = 5;
-
-// TODO windows
-#ifdef __linux__
-static bool isPortAvailable(uint64_t port) {
-    struct sockaddr_in addr;
-    int s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s == -1) {
-        return false;
-    }
-
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-
-    if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        close(s);
-        return false;
-    }
-    close(s);
-    return true;
-}
-#else
-static bool isPortAvailable(uint64_t port) {
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        SPDLOG_ERROR("WSAStartup error.");
-        return false;
-    }
-
-    // Create a socket
-    SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == INVALID_SOCKET) {
-        SPDLOG_ERROR("INVALID_SOCKET error.");
-        WSACleanup();
-        return false;
-    }
-
-    // Bind to port
-    sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    addr.sin_port = htons(port);
-    if (bind(sock, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
-        SPDLOG_ERROR("Bind port {} error: {}", port, WSAGetLastError());
-        close(sock);
-        WSACleanup();
-        return false;
-    }
-
-    // TODO: windows - check when can we close and cleanup, destructor ? add as member and store.
-    // Does not work when we close here as in linux.
-    // close(sock);
-    // WSACleanup();
-    return true;
-}
-#endif
 
 static Status setDefaultGrpcChannelArgs(std::map<std::string, std::string>& result) {
     uint16_t cores = getCoreCount();
@@ -158,9 +96,18 @@ GRPCServerModule::GRPCServerModule(Server& server) :
     tfsPredictService(this->server),
     tfsModelService(this->server),
     kfsGrpcInferenceService(this->server) {}
+
 Status GRPCServerModule::start(const ovms::Config& config) {
     state = ModuleState::STARTED_INITIALIZE;
     SPDLOG_INFO("{} starting", GRPC_SERVER_MODULE_NAME);
+    if (config.port() == 0) {
+        // due to HTTP reusing gRPC we still need to have gRPC module initialized.
+        state = ModuleState::INITIALIZED;
+        SPDLOG_INFO("{} started", GRPC_SERVER_MODULE_NAME);
+        SPDLOG_INFO("Port was not set. GRPC server will not be started.");
+        return StatusCode::OK;
+    }
+
     std::map<std::string, std::string> channel_arguments;
     auto status = setDefaultGrpcChannelArgs(channel_arguments);
     if (!status.ok()) {
@@ -188,9 +135,9 @@ Status GRPCServerModule::start(const ovms::Config& config) {
         try {
             int i = std::stoi(value);
             builder.AddChannelArgument(name, i);
-        } catch (std::invalid_argument const& e) {
+        } catch (std::invalid_argument const&) {
             builder.AddChannelArgument(name, value);
-        } catch (std::out_of_range const& e) {
+        } catch (std::out_of_range const&) {
             SPDLOG_WARN("Out of range parameter {} : {}", name, value);
         }
     }
@@ -213,7 +160,7 @@ Status GRPCServerModule::start(const ovms::Config& config) {
     if (!isPortAvailable(config.port())) {
         std::stringstream ss;
         ss << "at " << config.grpcBindAddress() << ":" << std::to_string(config.port()) << " - port is busy";
-        auto status = Status(StatusCode::FAILED_TO_START_GRPC_SERVER, ss.str());
+        status = Status(StatusCode::FAILED_TO_START_GRPC_SERVER, ss.str());
         SPDLOG_ERROR(status.string());
         return status;
     }
@@ -222,7 +169,7 @@ Status GRPCServerModule::start(const ovms::Config& config) {
         if (server == nullptr) {
             std::stringstream ss;
             ss << "at " << config.grpcBindAddress() << ":" << std::to_string(config.port());
-            auto status = Status(StatusCode::FAILED_TO_START_GRPC_SERVER, ss.str());
+            status = Status(StatusCode::FAILED_TO_START_GRPC_SERVER, ss.str());
             SPDLOG_ERROR(status.string());
             return status;
         }
@@ -245,6 +192,7 @@ void GRPCServerModule::shutdown() {
         server->Shutdown(serverDeadline);
         SPDLOG_INFO("Shutdown gRPC server");
     }
+
     servers.clear();
     state = ModuleState::SHUTDOWN;
     SPDLOG_INFO("{} shutdown", GRPC_SERVER_MODULE_NAME);

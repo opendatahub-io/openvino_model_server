@@ -15,12 +15,16 @@
 #
 
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "new_git_repository")
+
+def _is_windows(ctx):
+    return ctx.os.name.lower().find("windows") != -1
+
 def llm_engine():
     llm_engine_repository(name="_llm_engine")
     new_git_repository(
         name = "llm_engine",
         remote = "https://github.com/openvinotoolkit/openvino.genai",
-        commit = "cf9ec643a81e13dbc1ef5e17613164312e438adf", # releases/2024/5
+        commit = "31b2c55dadcbfb1e4413eeb32c355c81e5bd436a", # master 2025-07-29
         build_file = "@_llm_engine//:BUILD",
         init_submodules = True,
         recursive_init_submodules = True,
@@ -36,9 +40,51 @@ def llm_engine():
 
 def _impl(repository_ctx):
     http_proxy = repository_ctx.os.environ.get("http_proxy", "")
+    if http_proxy == "":
+        http_proxy = repository_ctx.os.environ.get("HTTP_PROXY", "")
+    
     https_proxy = repository_ctx.os.environ.get("https_proxy", "")
+    if https_proxy == "":
+        https_proxy = repository_ctx.os.environ.get("HTTPS_PROXY", "")
+    
     OpenVINO_DIR = repository_ctx.os.environ.get("OpenVINO_DIR", "")
-    result = repository_ctx.execute(["cat","/etc/os-release"],quiet=False)
+
+    if _is_windows(repository_ctx):
+        icudt = "icudt70"
+        icuuc = "icuuc70"
+        tokenizers = "openvino_tokenizers"
+        lib_name = "openvino_genai"
+        OpenVINO_DIR = OpenVINO_DIR.replace("\\", "\\\\").replace("/", "\\\\")
+        out_dll_dir_win = "out_dll_dir = \"runtime/bin/Release\","
+        out_lib_dir = "out_lib_dir = \"runtime/lib/Release\""
+        out_static = "out_interface_libs = [\"{lib_name}.lib\"],".format(lib_name=lib_name)
+        out_libs = "out_shared_libs = [\"{lib_name}.dll\"],".format(lib_name=lib_name)
+        cache_entries = """
+        "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
+        "CMAKE_CXX_FLAGS": " -s -D_GLIBCXX_USE_CXX11_ABI=1",
+        "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "runtime/bin/Release",
+        "WIN32": "True",
+        "X86_64": "True",
+        "BUILD_TOKENIZERS": "OFF",
+        "ENABLE_XGRAMMAR": "ON",
+        """
+        jobs_param = "\"-j 8\"" # on Windows we do not need to specify number of jobs, it's set to all available cores number
+    else:
+        lib_name = "libopenvino_genai"
+        out_dll_dir_win = ""
+        out_lib_dir = "out_lib_dir = \"runtime/lib/intel64\""
+        out_static = ""
+        out_libs = "out_shared_libs = [\"{lib_name}.so.2530\"],".format(lib_name=lib_name)
+        cache_entries = """
+        "BUILD_SHARED_LIBS": "OFF",
+        "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
+        "CMAKE_CXX_FLAGS": " -s -D_GLIBCXX_USE_CXX11_ABI=1 -Wno-error=deprecated-declarations -Wuninitialized",
+        "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "lib",
+        "ENABLE_SYSTEM_ICU": "True",
+        "BUILD_TOKENIZERS": "OFF",
+        "ENABLE_XGRAMMAR": "ON",
+        """
+        jobs_param = "\"-j 8\"" # on Linux we need to specify jobs number, by default it's set to 1
 
     # Note we need to escape '{/}' by doubling them due to call to format
     build_file_content = """
@@ -71,51 +117,53 @@ cmake(
         "--verbose",
         "--",  # <- Pass remaining options to the native tool.
         # https://github.com/bazelbuild/rules_foreign_cc/issues/329
-        # there is no elegant parallel compilation support
-        "VERBOSE=1",
-        "-j 32",
+        # there is no elegant parallel compilation support - lets go with default - CORES + 2 for ninja
+        {jobs_param}
     ],
-    cache_entries = {{
-        "BUILD_SHARED_LIBS": "OFF",
-        "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
-        "CMAKE_CXX_FLAGS": " -s -D_GLIBCXX_USE_CXX11_ABI=1 -Wno-error=deprecated-declarations -Wuninitialized\",
-        "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "lib"
+    cache_entries = {{ 
+        {cache_entries}
     }} | select({{
            "//conditions:default": dict(
                build_release
             ),
-            ":dbg":  dict(
-               build_debug
-            ),
+            # Debug does not build
+            #":dbg":  dict(
+            #   build_debug
+            #),
         }}),
     env = {{
         "OpenVINO_DIR": "{OpenVINO_DIR}",
-        "HTTP_PROXY": "{http_proxy}",
-        "HTTPS_PROXY": "{https_proxy}",
+        "http_proxy": "{http_proxy}",
+        "https_proxy": "{https_proxy}",
     }},
     lib_source = ":all_srcs",
-    out_lib_dir = "runtime/lib/intel64",
     out_include_dir = "runtime/include",
-    # linking order
-    out_shared_libs = [
-            "libopenvino_genai.so.2450",
-        ],
+    {out_lib_dir},
+    {out_libs}
+    {out_static}
+    {out_dll_dir_win}
     tags = ["requires-network"],
     visibility = ["//visibility:public"],
-    lib_name = "libopenvino_genai.so.2450",
+    lib_name = "{lib_name}",
+    deps = [
+        "@ovms//third_party:openvino",
+    ]
 )
 
 cc_library(
     name = "llm_engine",
     deps = [
+        "@ovms//third_party:openvino",
         ":llm_engine_cmake",
     ],
     visibility = ["//visibility:public"],
 )
 """
-    repository_ctx.file("BUILD", build_file_content.format(OpenVINO_DIR=OpenVINO_DIR, http_proxy=http_proxy, https_proxy=https_proxy))
+    repository_ctx.file("BUILD", build_file_content.format(OpenVINO_DIR=OpenVINO_DIR, http_proxy=http_proxy, https_proxy=https_proxy,
+                                                            out_dll_dir_win=out_dll_dir_win, out_lib_dir=out_lib_dir, lib_name=lib_name, out_libs=out_libs, cache_entries=cache_entries, out_static=out_static,
+                                                            jobs_param=jobs_param))
 
 llm_engine_repository = repository_rule(
     implementation = _impl,
-    local=False,
+    local=True,
 )

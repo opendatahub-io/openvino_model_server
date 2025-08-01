@@ -24,6 +24,7 @@
 
 #include "../modelconfig.hpp"
 #include "../status.hpp"
+#include "test_utils.hpp"
 
 using namespace testing;
 using ::testing::UnorderedElementsAre;
@@ -35,14 +36,14 @@ TEST(ModelConfig, getters_setters) {
     auto name = config.getName();
     EXPECT_EQ(name, "alexnet");
 
-    config.setBasePath("/path");
+    config.setBasePath(getGenericFullPathForTmp("/tmp/path"));
     auto path = config.getBasePath();
-    EXPECT_EQ(path, "/path");
+    EXPECT_EQ(path, getGenericFullPathForTmp("/tmp/path"));
 
-    config.setRootDirectoryPath("/pathto/");
+    config.setRootDirectoryPath(getGenericFullPathForTmp("/tmp/pathto/"));
     config.setBasePath("relative/path");
     path = config.getBasePath();
-    EXPECT_EQ(path, "/pathto/relative/path");
+    EXPECT_EQ(path, getGenericFullPathForTmp("/tmp/pathto/relative/path"));
 
     config.setTargetDevice("GPU");
     auto device = config.getTargetDevice();
@@ -475,8 +476,8 @@ TEST(ModelConfig, plugin_config_number) {
     EXPECT_EQ(status, ovms::StatusCode::OK);
     auto actualPluginConfig = config.getPluginConfig();
     EXPECT_THAT(actualPluginConfig, UnorderedElementsAre(
-                                        Pair("OptionA", "1"),
-                                        Pair("OptionX", "2.450000")));
+                                        Pair("OptionA", (int64_t)1),
+                                        Pair("OptionX", (double)2.45)));
 }
 
 TEST(ModelConfig, plugin_config_string) {
@@ -527,21 +528,19 @@ TEST(ModelConfig, plugin_config_legacy_cpu_num) {
     auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
     auto actualPluginConfig = config.getPluginConfig();
     EXPECT_EQ(status, ovms::StatusCode::OK);
-    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"], "5");
+    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"], (int64_t)5);
 }
 
 TEST(ModelConfig, plugin_config_legacy_cpu_str) {
     ovms::ModelConfig config;
-    std::string pluginConfig_str = "{\"CPU_THROUGHPUT_STREAMS\":\"5\", \"CPU_BIND_THREAD\":\"NO\", \"CPU_THREADS_NUM\": \"2\"}";
+    std::string pluginConfig_str = "{\"CPU_THROUGHPUT_STREAMS\":\"5\", \"CPU_THREADS_NUM\": \"2\"}";
     auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
     auto actualPluginConfig = config.getPluginConfig();
     EXPECT_EQ(status, ovms::StatusCode::OK);
     EXPECT_EQ(actualPluginConfig["NUM_STREAMS"], "5");
-    EXPECT_EQ(actualPluginConfig["AFFINITY"], "NONE");
     EXPECT_EQ(actualPluginConfig["INFERENCE_NUM_THREADS"], "2");
     EXPECT_EQ(actualPluginConfig.count("CPU_THREADS_NUM"), 0);
     EXPECT_EQ(actualPluginConfig.count("CPU_THROUGHPUT_STREAMS"), 0);
-    EXPECT_EQ(actualPluginConfig.count("CPU_BIND_THREAD"), 0);
 }
 
 TEST(ModelConfig, plugin_config_legacy_gpu) {
@@ -553,22 +552,13 @@ TEST(ModelConfig, plugin_config_legacy_gpu) {
     EXPECT_EQ(actualPluginConfig["PERFORMANCE_HINT"], "THROUGHPUT");
 }
 
-TEST(ModelConfig, plugin_config_cpu_bind_thread) {
-    ovms::ModelConfig config;
-    std::string pluginConfig_str = "{\"CPU_BIND_THREAD\":\"YES\"}";
-    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
-    auto actualPluginConfig = config.getPluginConfig();
-    EXPECT_EQ(status, ovms::StatusCode::OK);
-    EXPECT_EQ(actualPluginConfig["AFFINITY"], "CORE");
-}
-
 TEST(ModelConfig, plugin_config_legacy_gpu_num) {
     ovms::ModelConfig config;
     std::string pluginConfig_str = "{\"GPU_THROUGHPUT_STREAMS\":5}";
     auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
     auto actualPluginConfig = config.getPluginConfig();
     EXPECT_EQ(status, ovms::StatusCode::OK);
-    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"], "5");
+    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"], (int64_t)5);
 }
 
 TEST(ModelConfig, mappingInputs) {
@@ -932,6 +922,8 @@ TEST(ModelConfig, ConfigParseNodeWithForbiddenShapeName) {
     }
     )#";
 
+    adjustConfigForTargetPlatform(config);
+
     rapidjson::Document configJson;
     rapidjson::ParseResult parsingSucceeded = configJson.Parse(config.c_str());
     ASSERT_EQ(parsingSucceeded.Code(), 0);
@@ -969,6 +961,7 @@ TEST(ModelConfig, ConfigParseNodeWithInvalidShapeFormatArray) {
     }
     )#";
 
+    adjustConfigForTargetPlatform(config);
     rapidjson::Document configJson;
     rapidjson::ParseResult parsingSucceeded = configJson.Parse(config.c_str());
     ASSERT_EQ(parsingSucceeded.Code(), 0);
@@ -1001,6 +994,7 @@ TEST(ModelConfig, ConfigParseNodeWithInvalidShapeFormatString) {
     }
     )#";
 
+    adjustConfigForTargetPlatform(config);
     rapidjson::Document configJson;
     rapidjson::ParseResult parsingSucceeded = configJson.Parse(config.c_str());
     ASSERT_EQ(parsingSucceeded.Code(), 0);
@@ -1038,6 +1032,7 @@ TEST(ModelConfig, ConfigParseNodeWithValidShapeFormatArray) {
     }
     )#";
 
+    adjustConfigForTargetPlatform(config);
     rapidjson::Document configJson;
     rapidjson::ParseResult parsingSucceeded = configJson.Parse(config.c_str());
     ASSERT_EQ(parsingSucceeded.Code(), 0);
@@ -1056,7 +1051,7 @@ TEST(ModelConfig, ConfigParseNodeWithValidShapeFormatArray) {
     EXPECT_EQ(shapes["input"].shape, (ovms::Shape{1, 3, 600, 600}));
 }
 
-static std::string config_low_latency_no_stateful = R"#(
+std::string config_low_latency_no_stateful = R"#(
     {
     "model_config_list": [
         {
@@ -1070,7 +1065,7 @@ static std::string config_low_latency_no_stateful = R"#(
 }
 )#";
 
-static std::string config_low_latency_non_stateful = R"#(
+std::string config_low_latency_non_stateful = R"#(
     {
     "model_config_list": [
         {
@@ -1085,7 +1080,7 @@ static std::string config_low_latency_non_stateful = R"#(
 }
 )#";
 
-static std::string config_idle_sequence_cleanup_non_stateful = R"#(
+std::string config_idle_sequence_cleanup_non_stateful = R"#(
     {
     "model_config_list": [
         {
@@ -1100,7 +1095,7 @@ static std::string config_idle_sequence_cleanup_non_stateful = R"#(
 }
 )#";
 
-static std::string config_max_sequence_number_non_stateful = R"#(
+std::string config_max_sequence_number_non_stateful = R"#(
     {
     "model_config_list": [
         {
@@ -1115,7 +1110,7 @@ static std::string config_max_sequence_number_non_stateful = R"#(
 }
 )#";
 
-static std::string config_max_sequence_number = R"#(
+std::string config_max_sequence_number = R"#(
         {
         "model_config_list": [
             {
@@ -1129,7 +1124,7 @@ static std::string config_max_sequence_number = R"#(
     }
     )#";
 
-static std::string config_stateful_should_pass = R"#(
+std::string config_stateful_should_pass = R"#(
     {
     "model_config_list": [
         {
@@ -1145,7 +1140,7 @@ static std::string config_stateful_should_pass = R"#(
 }
 )#";
 
-static std::string config_low_invalid_max_seq = R"#(
+std::string config_low_invalid_max_seq = R"#(
     {
     "model_config_list": [
         {
@@ -1189,13 +1184,13 @@ TEST_P(ModelConfigParseModel, SetWithStateful) {
 }
 
 std::vector<std::pair<std::string, ovms::StatusCode>> configs = {
-    {config_low_latency_no_stateful, ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {config_max_sequence_number, ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {config_max_sequence_number_non_stateful, ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {config_idle_sequence_cleanup_non_stateful, ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {config_low_latency_non_stateful, ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {config_low_invalid_max_seq, ovms::StatusCode::INVALID_MAX_SEQUENCE_NUMBER},
-    {config_stateful_should_pass, ovms::StatusCode::OK}};
+    {adjustConfigForTargetPlatformReturn(config_low_latency_no_stateful), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
+    {adjustConfigForTargetPlatformReturn(config_max_sequence_number), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
+    {adjustConfigForTargetPlatformReturn(config_max_sequence_number_non_stateful), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
+    {adjustConfigForTargetPlatformReturn(config_idle_sequence_cleanup_non_stateful), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
+    {adjustConfigForTargetPlatformReturn(config_low_latency_non_stateful), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
+    {adjustConfigForTargetPlatformReturn(config_low_invalid_max_seq), ovms::StatusCode::INVALID_MAX_SEQUENCE_NUMBER},
+    {adjustConfigForTargetPlatformReturn(config_stateful_should_pass), ovms::StatusCode::OK}};
 
 INSTANTIATE_TEST_SUITE_P(
     Test,

@@ -17,12 +17,8 @@
 
 #include <string>
 #include <utility>
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wall"
-#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
-#include "tensorflow_serving/util/net_http/server/public/server_request_interface.h"
-#pragma GCC diagnostic pop
+#pragma warning(push)
+#pragma warning(disable : 4005 4309 6001 6385 6386 6326 6011 6294 6201 4005 4456 6246)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "mediapipe/framework/calculator_graph.h"
@@ -34,6 +30,7 @@
 #include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/framework/port/status.h"
 #pragma GCC diagnostic pop
+#pragma warning(pop)
 
 #include "../mediapipe_internal/mediapipe_utils.hpp"
 

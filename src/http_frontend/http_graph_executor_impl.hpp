@@ -18,32 +18,35 @@
 #include <map>
 #include <memory>
 #include <string>
-
+#pragma warning(push)
+#pragma warning(disable : 6313)
 #include <rapidjson/document.h>
+#pragma warning(pop)
 
 #include "../http_payload.hpp"
 #include "../mediapipe_internal/packettypes.hpp"
 #include "../status.hpp"
+#pragma warning(push)
+#pragma warning(disable : 4005 4324 4309 6001 6385 6386 6326 6011 4005 4456 6246)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wall"
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "mediapipe/framework/calculator_graph.h"
 #include "mediapipe/framework/packet.h"
 #pragma GCC diagnostic pop
+#pragma warning(pop)
 
 #if (PYTHON_DISABLE == 0)
 #include "../python/python_backend.hpp"
 #endif
 
-namespace tensorflow::serving::net_http {
-class ServerRequestInterface;
-}
+#include "../http_async_writer_interface.hpp"
 
 namespace ovms {
 
 class PythonBackend;
 
-using HttpReaderWriter = tensorflow::serving::net_http::ServerRequestInterface;
+using HttpReaderWriter = HttpAsyncWriter;
 
 // Deserialization of parameters inside KServe gRPC request
 // into mediapipe Packets.

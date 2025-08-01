@@ -25,6 +25,33 @@ message LLMCalculatorOptions {
     // no rule to obtain this
     optional LLMCalculatorOptions ext = 113473750;
     }
+
+    message CacheEvictionConfig {
+      enum AggregationMode {
+      SUM = 0; // In this mode the importance scores of each token will be summed after each step of generation
+      NORM_SUM = 1; // Same as SUM, but the importance scores are additionally divided by the lifetime (in tokens generated) of a given token in cache
+      }
+
+      optional AggregationMode aggregation_mode = 1 [default = SUM];
+      required uint64 start_size = 2;
+      required uint64 recent_size = 3;
+      required uint64 max_cache_size = 4;
+      optional bool apply_rotation = 5 [default = false];
+    }
+
+    enum PipelineType {
+      // Single modality (text only), text generation based on LLMPipeline
+      LM = 0;
+      // Multimodal (text and image), text generation based on LLMPipeline
+      VLM = 1;
+      // Single modality (text only), text generation based on ContinuousBatchingPipeline
+      LM_CB = 2;
+      // Multimodal (text and image), text generation based on ContinuousBatchingPipeline
+      VLM_CB = 3;
+      // Default option. If selected, pipeline type will be inferred by the serving
+      AUTO = 4;
+    }
+
     required string models_path = 1;
 
     optional uint64 max_num_batched_tokens = 2 [default = 256];
@@ -32,20 +59,44 @@ message LLMCalculatorOptions {
     // model memory cache to allocate in GB
     optional uint64 cache_size  = 3 [default = 8];
 
-    // DEPRECATED - this option is not effective starting with 2024.5 and will be removed in 2025.0 release
-    optional uint64 block_size = 4 [default = 32];
+    optional uint64 max_num_seqs = 4 [default = 256];
 
-    optional uint64 max_num_seqs = 5 [default = 256];
+    optional bool dynamic_split_fuse = 5 [default = true];
 
-    optional bool dynamic_split_fuse = 7 [default = true];
+    optional string device = 6 [default = "CPU"];
 
-    optional string device = 8 [default = "CPU"];
+    optional string plugin_config = 7 [default = ""];
 
-    optional string plugin_config = 9 [default = ""];
+    optional uint32 best_of_limit = 8 [default = 20];
 
-    optional uint32 best_of_limit = 10 [default = 20];
+    optional uint32 max_tokens_limit = 9;
 
-    optional uint32 max_tokens_limit = 11 [default = 4096];
+    optional bool enable_prefix_caching = 10 [default = false];
 
-    optional bool enable_prefix_caching = 12 [default = false];
+    // Speculative decoding - draft model config (ignore below fields if you don't want to use speculative decoding)
+    // when draft_models_path is set, the pipeline will use speculative decoding
+    // other values are by default inherited from the main model when speculative decoding is enabled, but can be overridden
+    optional string draft_models_path = 11;
+
+    optional string draft_device = 12;
+    
+    optional uint64 draft_max_num_batched_tokens = 13;
+
+    optional uint64 draft_cache_size  = 14;
+
+    optional uint64 draft_block_size = 15;
+
+    optional uint64 draft_max_num_seqs = 16;
+
+    optional bool draft_dynamic_split_fuse = 17;
+
+    // End of speculative decoding config
+
+    optional PipelineType pipeline_type = 18 [default = AUTO];
+
+    optional CacheEvictionConfig cache_eviction_config = 19;
+
+    optional string response_parser = 20;
+
+    optional bool enable_tool_guided_generation = 21 [default = false];
 }

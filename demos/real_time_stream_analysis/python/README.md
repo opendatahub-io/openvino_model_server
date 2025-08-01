@@ -24,7 +24,7 @@ In the demo will be used two gRPC communication patterns which might be advantag
 
 ## Requirements
 - on the client side it could be Windows, Mac or Linux. FFMPEG should be preinstalled in order to follow the scenario with RTSP client. Python3.7+ is needed.
-- the server can be deployed on Linux, MacOS (only with CPU execution on x86_64 arch) or inside WSL on Windows operating system.
+- the server can be deployed on Linux, MacOS (only with CPU execution on x86_64 arch) or on Windows operating system  (including inside WSL).
 - images sent over gRPC are not encoded, so there should be good network connectivity between the client and the server. At least 100Mb/s for real-time video analysis at high rate.
 
 ## gRPC streaming with MediaPipe graphs
@@ -42,22 +42,37 @@ Using the streaming API has the following advantages:
 The [holistic graph](https://github.com/openvinotoolkit/model_server/blob/main/demos/mediapipe/holistic_tracking/holistic_tracking.pbtxt) is expecting and IMAGE object on the input and returns an IMAGE on the output.
 As such it doesn't require any preprocessing and postprocessing. In this demo the returned stream will be just visualized or sent to the target sink.
 
-The model server with the holistic use case can be deployed with the following steps:
-```bash
-git clone https://github.com/openvinotoolkit/model_server.git
-cd model_server/demos/mediapipe/holistic_tracking
-./prepare_server.sh
-docker run -d -v $PWD/mediapipe:/mediapipe -v $PWD/ovms:/models -p 9000:9000 openvino/model_server:latest --config_path /models/config_holistic.json --port 9000
-```
+The model server with the holistic use case can be deployed using steps from [this](../../mediapipe/holistic_tracking/README.md#server-deployment) article.
+
 [Check more info about this use case](../../mediapipe/holistic_tracking/README.md)
 
 > **Note** All the graphs with an image on input and output can be applied here without any changes on the client application.
 
-
+Here is an example of the server deployment procedure:
+```console
+git clone https://github.com/openvinotoolkit/model_server.git
+cd model_server/demos/mediapipe/holistic_tracking
+curl --create-dirs https://raw.githubusercontent.com/openvinotoolkit/mediapipe/v2023.3/mediapipe/modules/hand_landmark/handedness.txt -o mediapipe/modules/hand_landmark/handedness.txt 
+curl https://storage.googleapis.com/mediapipe-assets/face_detection_short_range.tflite -o face_detection_short_range/1/face_detection_short_range.tflite --create-dirs
+curl https://storage.googleapis.com/mediapipe-assets/face_landmark.tflite -o face_landmark/1/face_landmark.tflite --create-dirs
+curl https://storage.googleapis.com/mediapipe-assets/hand_landmark_full.tflite -o hand_landmark_full/1/hand_landmark_full.tflite --create-dirs
+curl https://storage.googleapis.com/mediapipe-assets/hand_recrop.tflite -o hand_recrop/1/hand_recrop.tflite --create-dirs
+curl https://storage.googleapis.com/mediapipe-assets/iris_landmark.tflite -o iris_landmark/1/iris_landmark.tflite --create-dirs
+curl https://storage.googleapis.com/mediapipe-assets/palm_detection_full.tflite -o palm_detection_full/1/palm_detection_full.tflite --create-dirs
+curl https://storage.googleapis.com/mediapipe-assets/pose_detection.tflite -o pose_detection/1/pose_detection.tflite --create-dirs
+curl https://storage.googleapis.com/mediapipe-assets/pose_landmark_full.tflite -o pose_landmark_full/1/pose_landmark_full.tflite --create-dirs
+```
+```bash
+chmod -R 755 .
+docker run -d -v $PWD/mediapipe:/mediapipe -v $PWD:/models -p 9000:9000 openvino/model_server:latest --config_path /models/config_holistic.json --port 9000
+```
+```bat
+ovms --config_path config_holistic.json --port 9000
+```
 ### Start the client with real time stream analysis
 
-Prepare the python environment by installing required dependencies:
-```bash
+Prepare the python environment from [model_server](https://github.com/openvinotoolkit/model_server) repo cloned in previous step and install required dependencies:
+```console
 cd ../../real_time_stream_analysis/python/
 pip install -r ../../common/stream_client/requirements.txt
 ```
@@ -69,8 +84,8 @@ docker build ../../common/stream_client/ -t rtsp_client
 ```
 
 Client parameters:
-```bash
-python3 client.py --help
+```console
+python client.py --help
 usage: client.py [-h] [--grpc_address GRPC_ADDRESS]
                       [--input_stream INPUT_STREAM]
                       [--output_stream OUTPUT_STREAM]
@@ -103,7 +118,7 @@ options:
 #### Reading from the local camera and visualization on the screen
 
 ```
-python3 client.py --grpc_address localhost:9000 --input_stream 0 --output_stream screen
+python client.py --grpc_address localhost:9000 --input_stream 0 --output_stream screen
 ```
 
 The parameter `--input_stream 0 ` indicates the camera ID `0`.
@@ -111,25 +126,40 @@ The parameter `--input_stream 0 ` indicates the camera ID `0`.
 
 #### Reading from the encoded video file and saving results to a file
 
-```bash
-wget -O video.mp4 "https://www.pexels.com/download/video/3044127/?fps=24.0&h=1080&w=1920"
-python3 client.py --grpc_address localhost:9000 --input_stream 'video.mp4' --output_stream 'output.mp4'
+```console
+curl -L "https://www.pexels.com/download/video/3044127/?fps=24.0&h=1080&w=1920" -o video.mp4 
+python client.py --grpc_address localhost:9000 --input_stream video.mp4 --output_stream output.mp4
 ```
+
 
 #### Inference using RTSP stream
 
 The rtsp client app needs to have access to RTSP stream to read from and write to. Below are the steps to simulate such stream with the video.mp4 and the content source.
 
-Example rtsp server [mediamtx](https://github.com/bluenviron/mediamtx)
+Example rtsp server [mediamtx](https://github.com/bluenviron/mediamtx) using docker image.
 
 ```bash
-docker run --rm -d -p 8080:8554 -e RTSP_PROTOCOLS=tcp bluenviron/mediamtx:latest
+docker run --rm -d -p 8554:8554 -e RTSP_PROTOCOLS=tcp bluenviron/mediamtx:latest
+```
+
+or, download and extract a standalone binary from the [mediamtx release page](https://github.com/bluenviron/mediamtx/releases/) that corresponds to your operating system and architecture 
+alternatively you can install it for windows using `winget`.
+
+```bat
+winget install mediamtx --silent --accept-source-agreements
+```
+
+and start the server.
+
+
+```bat
+mediamtx 
 ```
 
 Then write to the server using ffmpeg, example using video or camera
 
-```bash
-ffmpeg -stream_loop -1 -i ./video.mp4 -f rtsp -rtsp_transport tcp rtsp://localhost:8080/channel1
+```console
+ffmpeg -stream_loop -1 -i ./video.mp4 -f rtsp -rtsp_transport tcp rtsp://localhost:8554/channel1
 ```
 
 ```
@@ -137,14 +167,14 @@ ffmpeg -f dshow -i video="HP HD Camera" -f rtsp -rtsp_transport tcp rtsp://local
 ```
 
 While the RTSP stream is active, run the client to read it and send the output stream
-```bash
-python3 client.py --grpc_address localhost:9000 --input_stream 'rtsp://localhost:8080/channel1' --output_stream 'rtsp://localhost:8080/channel2'
+```console
+python client.py --grpc_address localhost:9000 --input_stream 'rtsp://localhost:8554/channel1' --output_stream 'rtsp://localhost:8554/channel2'
 ```
 
 The results can be examined with ffplay utility which reads and display the altered content.
 
-```bash
-ffplay -pixel_format yuv420p -video_size 704x704 -rtsp_transport tcp rtsp://localhost:8080/channel2
+```console
+ffplay -pixel_format yuv420p -video_size 704x704 -rtsp_transport tcp rtsp://localhost:8554/channel2
 ```
 
 
@@ -159,3 +189,24 @@ Such use case with the unary calls with a horizontal text analysis can be follow
 
 
 > **Note** Depending on the output format, there might be needed a custom postprocessing function implementation.
+
+
+## Metric integrations
+
+Following the steps from [metrics documentation](../../../docs/metrics.md#visualize-with-grafana) one can setup
+visualisation of metrics using grafana.
+
+In OpenVINO Model Server repository one can find [grafana_mediapipe.json](../../../extras/grafana_mediapipe.json) that can be used to visualize 
+metrics about mediapipe graphs' status.
+
+Here are some exemplary visualisations included in above mentioned grafana dashboard:
+
+- Processing time metric is used to track the time a particular mediapipe graph is opened. In this case it can be used to represent how long it took to process single video.
+
+![processing_time_distr](assets/processing_time_distr.png)
+![processing_time](assets/processing_time.png)
+
+- Request latency metric shows the time difference between subsequent requests.
+
+![request_latency_distr](assets/request_latency_distr.png)
+![request_latency](assets/request_latency.png)

@@ -18,14 +18,16 @@
 #include <regex>
 #include <sstream>
 #include <string>
-
+#pragma warning(push)
+#pragma warning(disable : 6313)
+#include <rapidjson/document.h>
 #include <rapidjson/istreamwrapper.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#pragma warning(pop)
 #include <spdlog/spdlog.h>
 
 #include "logging.hpp"
-#include "rapidjson/document.h"
 #include "schema.hpp"
 #include "status.hpp"
 #include "stringutils.hpp"
@@ -57,6 +59,11 @@ const std::string METRIC_NAME_RESPONSES = "ovms_responses";
 
 const std::string METRIC_NAME_REQUESTS_ACCEPTED = "ovms_requests_accepted";
 const std::string METRIC_NAME_REQUESTS_REJECTED = "ovms_requests_rejected";
+
+const std::string METRIC_NAME_GRAPH_ERROR = "ovms_graph_error";
+const std::string METRIC_NAME_PROCESSING_TIME = "ovms_graph_processing_time_us";
+
+const std::string METRIC_NAME_REQUEST_LATENCY = "ovms_graph_request_latency_us";
 
 bool MetricConfig::validateEndpointPath(const std::string& endpoint) {
     std::regex valid_endpoint_regex("^/[a-zA-Z0-9]*$");

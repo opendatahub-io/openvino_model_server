@@ -25,11 +25,10 @@
 #include "../logging.hpp"
 #include "../status.hpp"
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#include "mediapipe/framework/calculator_graph.h"
-#pragma GCC diagnostic pop
+#pragma warning(push)
+#pragma warning(disable : 6326 28182 6011 28020)
 #include <pybind11/embed.h>  // everything needed for embedding
+#pragma warning(pop)
 
 #include "../mediapipe_internal/mediapipe_utils.hpp"
 #include "src/python/python_executor_calculator.pb.h"
@@ -123,17 +122,20 @@ Status PythonNodeResources::createPythonNodeResources(std::shared_ptr<PythonNode
     auto fsHandlerPath = std::filesystem::path(nodeOptions.handler_path());
 
     std::string basePath;
-    std::string extension = fsHandlerPath.extension();
+    std::string extension = fsHandlerPath.extension().string();
     fsHandlerPath.replace_extension();
-    std::string filename = fsHandlerPath.filename();
+    std::string filename = fsHandlerPath.filename().string();
     if (fsHandlerPath.is_relative()) {
         basePath = (std::filesystem::path(graphPath) / fsHandlerPath.parent_path()).string();
     } else {
-        basePath = fsHandlerPath.parent_path();
+        basePath = fsHandlerPath.parent_path().string();
     }
     auto hpath = std::filesystem::path(basePath) / std::filesystem::path(filename + extension);
-    nodeResources->handlerPath = hpath.string();
-    if (!std::filesystem::exists(hpath)) {
+    // Make final handler path uniform with forward slashes as separators
+    std::string hpathStr = hpath.string();
+    std::replace(hpathStr.begin(), hpathStr.end(), '\\', '/');  // Replace backslashes with forward slashes
+    nodeResources->handlerPath = hpathStr;
+    if (!std::filesystem::exists(hpathStr)) {
         SPDLOG_LOGGER_ERROR(modelmanager_logger, "Python node handler_path: {} does not exist. ", hpath.string());
         return StatusCode::PYTHON_NODE_FILE_DOES_NOT_EXIST;
     }

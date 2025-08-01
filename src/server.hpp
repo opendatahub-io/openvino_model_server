@@ -26,9 +26,8 @@
 namespace ovms {
 class Config;
 class Status;
-
-class ServerSettingsImpl;
-class ModelsSettingsImpl;
+struct ServerSettingsImpl;
+struct ModelsSettingsImpl;
 
 class Server {
     mutable std::shared_mutex modulesMtx;
@@ -46,7 +45,7 @@ public:
     ModuleState getModuleState(const std::string& name) const;
     const Module* getModule(const std::string& name) const;
     bool isReady() const;
-    bool isLive() const;
+    bool isLive(const std::string& moduleName) const;
 
     void setShutdownRequest(int i);
     virtual ~Server();

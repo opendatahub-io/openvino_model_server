@@ -43,12 +43,16 @@ private:
          */
     const std::string empty;
 
+protected:
     ModelsSettingsImpl modelsSettings;
     ServerSettingsImpl serverSettings;
 
 public:
-    ServerSettingsImpl getServerSettings() {
+    const ServerSettingsImpl& getServerSettings() const {
         return serverSettings;
+    }
+    const ModelsSettingsImpl& getModelSettings() const {
+        return modelsSettings;
     }
     /**
          * @brief Gets the instance of the config
@@ -70,9 +74,15 @@ public:
     bool parse(ServerSettingsImpl*, ModelsSettingsImpl*);
 
     /**
+         * @brief Validate passed arguments against config add/remove allowed parameters
+         * 
+         * @return bool 
+         */
+    static bool validateUserSettingsInConfigAddRemoveModel(const ModelsSettingsImpl& modelsSettings);
+    /**
          * @brief Validate passed arguments
          * 
-         * @return void 
+         * @return bool 
          */
     bool validate();
 
@@ -309,11 +319,19 @@ public:
      */
     uint32_t resourcesCleanerPollWaitSeconds() const;
 
+    bool allowCredentials() const;
+    const std::string& allowedOrigins() const;
+    const std::string& allowedMethods() const;
+    const std::string& allowedHeaders() const;
+
     /**
          * @brief Model cache directory
          * 
          * @return const std::string& 
          */
     const std::string cacheDir() const;
+    bool startedFromCLI() {
+        return serverSettings.startedWithCLI;
+    }
 };
 }  // namespace ovms

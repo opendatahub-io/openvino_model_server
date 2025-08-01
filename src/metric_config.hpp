@@ -18,8 +18,10 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-
+#pragma warning(push)
+#pragma warning(disable : 6313)
 #include <rapidjson/document.h>
+#pragma warning(pop)
 
 namespace ovms {
 
@@ -43,6 +45,11 @@ extern const std::string METRIC_NAME_RESPONSES;
 
 extern const std::string METRIC_NAME_REQUESTS_ACCEPTED;
 extern const std::string METRIC_NAME_REQUESTS_REJECTED;
+
+extern const std::string METRIC_NAME_GRAPH_ERROR;
+extern const std::string METRIC_NAME_PROCESSING_TIME;
+
+extern const std::string METRIC_NAME_REQUEST_LATENCY;
 
 class Status;
 /**
@@ -95,6 +102,8 @@ private:
         {METRIC_NAME_CURRENT_GRAPHS},
         {METRIC_NAME_REQUESTS_ACCEPTED},
         {METRIC_NAME_REQUESTS_REJECTED},
+        {METRIC_NAME_GRAPH_ERROR},
+        {METRIC_NAME_PROCESSING_TIME},
         {METRIC_NAME_RESPONSES}};
 };
 }  // namespace ovms

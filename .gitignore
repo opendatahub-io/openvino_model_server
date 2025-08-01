@@ -32,3 +32,8 @@ bazel-openvino-model-server/
 bazel-model_server/
 out
 .user.bazelrc
+*.log
+*.errors.txt
+tmp/
+*.zip
+*.tar.gz

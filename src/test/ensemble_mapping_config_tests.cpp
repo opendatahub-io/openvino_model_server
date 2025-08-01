@@ -49,7 +49,7 @@ protected:
         modelPath = directoryPath + "/dummy";
         mappingConfigPath = modelPath + "/1/mapping_config.json";
 
-        std::filesystem::copy("/ovms/src/test/dummy", modelPath, std::filesystem::copy_options::recursive);
+        std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/dummy"), modelPath, std::filesystem::copy_options::recursive);
     }
 
     std::string configPath;
@@ -69,7 +69,8 @@ TEST_F(PipelineWithInputOutputNameMappedModel, SuccessfullyReferToMappedNamesAnd
 
     // Load models
     auto modelConfig = DUMMY_MODEL_CONFIG;
-    modelConfig.setBasePath(modelPath);
+    adjustConfigToAllowModelFileRemovalWhenLoaded(modelConfig);
+    modelConfig.setBasePath(getGenericFullPathForSrcTest(modelPath));
     ASSERT_EQ(managerWithDummyModel.reloadModelWithVersions(modelConfig), StatusCode::OK_RELOADED);
 
     // Create pipeline definition
@@ -132,7 +133,8 @@ TEST_F(PipelineWithInputOutputNameMappedModel, ReferingToOriginalInputNameFailsC
 
     // Load models
     auto modelConfig = DUMMY_MODEL_CONFIG;
-    modelConfig.setBasePath(modelPath);
+    adjustConfigToAllowModelFileRemovalWhenLoaded(modelConfig);
+    modelConfig.setBasePath(getGenericFullPathForSrcTest(modelPath));
     ASSERT_EQ(managerWithDummyModel.reloadModelWithVersions(modelConfig), StatusCode::OK_RELOADED);
 
     // Create pipeline definition
@@ -167,7 +169,8 @@ TEST_F(PipelineWithInputOutputNameMappedModel, ReferingToOriginalOutputNameFails
 
     // Load models
     auto modelConfig = DUMMY_MODEL_CONFIG;
-    modelConfig.setBasePath(modelPath);
+    adjustConfigToAllowModelFileRemovalWhenLoaded(modelConfig);
+    modelConfig.setBasePath(getGenericFullPathForSrcTest(modelPath));
     ASSERT_EQ(managerWithDummyModel.reloadModelWithVersions(modelConfig), StatusCode::OK_RELOADED);
 
     // Create pipeline definition
@@ -202,7 +205,8 @@ TEST_F(PipelineWithInputOutputNameMappedModel, SuccessfullyReferToMappedNamesAnd
 
     // Load models
     auto modelConfig = DUMMY_MODEL_CONFIG;
-    modelConfig.setBasePath(modelPath);
+    adjustConfigToAllowModelFileRemovalWhenLoaded(modelConfig);
+    modelConfig.setBasePath(getGenericFullPathForSrcTest(modelPath));
     ASSERT_EQ(managerWithDummyModel.reloadModelWithVersions(modelConfig), StatusCode::OK_RELOADED);
 
     std::vector<NodeInfo> info{
@@ -245,7 +249,8 @@ TEST_F(PipelineWithInputOutputNameMappedModel, SuccessfullyReferToMappedNamesAnd
 TEST_F(PipelineWithInputOutputNameMappedModel, SuccessfullyReloadPipelineAfterAddingModelMapping) {
     // Load models
     auto modelConfig = DUMMY_MODEL_CONFIG;
-    modelConfig.setBasePath(modelPath);
+    adjustConfigToAllowModelFileRemovalWhenLoaded(modelConfig);
+    modelConfig.setBasePath(getGenericFullPathForSrcTest(modelPath));
     ASSERT_EQ(managerWithDummyModel.reloadModelWithVersions(modelConfig), StatusCode::OK_RELOADED);
 
     // Create pipeline definition
@@ -324,7 +329,8 @@ TEST_F(PipelineWithInputOutputNameMappedModel, ReloadPipelineAfterRemovalOfModel
         mappingConfigPath);
     // Load models
     auto modelConfig = DUMMY_MODEL_CONFIG;
-    modelConfig.setBasePath(modelPath);
+    adjustConfigToAllowModelFileRemovalWhenLoaded(modelConfig);
+    modelConfig.setBasePath(getGenericFullPathForSrcTest(modelPath));
     ASSERT_EQ(managerWithDummyModel.reloadModelWithVersions(modelConfig), StatusCode::OK_RELOADED);
 
     // Create pipeline definition
@@ -377,7 +383,8 @@ TEST_F(ModelWithInputOutputNameMappedModel, GetModelMetadataOnKFSEndpoint) {
 
     // Load models
     auto modelConfig = DUMMY_MODEL_CONFIG;
-    modelConfig.setBasePath(modelPath);
+    adjustConfigToAllowModelFileRemovalWhenLoaded(modelConfig);
+    modelConfig.setBasePath(getGenericFullPathForSrcTest(modelPath));
     ASSERT_EQ(managerWithDummyModel.reloadModelWithVersions(modelConfig), StatusCode::OK_RELOADED);
 
     auto model = managerWithDummyModel.findModelByName("dummy");
@@ -406,7 +413,8 @@ TEST_F(ModelWithInputOutputNameMappedModel, GetModelMetadataOnTfsEndpoint) {
 
     // Load models
     auto modelConfig = DUMMY_MODEL_CONFIG;
-    modelConfig.setBasePath(modelPath);
+    adjustConfigToAllowModelFileRemovalWhenLoaded(modelConfig);
+    modelConfig.setBasePath(getGenericFullPathForSrcTest(modelPath));
     ASSERT_EQ(managerWithDummyModel.reloadModelWithVersions(modelConfig), StatusCode::OK_RELOADED);
 
     auto model = managerWithDummyModel.findModelByName("dummy");

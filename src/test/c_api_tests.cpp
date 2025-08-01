@@ -24,9 +24,16 @@
 
 #include <gtest/gtest.h>
 
-#include "../capi_frontend/buffer.hpp"
+#include "../capi_frontend/capi_request_utils.hpp"
+#include "../deserialization_main.hpp"
+#include "../inference_executor.hpp"
 #include "../capi_frontend/capi_utils.hpp"
+#include "../capi_frontend/serialization.hpp"
+#include "../capi_frontend/deserialization.hpp"
+#include "../capi_frontend/inferencerequest.hpp"
 #include "../capi_frontend/inferenceresponse.hpp"
+#include "../capi_frontend/buffer.hpp"
+#include "../capi_frontend/capi_dag_utils.hpp"
 #include "../capi_frontend/servablemetadata.hpp"
 #include "../dags/pipelinedefinitionstatus.hpp"
 #include "../metric_module.hpp"
@@ -75,7 +82,7 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     ModelsSettingsImpl* modelsSettings = reinterpret_cast<ModelsSettingsImpl*>(_modelsSettings);
 
     // Test default values
-    EXPECT_EQ(serverSettings->grpcPort, 9178);
+    EXPECT_EQ(serverSettings->grpcPort, 0);
     EXPECT_EQ(serverSettings->restPort, 0);
     EXPECT_EQ(serverSettings->grpcWorkers, 1);
     EXPECT_EQ(serverSettings->grpcBindAddress, "0.0.0.0");
@@ -111,16 +118,16 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetFileSystemPollWaitSeconds(_serverSettings, 2));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetSequenceCleanerPollWaitMinutes(_serverSettings, 3));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetCustomNodeResourcesCleanerIntervalSeconds(_serverSettings, 4));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetCpuExtensionPath(_serverSettings, "/ovms/src/test"));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetCacheDir(_serverSettings, "/tmp/cache"));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetCpuExtensionPath(_serverSettings, getGenericFullPathForSrcTest("/ovms/src/test").c_str()));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetCacheDir(_serverSettings, getGenericFullPathForTmp("/tmp/cache").c_str()));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetLogLevel(_serverSettings, OVMS_LOG_INFO));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetLogLevel(_serverSettings, OVMS_LOG_ERROR));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetLogLevel(_serverSettings, OVMS_LOG_DEBUG));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetLogLevel(_serverSettings, OVMS_LOG_WARNING));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetLogLevel(_serverSettings, OVMS_LOG_TRACE));
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetLogLevel(_serverSettings, static_cast<OVMS_LogLevel>(99)), StatusCode::NONEXISTENT_LOG_LEVEL);
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetLogPath(_serverSettings, "/logs"));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(_modelsSettings, "/config"));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetLogPath(_serverSettings, getGenericFullPathForTmp("/tmp/logs").c_str()));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(_modelsSettings, getGenericFullPathForTmp("/tmp/config").c_str()));
     // check nullptr
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetGrpcPort(nullptr, 5555), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetRestPort(nullptr, 6666), StatusCode::NONEXISTENT_PTR);
@@ -139,12 +146,12 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetCustomNodeResourcesCleanerIntervalSeconds(nullptr, 4), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetCpuExtensionPath(nullptr, "/ovms/src/test"), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetCpuExtensionPath(_serverSettings, nullptr), StatusCode::NONEXISTENT_PTR);
-    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetCacheDir(nullptr, "/tmp/cache"), StatusCode::NONEXISTENT_PTR);
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetCacheDir(nullptr, getGenericFullPathForTmp("/tmp/cache").c_str()), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetCacheDir(_serverSettings, nullptr), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetLogLevel(nullptr, OVMS_LOG_TRACE), StatusCode::NONEXISTENT_PTR);
-    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetLogPath(nullptr, "/logs"), StatusCode::NONEXISTENT_PTR);
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetLogPath(nullptr, getGenericFullPathForTmp("/tmp/logs").c_str()), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetLogPath(_serverSettings, nullptr), StatusCode::NONEXISTENT_PTR);
-    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ModelsSettingsSetConfigPath(nullptr, "/config"), StatusCode::NONEXISTENT_PTR);
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ModelsSettingsSetConfigPath(nullptr, getGenericFullPathForTmp("/tmp/config").c_str()), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ModelsSettingsSetConfigPath(_modelsSettings, nullptr), StatusCode::NONEXISTENT_PTR);
 
     // Test non default values
@@ -156,9 +163,9 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     EXPECT_EQ(serverSettings->restBindAddress, "3.3.3.3");
     // EXPECT_EQ(serverSettings->metricsEnabled, false);
     // EXPECT_EQ(serverSettings->metricsList, "");
-    EXPECT_EQ(serverSettings->cpuExtensionLibraryPath, "/ovms/src/test");
+    EXPECT_EQ(serverSettings->cpuExtensionLibraryPath, getGenericFullPathForSrcTest("/ovms/src/test"));
     EXPECT_EQ(serverSettings->logLevel, "TRACE");
-    EXPECT_EQ(serverSettings->logPath, "/logs");
+    EXPECT_EQ(serverSettings->logPath, getGenericFullPathForTmp("/tmp/logs"));
     // trace path  // not tested since it is not supported in C-API
     EXPECT_EQ(serverSettings->grpcChannelArguments, "grpcargs");
     EXPECT_EQ(serverSettings->grpcMaxThreads, 100);
@@ -166,31 +173,37 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     EXPECT_EQ(serverSettings->filesystemPollWaitMilliseconds, 2000);
     EXPECT_EQ(serverSettings->sequenceCleanerPollWaitMinutes, 3);
     EXPECT_EQ(serverSettings->resourcesCleanerPollWaitSeconds, 4);
-    EXPECT_EQ(serverSettings->cacheDir, "/tmp/cache");
+    EXPECT_EQ(serverSettings->cacheDir, getGenericFullPathForTmp("/tmp/cache"));
 
     testDefaultSingleModelOptions(modelsSettings);
-    EXPECT_EQ(modelsSettings->configPath, "/config");
+    EXPECT_EQ(modelsSettings->configPath, getGenericFullPathForTmp("/tmp/config"));
 
     // Test config parser
     ConstructorEnabledConfig cfg;
+#ifdef __linux__
     ASSERT_TRUE(cfg.parse(serverSettings, modelsSettings));
+    EXPECT_EQ(cfg.grpcWorkers(), AVAILABLE_CORES);
+#elif _WIN32
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcWorkers(_serverSettings, 1));
+    ASSERT_TRUE(cfg.parse(serverSettings, modelsSettings));
+    EXPECT_EQ(cfg.grpcWorkers(), 1);
+#endif
     EXPECT_EQ(cfg.port(), 5555);
     EXPECT_EQ(cfg.restPort(), 6666);
-    EXPECT_EQ(cfg.grpcWorkers(), AVAILABLE_CORES);
     EXPECT_EQ(cfg.grpcBindAddress(), "2.2.2.2");
     EXPECT_EQ(cfg.restWorkers(), 31);
     EXPECT_EQ(cfg.restBindAddress(), "3.3.3.3");
     // EXPECT_EQ(serverSettings->metricsEnabled, false);
     // EXPECT_EQ(serverSettings->metricsList, "");
-    EXPECT_EQ(cfg.cpuExtensionLibraryPath(), "/ovms/src/test");
+    EXPECT_EQ(cfg.cpuExtensionLibraryPath(), getGenericFullPathForSrcTest("/ovms/src/test"));
     EXPECT_EQ(cfg.logLevel(), "TRACE");
-    EXPECT_EQ(cfg.logPath(), "/logs");
+    EXPECT_EQ(cfg.logPath(), getGenericFullPathForTmp("/tmp/logs"));
     // trace path  // not tested since it is not supported in C-API
     EXPECT_EQ(cfg.grpcChannelArguments(), "grpcargs");
     EXPECT_EQ(cfg.filesystemPollWaitMilliseconds(), 2000);
     EXPECT_EQ(cfg.sequenceCleanerPollWaitMinutes(), 3);
     EXPECT_EQ(cfg.resourcesCleanerPollWaitSeconds(), 4);
-    EXPECT_EQ(cfg.cacheDir(), "/tmp/cache");
+    EXPECT_EQ(cfg.cacheDir(), getGenericFullPathForTmp("/tmp/cache"));
 
     EXPECT_EQ(cfg.modelName(), "");
     EXPECT_EQ(cfg.modelPath(), "");
@@ -206,7 +219,7 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     EXPECT_EQ(cfg.maxSequenceNumber(), DEFAULT_MAX_SEQUENCE_NUMBER);
     EXPECT_TRUE(cfg.idleSequenceCleanup());
 
-    EXPECT_EQ(cfg.configPath(), "/config");
+    EXPECT_EQ(cfg.configPath(), getGenericFullPathForTmp("/tmp/config"));
 
     OVMS_ModelsSettingsDelete(nullptr);
     OVMS_ModelsSettingsDelete(_modelsSettings);
@@ -247,14 +260,15 @@ TEST(CAPIStartTest, StartFlow) {
     // Cannot start due to configuration error
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, 5555));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetRestPort(serverSettings, 5555));  // The same port
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config.json"));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/config.json").c_str()));
 
     // Expect fail
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerStartFromConfigurationFile(srv, serverSettings, modelsSettings),
         StatusCode::OPTIONS_USAGE_ERROR);
 
     // Fix and expect ok
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetRestPort(serverSettings, 6666));  // Different port
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetRestPort(serverSettings, 0));
+    // ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetRestPort(serverSettings, 6666));  // Different port TODO @atobisze @dkalinow not really needed for C-API
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(srv, serverSettings, modelsSettings));
 
     // Try to start again, expect failure
@@ -395,19 +409,8 @@ TEST(CAPIInferenceResponse, Basic) {
 }
 
 TEST_F(CAPIInference, Validation) {
-    std::string port = "9000";
-    randomizePort(port);
-    OVMS_ServerSettings* serverSettings = nullptr;
-    OVMS_ModelsSettings* modelsSettings = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettings));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
-    ASSERT_NE(serverSettings, nullptr);
-    ASSERT_NE(modelsSettings, nullptr);
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_standard_dummy.json"));
-    OVMS_Server* cserver = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_standard_dummy.json").c_str());
+    OVMS_Server* cserver = serverGuard.server;
     ASSERT_NE(cserver, nullptr);
     OVMS_InferenceRequest* request{nullptr};
     ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestNew(&request, cserver, "dummy", 1));
@@ -423,10 +426,66 @@ TEST_F(CAPIInference, Validation) {
     OVMS_InferenceResponse* response = nullptr;
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_Inference(cserver, request, &response), StatusCode::INVALID_PRECISION);
     OVMS_InferenceRequestDelete(request);
-    OVMS_ServerDelete(cserver);
 }
+
+TEST_F(CAPIInference, ValidationMaliciousTensorStaticShapeModel) {
+    // Prepare request with tensor shape not alligining with data size with overflow attempt
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_standard_dummy.json"));
+    OVMS_Server* cserver = serverGuard.server;
+    ASSERT_NE(cserver, nullptr);
+    OVMS_InferenceRequest* request{nullptr};
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestNew(&request, cserver, "dummy", 1));
+    ASSERT_NE(nullptr, request);
+    int64_t shape[2] = {std::numeric_limits<size_t>::max() / 5 + 2, 5};
+    // multiplication will overflow size_t
+    size_t numElements = shape[0] * shape[1];
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestAddInput(request, DUMMY_MODEL_INPUT_NAME, OVMS_DATATYPE_FP32, shape, 2));
+    std::vector<float> data(numElements);
+    for (size_t i = 0; i < numElements; ++i) {
+        data[i] = static_cast<float>(i);
+    }
+    uint32_t notUsedNum = 0;
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestInputSetData(request, DUMMY_MODEL_INPUT_NAME, reinterpret_cast<void*>(data.data()), sizeof(float) * data.size(), OVMS_BUFFERTYPE_CPU, notUsedNum));
+    InferenceRequest* ir = reinterpret_cast<InferenceRequest*>(request);
+    size_t size = 0;
+    ASSERT_EQ(ir->getBatchSize(size, 10), StatusCode::INTERNAL_ERROR);
+    ASSERT_EQ(ir->getBatchSize(size, 0), StatusCode::OK);
+    OVMS_InferenceResponse* response = nullptr;
+    // Validation captures shape mismatch with model defined static shape
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_Inference(cserver, request, &response), StatusCode::INVALID_BATCH_SIZE);
+    OVMS_InferenceRequestDelete(request);
+}
+
+TEST_F(CAPIInference, ValidationMaliciousTensorDynamicShapeModel) {
+    // Prepare request with tensor shape not alligining with data size with overflow attempt
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_dummy_full_dynamic_shape.json"));
+    OVMS_Server* cserver = serverGuard.server;
+    ASSERT_NE(cserver, nullptr);
+    OVMS_InferenceRequest* request{nullptr};
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestNew(&request, cserver, "dummy", 1));
+    ASSERT_NE(nullptr, request);
+    int64_t shape[2] = {std::numeric_limits<size_t>::max() / 5 + 2, 5};
+    // multiplication will overflow size_t
+    size_t numElements = shape[0] * shape[1];
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestAddInput(request, DUMMY_MODEL_INPUT_NAME, OVMS_DATATYPE_FP32, shape, 2));
+    std::vector<float> data(numElements);
+    for (size_t i = 0; i < numElements; ++i) {
+        data[i] = static_cast<float>(i);
+    }
+    uint32_t notUsedNum = 0;
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestInputSetData(request, DUMMY_MODEL_INPUT_NAME, reinterpret_cast<void*>(data.data()), sizeof(float) * data.size(), OVMS_BUFFERTYPE_CPU, notUsedNum));
+    InferenceRequest* ir = reinterpret_cast<InferenceRequest*>(request);
+    size_t size = 0;
+    ASSERT_EQ(ir->getBatchSize(size, 10), StatusCode::INTERNAL_ERROR);
+    ASSERT_EQ(ir->getBatchSize(size, 0), StatusCode::OK);
+    OVMS_InferenceResponse* response = nullptr;
+    // For models with dynamic shape validation captures shape overflow
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_Inference(cserver, request, &response), StatusCode::INVALID_SHAPE);
+    OVMS_InferenceRequestDelete(request);
+}
+
 TEST_F(CAPIInference, AcceptInputRejectOutputStringPrecision) {
-    ServerGuard serverGuard("/ovms/src/test/configs/config_string.json");
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_string.json"));
     OVMS_Server* cserver = serverGuard.server;
     OVMS_InferenceRequest* request{nullptr};
     ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestNew(&request, cserver, "passthrough", 1));
@@ -443,19 +502,8 @@ TEST_F(CAPIInference, AcceptInputRejectOutputStringPrecision) {
 }
 
 TEST_F(CAPIInference, TwoInputs) {
-    std::string port = "9000";
-    randomizePort(port);
-    OVMS_ServerSettings* serverSettings = nullptr;
-    OVMS_ModelsSettings* modelsSettings = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettings));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
-    ASSERT_NE(serverSettings, nullptr);
-    ASSERT_NE(modelsSettings, nullptr);
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_double_dummy.json"));
-    OVMS_Server* cserver = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_double_dummy.json").c_str());
+    OVMS_Server* cserver = serverGuard.server;
     ASSERT_NE(cserver, nullptr);
     OVMS_InferenceRequest* request{nullptr};
     ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestNew(&request, cserver, "pipeline1Dummy", 1));
@@ -507,28 +555,13 @@ TEST_F(CAPIInference, TwoInputs) {
     }
     OVMS_InferenceResponseDelete(response);
     OVMS_InferenceRequestDelete(request);
-    OVMS_ServerDelete(cserver);
 }
 TEST_F(CAPIInference, Basic) {
     //////////////////////
     // start server
     //////////////////////
-    // remove when C-API start implemented
-    std::string port = "9000";
-    randomizePort(port);
-    // prepare options
-    OVMS_ServerSettings* serverSettings = nullptr;
-    OVMS_ModelsSettings* modelsSettings = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettings));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
-    ASSERT_NE(serverSettings, nullptr);
-    ASSERT_NE(modelsSettings, nullptr);
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_standard_dummy.json"));
-
-    OVMS_Server* cserver = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_standard_dummy.json").c_str());
+    OVMS_Server* cserver = serverGuard.server;
     ASSERT_NE(cserver, nullptr);
     ///////////////////////
     // request creation
@@ -641,22 +674,10 @@ TEST_F(CAPIInference, Basic) {
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_InferenceRequestRemoveInput(request, nullptr), StatusCode::NONEXISTENT_PTR);
     OVMS_InferenceRequestDelete(nullptr);
     OVMS_InferenceRequestDelete(request);
-    OVMS_ServerDelete(cserver);
 }
 TEST_F(CAPIInference, ReuseInputRemoveAndAddData) {
-    std::string port = "9000";
-    randomizePort(port);
-    OVMS_ServerSettings* serverSettings = nullptr;
-    OVMS_ModelsSettings* modelsSettings = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettings));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
-    ASSERT_NE(serverSettings, nullptr);
-    ASSERT_NE(modelsSettings, nullptr);
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_standard_dummy.json"));
-    OVMS_Server* cserver = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_standard_dummy.json").c_str());
+    OVMS_Server* cserver = serverGuard.server;
     ASSERT_NE(cserver, nullptr);
     ///////////////////////
     // request creation
@@ -744,23 +765,11 @@ TEST_F(CAPIInference, ReuseInputRemoveAndAddData) {
     }
     OVMS_InferenceResponseDelete(response);
     OVMS_InferenceRequestDelete(request);
-    OVMS_ServerDelete(cserver);
 }
 
 TEST_F(CAPIInference, ReuseRequestRemoveAndAddInput) {
-    std::string port = "9000";
-    randomizePort(port);
-    OVMS_ServerSettings* serverSettings = nullptr;
-    OVMS_ModelsSettings* modelsSettings = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettings));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
-    ASSERT_NE(serverSettings, nullptr);
-    ASSERT_NE(modelsSettings, nullptr);
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_dummy_dynamic_shape.json"));
-    OVMS_Server* cserver = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_dummy_dynamic_shape.json").c_str());
+    OVMS_Server* cserver = serverGuard.server;
     ASSERT_NE(cserver, nullptr);
     ///////////////////////
     // request creation
@@ -850,13 +859,12 @@ TEST_F(CAPIInference, ReuseRequestRemoveAndAddInput) {
     }
     OVMS_InferenceResponseDelete(response);
     OVMS_InferenceRequestDelete(request);
-    OVMS_ServerDelete(cserver);
 }
 
 TEST_F(CAPIInference, NegativeInference) {
     // first start OVMS
     std::string port = "9000";
-    randomizePort(port);
+    randomizeAndEnsureFree(port);
     // prepare options
     OVMS_ServerSettings* serverSettings = 0;
     OVMS_ModelsSettings* modelsSettings = 0;
@@ -865,7 +873,7 @@ TEST_F(CAPIInference, NegativeInference) {
     ASSERT_NE(serverSettings, nullptr);
     ASSERT_NE(modelsSettings, nullptr);
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_standard_dummy.json"));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/config_standard_dummy.json").c_str()));
 
     OVMS_Server* cserver = nullptr;
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
@@ -957,7 +965,7 @@ TEST_F(CAPIInference, NegativeInference) {
 }
 TEST_F(CAPIInference, String) {
     using std::string;
-    ServerGuard serverGuard("/ovms/src/test/configs/config_string.json");
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_string.json"));
     OVMS_InferenceRequest* request{nullptr};
     const string MODEL_NAME = "passthrough";
     const string INPUT_NAME = "my_name";
@@ -1025,22 +1033,8 @@ TEST_F(CAPIInference, Scalar) {
     //////////////////////
     // start server
     //////////////////////
-    // remove when C-API start implemented
-    std::string port = "9000";
-    randomizePort(port);
-    // prepare options
-    OVMS_ServerSettings* serverSettings = nullptr;
-    OVMS_ModelsSettings* modelsSettings = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettings));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
-    ASSERT_NE(serverSettings, nullptr);
-    ASSERT_NE(modelsSettings, nullptr);
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_standard_scalar.json"));
-
-    OVMS_Server* cserver = nullptr;
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
+    ServerGuard serverGuard(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_standard_scalar.json").c_str());
+    OVMS_Server* cserver = serverGuard.server;
     ASSERT_NE(cserver, nullptr);
     ///////////////////////
     // request creation
@@ -1064,6 +1058,7 @@ TEST_F(CAPIInference, Scalar) {
     ASSERT_CAPI_STATUS_NULL(OVMS_Inference(cserver, request, &response));
     // verify GetOutputCount
     uint32_t outputCount = 42;
+    ASSERT_NE(nullptr, response);
     ASSERT_CAPI_STATUS_NULL(OVMS_InferenceResponseOutputCount(response, &outputCount));
     ASSERT_EQ(outputCount, 1);
     // verify GetOutput
@@ -1090,7 +1085,6 @@ TEST_F(CAPIInference, Scalar) {
     ///////////////
     OVMS_InferenceResponseDelete(response);
     OVMS_InferenceRequestDelete(request);
-    OVMS_ServerDelete(cserver);
 }
 
 namespace {
@@ -1196,7 +1190,7 @@ protected:
 public:
     static void SetUpTestSuite() {
         std::string port = "9000";
-        randomizePort(port);
+        randomizeAndEnsureFree(port);
         // prepare options
         OVMS_ServerSettings* serverSettings = nullptr;
         OVMS_ModelsSettings* modelsSettings = nullptr;
@@ -1205,7 +1199,7 @@ public:
         ASSERT_NE(serverSettings, nullptr);
         ASSERT_NE(modelsSettings, nullptr);
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-        ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_metadata_all.json"));
+        ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/config_metadata_all.json").c_str()));
         cserver = nullptr;
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
@@ -1366,6 +1360,9 @@ TEST_F(CAPIMetadata, Negative) {
 class CAPIState : public ::testing::Test {
 public:
     static std::shared_ptr<MockModelInstanceChangingStates> modelInstance;
+    static void TearDownTestSuite() {
+        modelInstance.reset();
+    }
     class MockModel : public Model {
     public:
         MockModel(const std::string& name, std::shared_ptr<ModelInstance> instance) :
@@ -1397,8 +1394,8 @@ public:
     public:
         MockServableManagerModule(Server& server) :
             ServableManagerModule(server) {
-            state = ModuleState::INITIALIZED;
             servableManager = std::make_unique<MockModelManager>();
+            state = ModuleState::INITIALIZED;
         }
     };
     class MockServer : public Server {
@@ -1413,7 +1410,7 @@ public:
         }
         void setLive() {
             Module* grpc = new MockGrpcServerModule();
-            modules.insert({GRPC_SERVER_MODULE_NAME, std::unique_ptr<Module>(grpc)});
+            modules.insert({CAPI_MODULE_NAME, std::unique_ptr<Module>(grpc)});
         }
     };
 };
@@ -1432,17 +1429,17 @@ TEST_F(CAPIStateIntegration, LiveReadyFromMalformedConfig) {
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&server));
     OVMS_ServerSettings* serverSettings = nullptr;
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettings));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetRestPort(serverSettings, 9000));
     OVMS_ModelsSettings* modelsSettings = nullptr;
     ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
-    bool isReady;
-    bool isLive;
+    bool isReady = true;
+    bool isLive = true;
     OVMS_ServerLive(server, &isLive);
     ASSERT_TRUE(!isLive);
     OVMS_ServerReady(server, &isReady);
     ASSERT_TRUE(!isReady);
     createConfigFileWithContent("{", configFilePath);
     ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, configFilePath.c_str()));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, 5555));
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerStartFromConfigurationFile(server, serverSettings, modelsSettings), StatusCode::JSON_INVALID);
     OVMS_ServerLive(server, &isLive);
     ASSERT_TRUE(isLive);
@@ -1458,7 +1455,6 @@ TEST_F(CAPIStateIntegration, LiveReadyFromConfig) {
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&server));
     OVMS_ServerSettings* serverSettings = nullptr;
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettings));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetRestPort(serverSettings, 9000));
     OVMS_ModelsSettings* modelsSettings = nullptr;
     ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
     bool isReady;
@@ -1469,8 +1465,9 @@ TEST_F(CAPIStateIntegration, LiveReadyFromConfig) {
     ASSERT_TRUE(!isLive);
     OVMS_ServerReady(server, &isReady);
     ASSERT_TRUE(!isReady);
-    std::filesystem::copy("/ovms/src/test/configs/emptyConfigWithMetrics.json", configFilePath, std::filesystem::copy_options::recursive);
+    std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/configs/emptyConfig.json"), configFilePath, std::filesystem::copy_options::recursive);
     ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, configFilePath.c_str()));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, 5555));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(server, serverSettings, modelsSettings));
     OVMS_ServerLive(server, &isLive);
     ASSERT_TRUE(isLive);
@@ -1493,14 +1490,13 @@ TEST_F(CAPIStateIntegration, Config) {
     OVMS_ServerSettings* serverSettings = nullptr;
     ASSERT_CAPI_STATUS_NULL(
         OVMS_ServerSettingsNew(&serverSettings));
-    ASSERT_CAPI_STATUS_NULL(
-        OVMS_ServerSettingsSetRestPort(serverSettings, 9000));
     ovms::ServerSettingsImpl* directPtrServerSettings = reinterpret_cast<ovms::ServerSettingsImpl*>(serverSettings);
     directPtrServerSettings->filesystemPollWaitMilliseconds = 20;  // mock 20ms config.json polling to make the test shorter
+    directPtrServerSettings->grpcPort = 5555;                      // need to set to sth
     OVMS_ModelsSettings* modelsSettings = nullptr;
     ASSERT_CAPI_STATUS_NULL(
         OVMS_ModelsSettingsNew(&modelsSettings));
-    std::filesystem::copy("/ovms/src/test/configs/emptyConfigWithMetrics.json", configFilePath, std::filesystem::copy_options::recursive);
+    std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/configs/emptyConfig.json"), configFilePath, std::filesystem::copy_options::recursive);
     ASSERT_CAPI_STATUS_NULL(
         OVMS_ModelsSettingsSetConfigPath(modelsSettings, configFilePath.c_str()));
     ASSERT_CAPI_STATUS_NULL(
@@ -1512,7 +1508,7 @@ TEST_F(CAPIStateIntegration, Config) {
         OVMS_GetServableState(cserver, "pipeline1Dummy", servableVersion, &state), StatusCode::MODEL_NAME_MISSING);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(
         OVMS_GetServableState(cserver, "mediaDummy", servableVersion, &state), StatusCode::MODEL_NAME_MISSING);
-    std::filesystem::copy("/ovms/src/test/configs/config_metadata_all.json", configFilePath, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/configs/config_metadata_all.json"), configFilePath, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
     Server* server = reinterpret_cast<Server*>(cserver);
     const ovms::Module* servableModule = server->getModule(ovms::SERVABLE_MANAGER_MODULE_NAME);
     ModelManager* modelManager = &dynamic_cast<const ServableManagerModule*>(servableModule)->getServableManager();
@@ -1526,7 +1522,7 @@ TEST_F(CAPIStateIntegration, Config) {
         OVMS_GetServableState(cserver, "pipeline1Dummy", servableVersion, &state));
     EXPECT_EQ(state, OVMS_ServableState::OVMS_STATE_AVAILABLE);
 #if (MEDIAPIPE_DISABLE == 0)
-    std::filesystem::copy("/ovms/src/test/mediapipe/config_mediapipe_dummy_adapter_full.json", configFilePath, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/mediapipe/config_mediapipe_dummy_adapter_full.json"), configFilePath, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
     waitForOVMSConfigReload(*modelManager);
     ASSERT_CAPI_STATUS_NULL(
         OVMS_GetServableState(cserver, "mediaDummy", servableVersion, &state));
@@ -1590,32 +1586,32 @@ TEST_F(CAPIState, ServerNull) {
 TEST_F(CAPIState, AllStates) {
     const std::string servableName = "dummy";
     const int64_t servableVersion = 1;
-    MockServer* cserver = new MockServer;
+    auto uptrCserver = std::make_unique<MockServer>();
+    MockServer* cserver = uptrCserver.get();
     cserver->setReady();
     cserver->setLive();
     OVMS_Server* server = reinterpret_cast<OVMS_Server*>(cserver);
     OVMS_ServableState state;
 
     CAPIState::modelInstance->setState(ovms::ModelVersionState::START);
-    OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state);
+    ASSERT_CAPI_STATUS_NULL(OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state));
     ASSERT_EQ(state, OVMS_ServableState::OVMS_STATE_BEGIN);
 
     CAPIState::modelInstance->setState(ovms::ModelVersionState::AVAILABLE);
-    OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state);
+    ASSERT_CAPI_STATUS_NULL(OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state));
     EXPECT_EQ(state, OVMS_ServableState::OVMS_STATE_AVAILABLE);
 
     CAPIState::modelInstance->setState(ovms::ModelVersionState::UNLOADING);
-    OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state);
+    ASSERT_CAPI_STATUS_NULL(OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state));
     EXPECT_EQ(state, OVMS_ServableState::OVMS_STATE_UNLOADING);
 
     CAPIState::modelInstance->setState(ovms::ModelVersionState::END);
-    OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state);
+    ASSERT_CAPI_STATUS_NULL(OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state));
     EXPECT_EQ(state, OVMS_ServableState::OVMS_STATE_RETIRED);
 
     CAPIState::modelInstance->setState(ovms::ModelVersionState::LOADING);
-    OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state);
+    ASSERT_CAPI_STATUS_NULL(OVMS_GetServableState(server, servableName.c_str(), servableVersion, &state));
     ASSERT_EQ(state, OVMS_ServableState::OVMS_STATE_LOADING);
-    delete cserver;
 }
 
 TEST_F(CAPIMetadata, BasicDummy) {
@@ -1700,7 +1696,7 @@ protected:
     const char* outputName{nullptr};
     void SetUp() override {
         std::string port = "9000";
-        randomizePort(port);
+        randomizeAndEnsureFree(port);
         // prepare options
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettings));
         ASSERT_NE(serverSettings, nullptr);
@@ -1736,7 +1732,7 @@ TEST_F(CAPIDagInference, BasicDummyDag) {
     //////////////////////
     // start server
     //////////////////////
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_dummy_dag.json"));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/config_dummy_dag.json").c_str()));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
     ///////////////////////
     // request creation
@@ -1785,7 +1781,7 @@ TEST_F(CAPIDagInference, DynamicEntryDummyDag) {
     //////////////////////
     // start server
     //////////////////////
-    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config_dummy_dynamic_entry_dag.json"));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/config_dummy_dynamic_entry_dag.json").c_str()));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
     ///////////////////////
     // request creation
@@ -1873,7 +1869,7 @@ TEST(CAPI, MultipleThreadsStarting) {
             ASSERT_NE(modelsSettings, nullptr);
 
             ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, 8000 + i));
-            ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, "/ovms/src/test/configs/config.json"));
+            ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/config.json").c_str()));
             promisesThreadReady[i].set_value();
             futures[i].get();
             OVMS_Status* cstatus = OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings);
@@ -1920,4 +1916,100 @@ TEST(CAPI, MultipleThreadsStarting) {
     SPDLOG_INFO("Started: {}, alreadyStarting: {}, alreadyStarted: {}", started, alreadyStarting, alreadyStarted);
     EXPECT_EQ(started, 1);
     EXPECT_EQ(alreadyStarted + alreadyStarting, threadsCount - 1);
+}
+struct CallbackUnblockingAndCheckingStruct : CallbackUnblockingStruct {
+    std::promise<void> signal;
+    float expectedValue{-1231571};
+};
+
+static void callbackCheckingIfErrorReported(OVMS_InferenceResponse* response, uint32_t flag, void* userStruct) {
+    SPDLOG_DEBUG("Using callback: callbackCheckingIfErrorReported!");
+    EXPECT_NE(flag, 0);
+    CallbackUnblockingAndCheckingStruct* callbackStruct = reinterpret_cast<CallbackUnblockingAndCheckingStruct*>(userStruct);
+    callbackStruct->signal.set_value();
+}
+static void callbackUnblockingAndCheckingResponse(OVMS_InferenceResponse* response, uint32_t flag, void* userStruct) {
+    EXPECT_EQ(flag, 0);
+    SPDLOG_DEBUG("Using callback: callbackUnblockingAndFreeingRequest!");
+    CallbackUnblockingAndCheckingStruct* callbackStruct = reinterpret_cast<CallbackUnblockingAndCheckingStruct*>(userStruct);
+    callbackStruct->signal.set_value();
+    checkDummyResponse(response, callbackStruct->expectedValue, 0);
+    OVMS_InferenceResponseDelete(response);
+}
+const std::string DUMMY_MODEL_CPU_CONFIG_PATH{getGenericFullPathForSrcTest("/ovms/src/test/configs/config_cpu_dummy.json").c_str()};
+class MockModelInstanceWithSetOutputInfo : public ovms::ModelInstance {
+public:
+    MockModelInstanceWithSetOutputInfo(ov::Core& ieCore) :
+        ModelInstance(std::string("UNUSED_NAME"), 0, ieCore, nullptr, nullptr) {
+        status = ovms::ModelVersionStatus("UNUSED_NAME", UNUSED_MODEL_VERSION, ovms::ModelVersionState::START);
+    }
+    virtual ~MockModelInstanceWithSetOutputInfo() {}
+    ovms::Status loadModel(const ovms::ModelConfig& config) override {
+        ModelInstance::loadModel(config);
+        return ovms::StatusCode::OK;
+    }
+    void setOutputsInfo(const tensor_map_t& outputsInfo) {
+        this->outputsInfo = outputsInfo;
+    }
+};
+
+const float INITIAL_VALUE{0.13666};
+const float GARBAGE_VALUE = 42.66613;
+const float FLOAT_TOLERANCE{0.001};
+TEST_F(CAPIInference, AsyncWithCallbackDummy) {
+    std::vector<float> in(10, INITIAL_VALUE);
+    std::vector<float> out(10, GARBAGE_VALUE);
+    size_t inputByteSize = sizeof(float) * in.size();
+    // start CAPI server
+    bool startGrpc = true;  // WA to be able to test async inference but do not encounter closure issues CVS-164617
+    ServerGuard serverGuard(DUMMY_MODEL_CPU_CONFIG_PATH, startGrpc);
+    OVMS_Server* cserver = serverGuard.server;
+    // prepare request
+    OVMS_InferenceRequest* request{nullptr};
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestNew(&request, cserver, "dummy", 1));
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestAddInput(request, DUMMY_MODEL_INPUT_NAME, OVMS_DATATYPE_FP32, DUMMY_MODEL_SHAPE.data(), DUMMY_MODEL_SHAPE.size()));
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestAddOutput(request, DUMMY_MODEL_OUTPUT_NAME, OVMS_DATATYPE_FP32, DUMMY_MODEL_SHAPE.data(), DUMMY_MODEL_SHAPE.size()));
+    std::vector<float> data(DUMMY_MODEL_INPUT_SIZE, INITIAL_VALUE);
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestInputSetData(request, DUMMY_MODEL_INPUT_NAME, in.data(), inputByteSize, OVMS_BUFFERTYPE_CPU, 0));
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestOutputSetData(request, DUMMY_MODEL_OUTPUT_NAME, out.data(), inputByteSize, OVMS_BUFFERTYPE_CPU, 0));
+    // set callback
+    CallbackUnblockingAndCheckingStruct callbackStruct;
+    auto unblockSignal = callbackStruct.signal.get_future();
+    callbackStruct.bufferAddr = out.data();
+    callbackStruct.expectedValue = INITIAL_VALUE + 1;
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceRequestSetCompletionCallback(request, callbackUnblockingAndCheckingResponse, reinterpret_cast<void*>(&callbackStruct)));
+    // infer
+    ASSERT_CAPI_STATUS_NULL(OVMS_InferenceAsync(cserver, request));
+    // check
+    unblockSignal.get();
+
+    const float* outputData = reinterpret_cast<const float*>(out.data());
+    for (size_t i = 0; i < data.size(); ++i) {
+        EXPECT_NEAR(in[i] + 1, outputData[i], FLOAT_TOLERANCE) << "Different at:" << i << " place.";
+    }
+    SPDLOG_INFO("Using callbacks!");
+}
+TEST_F(CAPIInference, AsyncErrorHandling) {
+    ov::Core core;
+    MockModelInstanceWithSetOutputInfo instance(core);
+    instance.loadModel(DUMMY_MODEL_CONFIG);
+    std::unique_ptr<ModelInstanceUnloadGuard> unloadGuard;  // we do not need it to be set
+    ovms::InferenceRequest request("dummy", 0);
+    std::vector<float> in(10, INITIAL_VALUE);
+    request.addInput(DUMMY_MODEL_INPUT_NAME, OVMS_DATATYPE_FP32, DUMMY_MODEL_SHAPE.data(), DUMMY_MODEL_SHAPE.size());
+    request.setInputBuffer(DUMMY_MODEL_INPUT_NAME, in.data(), DUMMY_MODEL_SHAPE[1] * sizeof(float), OVMS_BUFFERTYPE_CPU, 0);
+    ovms::InferenceResponse response;
+    auto outputInfo = instance.getOutputsInfo();
+    outputInfo["NOT_EXISTING"] = std::make_shared<ovms::TensorInfo>("BADUMTSSS", ovms::Precision::UNDEFINED, shape_t{});
+    instance.waitForLoaded(0, unloadGuard);
+    CallbackUnblockingAndCheckingStruct callbackStruct;
+    auto unblockSignal = callbackStruct.signal.get_future();
+    request.setCompletionCallback(callbackCheckingIfErrorReported, &callbackStruct);
+    instance.setOutputsInfo(outputInfo);
+    auto status = ovms::modelInferAsync<ovms::InferenceRequest, ovms::InferenceResponse>(instance, &request, unloadGuard);
+    EXPECT_EQ(status, ovms::StatusCode::OK) << status.string();
+    unblockSignal.get();
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    unloadGuard.reset();
+    instance.retireModel();
 }

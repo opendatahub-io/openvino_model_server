@@ -21,10 +21,16 @@
 #include <vector>
 
 #include <openvino/openvino.hpp>
+#pragma warning(push)
+#pragma warning(disable : 6313)
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
+#pragma warning(pop)
 
+#pragma warning(push)
+#pragma warning(disable : 6001 6385 6386)
 #include "absl/status/status.h"
+#pragma warning(pop)
 
 using namespace rapidjson;
 
@@ -57,8 +63,8 @@ public:
 
     std::string getModel() const;
     std::string getQuery() const;
-    std::vector<std::string> getDocumentsList() const;
-    std::unordered_map<std::string, std::string> getDocumentsMap() const;
+    const std::vector<std::string>& getDocumentsList() const;
+    const std::unordered_map<std::string, std::string>& getDocumentsMap() const;
 
     std::optional<int> getTopN() const;
     std::optional<bool> getReturnDocuments() const;
@@ -76,6 +82,6 @@ absl::Status chunkDocuments(
     const ov::Tensor& in_input_ids, const ov::Tensor& in_attention_mask,
     ov::Tensor& out_input_ids, ov::Tensor& out_attention_mask,
     std::vector<size_t>& chunk_mapping, size_t max_tokens_per_chunk,
-    int64_t pad_token);
+    size_t max_allowed_chunks, int64_t pad_token);
 
 }  // namespace ovms

@@ -298,7 +298,10 @@ Status PipelineDefinition::create(std::unique_ptr<Pipeline>& pipeline,
             Pipeline::connect(*dependencyNode, *dependantNode, pair.second);
         }
     }
+#pragma warning(push)
+#pragma warning(disable : 6011)
     pipeline = std::make_unique<Pipeline>(*entry, *exit, *this->reporter, pipelineName);
+#pragma warning(pop)
     for (auto& kv : nodes) {
         pipeline->push(std::move(kv.second));
     }
@@ -1409,6 +1412,7 @@ Shape PipelineDefinition::getNodeGatherShape(const NodeInfo& info) const {
     std::reverse(shape.begin(), shape.end());
     return shape;
 }
+// TODO those should be part of frontend templatization
 template Status PipelineDefinition::create<tensorflow::serving::PredictRequest, tensorflow::serving::PredictResponse>(
     std::unique_ptr<Pipeline>& pipeline,
     const tensorflow::serving::PredictRequest* request,

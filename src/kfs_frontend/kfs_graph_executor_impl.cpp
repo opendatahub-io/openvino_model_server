@@ -15,6 +15,7 @@
 //*****************************************************************************
 #include "kfs_graph_executor_impl.hpp"
 
+#include <chrono>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -29,23 +30,32 @@
 #include "../status.hpp"
 #include "../tfs_frontend/tfs_utils.hpp"
 
+#pragma warning(push)
+#pragma warning(disable : 6385 6386 6326 6011 6294 6201 4309 4005 4456 6246)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "mediapipe/framework/calculator_graph.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/image_frame_opencv.h"
 #pragma GCC diagnostic pop
+#pragma warning(pop)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wall"
 #include "mediapipe/framework/formats/tensor.h"
 #include "mediapipe/framework/port/status.h"
 #pragma GCC diagnostic pop
+#pragma warning(push)
+#pragma warning(disable : 6269 6294 6201)
 #include "opencv2/opencv.hpp"
+#pragma warning(pop)
 
 #if (PYTHON_DISABLE == 0)
+#pragma warning(push)
+#pragma warning(disable : 6326 28182 6011 28020 6001)
 #include <pybind11/embed.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#pragma warning(pop)
 
 #include "../python/python_backend.hpp"
 #include "../python/pythonnoderesources.hpp"
@@ -610,7 +620,6 @@ static Status deserializeTensor(const std::string& requestedName, const KFSReque
             case ov::element::Type_t::i4:
             case ov::element::Type_t::f16:
             case ov::element::Type_t::bf16:
-            case ov::element::Type_t::undefined:
             case ov::element::Type_t::dynamic:
             default:
                 return ovms::Status(ovms::StatusCode::NOT_IMPLEMENTED, "There is no support for types different than fp32, i64, i32, i16, i8, u64, u32, u16, u8, bool");
@@ -883,7 +892,6 @@ static Status deserializeTensor(const std::string& requestedName, const KFSReque
             case ov::element::Type_t::i4:
             case ov::element::Type_t::f16:
             case ov::element::Type_t::bf16:
-            case ov::element::Type_t::undefined:
             case ov::element::Type_t::dynamic:
             default:
                 return ovms::Status(ovms::StatusCode::NOT_IMPLEMENTED, "There is no support for types different than fp32, i64, i32, i16, i8, u64, u32, u16, u8, bool");
@@ -1031,6 +1039,9 @@ static Status deserializeTimestampIfAvailable(
             SPDLOG_DEBUG(status.string());
             return status;
         }
+    } else {
+        auto now = std::chrono::system_clock::now();
+        timestamp = ::mediapipe::Timestamp(std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
     }
     return StatusCode::OK;
 }
@@ -1105,6 +1116,7 @@ Status onPacketReadySerializeImpl(
         SPDLOG_DEBUG("Response processing packet type:  OVTensor name: {}", packetName);
         status = receiveAndSerializePacket<ov::Tensor>(packet, response, packetName);
     } else {
+        SPDLOG_DEBUG("Unknown error in packet serialization for packet: {}. Unreachable code", packetName);
         status = Status(StatusCode::UNKNOWN_ERROR, "Unreachable code");
     }
     response.set_model_name(endpointName);
@@ -1136,8 +1148,6 @@ Status createAndPushPacketsImpl(
         }
         numberOfPacketsCreated++;
     }
-
-    currentTimestamp = currentTimestamp.NextAllowedInStream();
 
     return StatusCode::OK;
 }

@@ -6,63 +6,38 @@ pipeline {
         label 'win_ovms'
     }
     stages {
-        stage ("Clean") {
-            steps {
-                script{
-                    def output1 = bat(returnStdout: true, script: 'clean_windows.bat ' + env.JOB_BASE_NAME + ' ' + env.OVMS_CLEAN_EXPUNGE)
-                }
-            }
-        }
-        // Build windows
-        stage("Build windows") {
+        stage ("Build and test windows") {
             steps {
                 script {
-                    def status = bat(returnStatus: true, script: 'build_windows.bat ' + env.JOB_BASE_NAME)
-                    status = bat(returnStatus: true, script: 'grep -A 4 bazel-bin/src/ovms.exe build.log | grep "Build completed successfully"')
-                    if (status != 0) {
-                            error "Error: Windows build failed ${status}. Check build.log for details."
+                    echo "JOB_BASE_NAME: ${env.JOB_BASE_NAME}"
+                    echo "WORKSPACE: ${env.WORKSPACE}"
+                    echo "OVMS_PYTHON_ENABLED: ${env.OVMS_PYTHON_ENABLED}"
+                    def windows = load 'ci/loadWin.groovy'
+                    if (windows != null) {
+                        try {
+                          windows.setup_bazel_remote_cache()
+                          windows.install_dependencies()
+                          windows.clean()
+                          windows.build()
+                          windows.unit_test()
+                          windows.check_tests()
+                          def safeBranchName = env.BRANCH_NAME.replaceAll('/', '_')
+                          def python_presence = ""
+                          if (env.OVMS_PYTHON_ENABLED == "1") {
+                              python_presence = "with_python"
+                          } else {
+                              python_presence = "without_python"
+                          }
+                          bat(returnStatus:true, script: "ECHO F | xcopy /Y /E ${env.WORKSPACE}\\dist\\windows\\ovms.zip \\\\${env.OV_SHARE_05_IP}\\data\\cv_bench_cache\\OVMS_do_not_remove\\ovms-windows-${python_presence}-${safeBranchName}-latest.zip")
+                          } finally {
+                          windows.archive_build_artifacts()
+                          windows.archive_test_artifacts()
+                        }
                     } else {
-                        echo "Build successful."
-                    }
-                }
-                }
-            }
-        stage("Check tests windows") {
-            steps {
-                script {
-                    def status = bat(returnStatus: true, script: 'grep -A 4 bazel-bin/src/ovms_test.exe build_test.log | grep "Build completed successfully"')
-                    if (status != 0) {
-                            error "Error: Windows build test failed ${status}. Check build_test.log for details."
-                    } else {
-                        echo "Build test successful."
-                    }
-                }
-                script {
-                    def status = bat(returnStatus: true, script: 'grep "[  PASSED  ]" test.log')
-                    if (status != 0) {
-                            error "Error: Windows run test failed ${status}. Check test.log for details."
-                    }
-
-                    // TODO Windows: Currently some tests fail change to no fail when fixed.
-                    status = bat(returnStatus: true, script: 'grep "[  FAILED  ]" test.log')
-                    if (status != 0) {
-                            error "Error: Windows run test failed ${status}. Check test.log for details."
-                    } else {
-                        echo "Run test successful."
+                        error "Cannot load ci/loadWin.groovy file."
                     }
                 }
             }
-        }
-    }
-    //Post build steps
-    post {
-        always {
-            // Left for tests when enabled - junit allowEmptyResults: true, testResults: "logs/**/*.xml"
-            archiveArtifacts allowEmptyArchive: true, artifacts: "bazel-bin\\src\\ovms.exe"
-            archiveArtifacts allowEmptyArchive: true, artifacts: "environment.log"
-            archiveArtifacts allowEmptyArchive: true, artifacts: "build.log"
-            archiveArtifacts allowEmptyArchive: true, artifacts: "build_test.log"
-            archiveArtifacts allowEmptyArchive: true, artifacts: "test.log"
         }
     }
 }

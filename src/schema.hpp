@@ -16,8 +16,10 @@
 #pragma once
 
 #include <string>
-
+#pragma warning(push)
+#pragma warning(disable : 6313)
 #include <rapidjson/schema.h>
+#pragma warning(pop)
 
 namespace ovms {
 class Status;
@@ -27,4 +29,5 @@ extern const char* MODELS_MAPPING_SCHEMA;
 extern const std::string MEDIAPIPE_SUBCONFIG_SCHEMA;
 
 Status validateJsonAgainstSchema(rapidjson::Document& json, const char* schema, bool detailedError = false);
+Status parseConfig(const std::string& jsonFilename, rapidjson::Document& configJson, std::string& jsonMd5, int wrongConfigFileRetryDelayMs = 10, int maxConfigJsonReadRetry = 3);
 }  // namespace ovms

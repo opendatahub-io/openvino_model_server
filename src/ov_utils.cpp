@@ -89,7 +89,7 @@ std::optional<ov::Layout> getLayoutFromRTMap(const ov::RTMap& rtMap) {
         try {
             OV_LOGGER("v.as<ov::LayoutAttribute>().value");
             return v.as<ov::LayoutAttribute>().value;
-        } catch (ov::Exception& e) {
+        } catch (ov::Exception&) {
         }
     }
     return std::nullopt;
@@ -122,11 +122,18 @@ Status validatePluginConfiguration(const plugin_config_t& pluginConfig, const st
         std::string deviceName;
 
         while (getline(ss, deviceName, deviceDelimiter)) {
+            char bracket = '(';
+            auto bracketPos = deviceName.find(bracket);
+            if (bracketPos != std::string::npos) {
+                deviceName = deviceName.substr(0, bracketPos);
+            }
             insertSupportedKeys(pluginSupportedConfigKeys, deviceName, ieCore);
         }
     } else {
         insertSupportedKeys(pluginSupportedConfigKeys, targetDevice, ieCore);
     }
+
+    pluginSupportedConfigKeys.insert("ENABLE_MMAP");  // WA: always supported
 
     for (auto& config : pluginConfig) {
         if (std::find(pluginSupportedConfigKeys.begin(), pluginSupportedConfigKeys.end(), config.first) == pluginSupportedConfigKeys.end()) {

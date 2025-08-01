@@ -58,7 +58,7 @@ TEST_F(RerankHandlerDeserializationTest, ValidRequestDocumentsMap) {
     ASSERT_FALSE(handler.getMaxChunksPerDoc().has_value());
     EXPECT_EQ(handler.getDocumentsList().size(), 0);
     ASSERT_EQ(handler.getDocumentsMap().size(), 2);
-    std::unordered_map<std::string, std::string>::iterator it = handler.getDocumentsMap().find("first document title");
+    auto it = handler.getDocumentsMap().find("first document title");
     EXPECT_NE(it, handler.getDocumentsMap().end());
     EXPECT_STREQ(handler.getDocumentsMap().at("first document title").c_str(), "first document text");
     it = handler.getDocumentsMap().find("second document title");
@@ -109,6 +109,16 @@ TEST_F(RerankHandlerDeserializationTest, DocumentsArrayMixedElementTypes) {
     RerankHandler handler(doc);
     auto status = handler.parseRequest();
     EXPECT_EQ(status, absl::InvalidArgumentError("all documents have to be the same type (string or objects)"));
+}
+
+TEST_F(RerankHandlerDeserializationTest, InvalidJson) {
+    json = R"({
+    INVALID JSON
+    })";
+
+    ASSERT_TRUE(doc.Parse(json.c_str()).HasParseError());
+    RerankHandler handler(doc);
+    ASSERT_EQ(handler.parseRequest(), absl::InvalidArgumentError("Non-json request received in rerank calculator"));
 }
 
 TEST_F(RerankHandlerDeserializationTest, InvalidDocuments) {

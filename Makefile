@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2020-2022 Intel Corporation
+# Copyright (c) 2020 Intel Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ STYLE_CHECK_OPTS := --extensions=hpp,cc,cpp,h \
 	--recursive \
 	--linelength=120 \
 	--filter=-build/c++11,-runtime/references,-whitespace/braces,-whitespace/indent,-build/include_order,-runtime/indentation_namespace,-build/namespaces,-whitespace/line_length,-runtime/string,-readability/casting,-runtime/explicit,-readability/todo
-STYLE_CHECK_DIRS := src demos/common/cpp/src demos/image_classification/cpp demos/benchmark/cpp
+STYLE_CHECK_DIRS := src
 HTTP_PROXY := "$(http_proxy)"
 HTTPS_PROXY := "$(https_proxy)"
 NO_PROXY := "$(no_proxy)"
@@ -44,21 +44,21 @@ JOBS ?= $(CORES_TOTAL)
 
 
 # Image on which OVMS is compiled. If DIST_OS is not set, it's also used for a release image.
-# Currently supported BASE_OS values are: ubuntu20 ubuntu22 redhat
+# Currently supported BASE_OS values are: ubuntu24 ubuntu22 redhat
 BASE_OS ?= ubuntu22
 
 # do not change this; change versions per OS a few lines below (BASE_OS_TAG_*)!
 BASE_OS_TAG ?= latest
 
 BASE_OS_TAG_UBUNTU ?= 22.04
-BASE_OS_TAG_REDHAT ?= 8.10
+BASE_OS_TAG_REDHAT ?= 9.6
 
 INSTALL_RPMS_FROM_URL ?=
-
+BUILD_IMAGE ?= build
 CHECK_COVERAGE ?=0
 RUN_TESTS ?= 0
+BUILD_TESTS ?= 0
 RUN_GPU_TESTS ?=
-NVIDIA ?=0
 GPU ?= 0
 NPU ?= 0
 BUILD_NGINX ?= 0
@@ -74,9 +74,9 @@ FUZZER_BUILD ?= 0
 # NOTE: when changing any value below, you'll need to adjust WORKSPACE file by hand:
 #         - uncomment source build section, comment binary section
 #         - adjust binary version path - version variable is not passed to WORKSPACE file!
-OV_SOURCE_BRANCH ?= 44b86a860ecb0a3e79e6f75627d6cc5270226e7a  # master 2024-10-31
-OV_CONTRIB_BRANCH ?= 4272f47cb3ffbaf5c0fb5db569deb16856c578a1  # master 2024-10-11
-OV_TOKENIZERS_BRANCH ?=  16da7f39010daa04809f9552fa00f53ac521439b # master 2024-10-30
+OV_SOURCE_BRANCH ?= cc73719a2c667106c454f3abe663e312832365f1 # master 2025-07-29
+OV_CONTRIB_BRANCH ?= c39462ca8d7c550266dc70cdbfbe4fc8c5be0677  # master / 2024-10-31
+OV_TOKENIZERS_BRANCH ?= d9a2bb05e750f1c628ada5ed81457f880719fd73 # master 2025-07-25
 
 OV_SOURCE_ORG ?= openvinotoolkit
 OV_CONTRIB_ORG ?= openvinotoolkit
@@ -84,7 +84,7 @@ OV_CONTRIB_ORG ?= openvinotoolkit
 TEST_LLM_PATH ?= "src/test/llm_testing"
 GPU_MODEL_PATH ?= "/tmp/face_detection_adas"
 
-OV_USE_BINARY ?= 0
+OV_USE_BINARY ?= 1
 APT_OV_PACKAGE ?= openvino-2022.1.0
 # opt, dbg:
 BAZEL_BUILD_TYPE ?= opt
@@ -127,7 +127,7 @@ else
 endif
 
 ifeq ($(OV_TRACING_ENABLE),1)
-  OV_TRACING_PARAMS = " --cxxopt=-DOV_TRACING=1"
+  OV_TRACING_PARAMS = " --define OV_TRACE=1"
 else
   OV_TRACING_PARAMS = ""
 endif
@@ -140,7 +140,7 @@ else
   $(error BASE_OS must be either ubuntu or redhat)
 endif
 CAPI_FLAGS = "--strip=$(STRIP)"$(BAZEL_DEBUG_BUILD_FLAGS)"  --config=mp_off_py_off"$(OV_TRACING_PARAMS)$(TARGET_DISTRO_PARAMS)
-BAZEL_DEBUG_FLAGS="--strip=$(STRIP)"$(BAZEL_DEBUG_BUILD_FLAGS)$(DISABLE_PARAMS)$(FUZZER_BUILD_PARAMS)$(OV_TRACING_PARAMS)$(TARGET_DISTRO_PARAMS)
+BAZEL_DEBUG_FLAGS="--strip=$(STRIP)"$(BAZEL_DEBUG_BUILD_FLAGS)$(DISABLE_PARAMS)$(FUZZER_BUILD_PARAMS)$(OV_TRACING_PARAMS)$(TARGET_DISTRO_PARAMS)$(REPO_ENV)
 
 # Option to Override release image.
 # Release image OS *must have* glibc version >= glibc version on BASE_OS:
@@ -153,39 +153,29 @@ ifeq ($(findstring ubuntu,$(BASE_OS)),ubuntu)
   ifeq ($(BASE_OS),ubuntu22)
 	BASE_OS_TAG=22.04
   endif
-  ifeq ($(BASE_OS),ubuntu20)
-	BASE_OS_TAG=20.04
+  ifeq ($(BASE_OS),ubuntu24)
+	BASE_OS_TAG=24.04
   endif
-  ifeq ($(NVIDIA),1)
-	BASE_IMAGE=docker.io/nvidia/cuda:11.8.0-runtime-ubuntu$(BASE_OS_TAG)
-	BASE_IMAGE_RELEASE=$(BASE_IMAGE)
-  else
-	BASE_IMAGE ?= ubuntu:$(BASE_OS_TAG)
-	BASE_IMAGE_RELEASE=$(BASE_IMAGE)
-  endif
-  ifeq ($(BASE_OS_TAG),20.04)
-        OS=ubuntu20
-	INSTALL_DRIVER_VERSION ?= "22.43.24595"
-	DLDT_PACKAGE_URL ?= http://s3.toolbox.iotg.sclab.intel.com/ov-packages/l_openvino_toolkit_ubuntu20_2024.5.0.17246.44b86a860ec_x86_64.tgz
+  BASE_IMAGE ?= ubuntu:$(BASE_OS_TAG)
+  BASE_IMAGE_RELEASE=$(BASE_IMAGE)
+  ifeq ($(BASE_OS_TAG),24.04)
+        OS=ubuntu24
+	INSTALL_DRIVER_VERSION ?= "24.52.32224"
+	DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19616-cc73719a2c6/openvino_toolkit_ubuntu24_2025.3.0.dev20250729_x86_64.tgz
   else ifeq  ($(BASE_OS_TAG),22.04)
         OS=ubuntu22
-	INSTALL_DRIVER_VERSION ?= "24.26.30049"
-	DLDT_PACKAGE_URL ?= http://s3.toolbox.iotg.sclab.intel.com/ov-packages/l_openvino_toolkit_ubuntu22_2024.5.0.17246.44b86a860ec_x86_64.tgz
+	INSTALL_DRIVER_VERSION ?= "24.39.31294"
+	DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19616-cc73719a2c6/openvino_toolkit_ubuntu22_2025.3.0.dev20250729_x86_64.tgz
   endif
 endif
 ifeq ($(BASE_OS),redhat)
   BASE_OS_TAG=$(BASE_OS_TAG_REDHAT)
   OS=redhat
-  ifeq ($(NVIDIA),1)
-    BASE_IMAGE=docker.io/nvidia/cuda:11.8.0-runtime-ubi8
-	BASE_IMAGE_RELEASE=$(BASE_IMAGE)
-  else
-    BASE_IMAGE ?= registry.access.redhat.com/ubi8/ubi:$(BASE_OS_TAG_REDHAT)
-	BASE_IMAGE_RELEASE=registry.access.redhat.com/ubi8/ubi-minimal:$(BASE_OS_TAG_REDHAT)
-  endif
+  BASE_IMAGE ?= registry.access.redhat.com/ubi9/ubi:$(BASE_OS_TAG_REDHAT)
+  BASE_IMAGE_RELEASE=registry.access.redhat.com/ubi9/ubi-minimal:$(BASE_OS_TAG_REDHAT)
   DIST_OS=redhat
-  INSTALL_DRIVER_VERSION ?= "23.22.26516"
-  DLDT_PACKAGE_URL ?= http://s3.toolbox.iotg.sclab.intel.com/ov-packages/l_openvino_toolkit_rhel8_2024.5.0.17246.44b86a860ec_x86_64.tgz
+  DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19616-cc73719a2c6/openvino_toolkit_rhel8_2025.3.0.dev20250729_x86_64.tgz
+  INSTALL_DRIVER_VERSION ?= "24.52.32224"
 endif
 
 OVMS_CPP_DOCKER_IMAGE ?= openvino/model_server
@@ -194,18 +184,13 @@ ifeq ($(BAZEL_BUILD_TYPE),dbg)
 endif
 
 OVMS_CPP_IMAGE_TAG ?= latest
-ifeq ($(NVIDIA),1)
-  IMAGE_TAG_SUFFIX = -cuda
-endif
 
 OVMS_PYTHON_IMAGE_TAG ?= py
 
-PRODUCT_NAME = "OpenVINO Model Server"
-PRODUCT_VERSION ?= "2024.5"
+PRODUCT_VERSION ?= "2025.3.0"
 PROJECT_VER_PATCH =
 
 $(eval PROJECT_VER_PATCH:=`git rev-parse --short HEAD`)
-$(eval PROJECT_NAME:=${PRODUCT_NAME})
 $(eval PROJECT_VERSION:=${PRODUCT_VERSION}.${PROJECT_VER_PATCH})
 
 OVMS_CPP_CONTAINER_NAME ?= "server-test-${PROJECT_VER_PATCH}-$(shell date +%Y-%m-%d-%H.%M.%S)"
@@ -231,6 +216,7 @@ BUILD_ARGS = --build-arg http_proxy=$(HTTP_PROXY)\
 	--build-arg DLDT_PACKAGE_URL=$(DLDT_PACKAGE_URL)\
 	--build-arg CHECK_COVERAGE=$(CHECK_COVERAGE)\
 	--build-arg RUN_TESTS=$(RUN_TESTS)\
+	--build-arg OPTIMIZE_BUILDING_TESTS=$(OPTIMIZE_BUILDING_TESTS)\
 	--build-arg RUN_GPU_TESTS=$(RUN_GPU_TESTS)\
 	--build-arg FUZZER_BUILD=$(FUZZER_BUILD)\
 	--build-arg debug_bazel_flags=$(BAZEL_DEBUG_FLAGS)\
@@ -239,7 +225,6 @@ BUILD_ARGS = --build-arg http_proxy=$(HTTP_PROXY)\
 	--build-arg PROJECT_VERSION=$(PROJECT_VERSION)\
 	--build-arg BASE_IMAGE=$(BASE_IMAGE)\
 	--build-arg BASE_OS=$(BASE_OS)\
-	--build-arg NVIDIA=$(NVIDIA)\
 	--build-arg ov_contrib_branch=$(OV_CONTRIB_BRANCH)\
 	--build-arg ov_tokenizers_branch=$(OV_TOKENIZERS_BRANCH)\
 	--build-arg INSTALL_RPMS_FROM_URL=$(INSTALL_RPMS_FROM_URL)\
@@ -269,17 +254,19 @@ spell: venv-style
 
 $(ACTIVATE):
 	@echo "Updating virtualenv dependencies in: $(VIRTUALENV_DIR)..."
+	@python3 -m pip install virtualenv
 	@test -d $(VIRTUALENV_DIR) || $(VIRTUALENV_EXE) $(VIRTUALENV_DIR)
 	@. $(ACTIVATE); pip3 install --upgrade pip
-	@. $(ACTIVATE); pip3 install -vUqq setuptools
+	@. $(ACTIVATE); pip3 install -vUqq "setuptools<80"
 	@. $(ACTIVATE); pip3 install -qq -r tests/requirements.txt
 	@touch $(ACTIVATE)
 
 $(ACTIVATE_STYLE):
 	@echo "Updating virtualenv dependencies in: $(VIRTUALENV_STYLE_DIR)..."
+	@python3 -m pip install virtualenv
 	@test -d $(VIRTUALENV_STYLE_DIR) || $(VIRTUALENV_EXE) $(VIRTUALENV_STYLE_DIR)
 	@. $(ACTIVATE_STYLE); pip3 install --upgrade pip
-	@. $(ACTIVATE_STYLE); pip3 install -vUqq setuptools
+	@. $(ACTIVATE_STYLE); pip3 install -vUqq "setuptools<80"
 	@. $(ACTIVATE_STYLE); pip3 install -qq -r ci/style_requirements.txt
 	@touch $(ACTIVATE_STYLE)
 
@@ -354,25 +341,12 @@ ifeq ($(FUZZER_BUILD),1)
 	@echo "Cannot run fuzzer with redhat"; exit 1 ;
   endif
 endif
-ifeq ($(BASE_OS_TAG),20.04)
-  ifeq ($(RUN_TESTS),1)
-	@echo "On ubuntu20 run tests via make run_unit_tests"; exit 1 ;
-  endif
-endif
-ifeq ($(NVIDIA),1)
-  ifeq ($(OV_USE_BINARY),1)
-	@echo "Building NVIDIA plugin requires OV built from source. To build NVIDIA plugin and OV from source make command should look like this 'NVIDIA=1 OV_USE_BINARY=0 make docker_build'"; exit 1 ;
-  endif
-endif
 ifeq ($(NO_DOCKER_CACHE),true)
 	$(eval NO_CACHE_OPTION:=--no-cache)
 	@echo "Docker image will be rebuilt from scratch"
 	@docker pull $(BASE_IMAGE)
   ifeq ($(BASE_OS),redhat)
-	@docker pull registry.access.redhat.com/ubi8/ubi-minimal:$(BASE_OS_TAG_REDHAT)
-    ifeq ($(NVIDIA),1)
-	@docker pull docker.io/nvidia/cuda:11.8.0-runtime-ubi8
-    endif
+	@docker pull registry.access.redhat.com/ubi9/ubi-minimal:$(BASE_OS_TAG_REDHAT)
   endif
 endif
 ifeq ($(USE_BUILDX),true)
@@ -400,7 +374,7 @@ endif
 targz_package:
 	docker $(BUILDX) build -f Dockerfile.$(DIST_OS) . \
 		$(BUILD_ARGS) \
-		--build-arg BUILD_IMAGE=build \
+		--build-arg BUILD_IMAGE=$(BUILD_IMAGE) \
 		-t $(OVMS_CPP_DOCKER_IMAGE)-pkg:$(OVMS_CPP_IMAGE_TAG) \
 		--target=pkg && \
 	rm -vrf dist/$(OS) && mkdir -p dist/$(OS) && \
@@ -414,6 +388,11 @@ ifeq ($(USE_BUILDX),true)
 	$(eval BUILDX:=buildx)
 	$(eval NO_CACHE_OPTION:=--no-cache-filter release)
 endif
+ifeq ($(BASE_OS),redhat)
+	$(eval NPU:=0)
+else
+	$(eval NPU:=1)
+endif
 	docker $(BUILDX) build $(NO_CACHE_OPTION) -f Dockerfile.$(DIST_OS) . \
 		$(BUILD_ARGS) \
 		-t $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) \
@@ -421,7 +400,7 @@ endif
 	docker $(BUILDX) build $(NO_CACHE_OPTION) -f Dockerfile.$(DIST_OS) . \
 		$(BUILD_ARGS) \
 		--build-arg GPU=1 \
-		--build-arg NPU=$$(if [ "$(BASE_OS_TAG)" = "22.04" ]; then echo 1; else echo 0 ; fi) \
+		--build-arg NPU=$(NPU) \
 		-t $(OVMS_CPP_DOCKER_IMAGE)-gpu:$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) \
 		--target=release && \
 	docker tag $(OVMS_CPP_DOCKER_IMAGE)-gpu:$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)-gpu$(IMAGE_TAG_SUFFIX)
@@ -435,12 +414,12 @@ get_gpl_mpl_packages:
 ifeq ($(findstring ubuntu,$(BASE_OS)),ubuntu)
 	@docker run -u 0 --entrypoint bash $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) -c 'dpkg --get-selections | sed "s/\t//g" | sed "s/install//g" | cut -d":" -f1 | tr -d "\r"' > ubuntu.txt
 	@-docker run -u 0 --entrypoint bash -v ${PWD}:/ovms $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) -c 'cd /ovms ; cat ubuntu.txt | tr -d "\r" | xargs -I % bash -c "grep -l -e GPL -e MPL /usr/share/doc/%/copyright" 2> /dev/null' > sources.txt
-	@docker run -u 0 --entrypoint bash -v ${PWD}:/ovms $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) -c 'sed -Ei "s/# deb-src /deb-src /" /etc/apt/sources.list ; apt update ; cd /ovms ; d="ovms_ubuntu_$(OVMS_CPP_IMAGE_TAG)" ;mkdir "$$d" ; cd "$$d" ; for I in `cat /ovms/sources.txt | cut -d"/" -f5`; do apt-get source -q --download-only $$I; done'
+	@docker run -u 0 --entrypoint bash -v ${PWD}:/ovms $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) -c 'sed -Ei "s/^Types: deb$$/Types: deb deb-src/" /etc/apt/sources.list.d/ubuntu.sources ; apt update ; cd /ovms ; d="ovms_ubuntu_$(OVMS_CPP_IMAGE_TAG)" ;mkdir "$$d" ; cd "$$d" ; for I in `cat /ovms/sources.txt | cut -d"/" -f5`; do apt-get source -q --download-only $$I; done'
 	@rm ubuntu.txt sources.txt
 endif
 ifeq ($(BASE_OS),redhat)
 	touch base_packages.txt
-	docker run registry.access.redhat.com/ubi8-minimal:8.10 rpm -qa  --qf "%{NAME}\n" | sort > base_packages.txt
+	docker run registry.access.redhat.com/ubi9-minimal:9.6 rpm -qa  --qf "%{NAME}\n" | sort > base_packages.txt
 	docker run --entrypoint rpm $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) -qa  --qf "%{NAME}\n" | sort > all_packages.txt
 	rm -rf ovms_rhel_$(OVMS_CPP_IMAGE_TAG)
 	mkdir ovms_rhel_$(OVMS_CPP_IMAGE_TAG)
@@ -456,17 +435,13 @@ ifeq ($(BASE_OS),redhat)
 endif
 
 release_image:
-ifeq ($(BASE_OS_TAG),20.04)
-  ifeq ($(NPU),1)
-	@echo "NPU is not supported on Ubuntu 20.04" ; exit 1
-  endif
-endif
 ifeq ($(USE_BUILDX),true)
 	$(eval BUILDX:=buildx)
 	$(eval NO_CACHE_OPTION:=--no-cache-filter release)
 endif
 	docker $(BUILDX) build $(NO_CACHE_OPTION) -f Dockerfile.$(DIST_OS) . \
 		$(BUILD_ARGS) \
+		--build-arg BUILD_IMAGE=$(BUILD_IMAGE) \
 		--build-arg GPU=$(GPU) \
 		--build-arg NPU=$(NPU) \
 		-t $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG) \
@@ -638,9 +613,9 @@ test_python_clients:
 	@echo "Download models"
 	@if [ ! -d "tests/python/models" ]; then cd tests/python && \
 		mkdir models && \
-		docker run -u $(id -u):$(id -g) -v ${PWD}/tests/python/models:/models openvino/ubuntu20_dev:latest omz_downloader --name resnet-50-tf --output_dir /models && \
-		docker run -u $(id -u):$(id -g) -v ${PWD}/tests/python/models:/models:rw openvino/ubuntu20_dev:latest omz_converter --name resnet-50-tf --download_dir /models --output_dir /models --precisions FP32 && \
-		docker run -u $(id -u):$(id -g) -v ${PWD}/tests/python/models:/models:rw openvino/ubuntu20_dev:latest mv /models/public/resnet-50-tf/FP32 /models/public/resnet-50-tf/1; fi
+		docker run -u $(id -u):$(id -g) -v ${PWD}/tests/python/models:/models openvino/ubuntu20_dev:2024.6.0 omz_downloader --name resnet-50-tf --output_dir /models && \
+		docker run -u $(id -u):$(id -g) -v ${PWD}/tests/python/models:/models:rw openvino/ubuntu20_dev:2024.6.0 omz_converter --name resnet-50-tf --download_dir /models --output_dir /models --precisions FP32 && \
+		docker run -u $(id -u):$(id -g) -v ${PWD}/tests/python/models:/models:rw openvino/ubuntu20_dev:2024.6.0 mv /models/public/resnet-50-tf/FP32 /models/public/resnet-50-tf/1; fi
 	@echo "Start test container"
 	@docker run -d --rm --name $(PYTHON_CLIENT_TEST_CONTAINER_NAME) -v ${PWD}/tests/python/models/public/resnet-50-tf:/models/public/resnet-50-tf -p $(PYTHON_CLIENT_TEST_REST_PORT):8000 -p $(PYTHON_CLIENT_TEST_GRPC_PORT):9000 openvino/model_server:latest --model_name resnet --model_path /models/public/resnet-50-tf --port 9000 --rest_port 8000 && \
 		sleep 10
@@ -672,11 +647,17 @@ cpu_extension:
 	mkdir -p ./lib/${OS}
 	docker cp $$(docker create --rm sample_cpu_extension:latest):/workspace/libcustom_relu_cpu_extension.so ./lib/${OS}
 
-run_unit_tests:
+prepare_models:
 	./prepare_llm_models.sh ${TEST_LLM_PATH}
 ifeq ($(RUN_GPU_TESTS),1)
-	./prepare_gpu_models.sh ${GPU_MODEL_PATH} && \
+	./prepare_gpu_models.sh ${GPU_MODEL_PATH}
+endif
+
+run_unit_tests: prepare_models
+	docker rm -f $(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX)
+ifeq ($(RUN_GPU_TESTS),1)
 	docker run \
+		--name $(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) \
 		--device=/dev/dri \
 		--group-add=$(shell stat -c "%g" /dev/dri/render* | head -n 1) \
 		-u 0 \
@@ -689,11 +670,15 @@ ifeq ($(RUN_GPU_TESTS),1)
 		-e JOBS=$(JOBS) \
 		-e debug_bazel_flags=${BAZEL_DEBUG_FLAGS} \
 		$(OVMS_CPP_DOCKER_IMAGE)-build:$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) \
-		./run_unit_tests.sh > test.log 2>&1 ; exit_status=$$? ; \
-		tail -200 test.log ; \
-		exit $$exit_status
+		./run_unit_tests.sh ;\
+		exit_code=$$? ;\
+		docker container cp $(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX):/ovms/test_logs.tar.gz . ;\
+		docker container cp $(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX):/ovms/linux_tests_summary.log . ;\
+		docker rm -f $(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) ;\
+		exit $$exit_code
 else
 	docker run \
+		--name $(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) \
 		-v $(shell realpath ./run_unit_tests.sh):/ovms/./run_unit_tests.sh \
 		-v $(shell realpath ${TEST_LLM_PATH}):/ovms/src/test/llm_testing:ro \
 		-e https_proxy=${https_proxy} \
@@ -701,9 +686,12 @@ else
 		-e JOBS=$(JOBS) \
 		-e debug_bazel_flags=${BAZEL_DEBUG_FLAGS} \
 		$(OVMS_CPP_DOCKER_IMAGE)-build:$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) \
-		./run_unit_tests.sh > test.log 2>&1 ; exit_status=$$? ; \
-		tail -200 test.log ; \
-		exit $$exit_status
+		./run_unit_tests.sh ;\
+		exit_code=$$? ; \
+		docker container cp $(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX):/ovms/test_logs.tar.gz . ;\
+		docker container cp $(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX):/ovms/linux_tests_summary.log . ;\
+		docker rm -f $(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) ;\
+		exit $$exit_code
 endif
 
 

@@ -19,6 +19,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "../capi_frontend/capi_utils.hpp"
+#include "../tfs_frontend/tfs_utils.hpp"
+#include "../kfs_frontend/kfs_utils.hpp"
+#include "../capi_frontend/deserialization.hpp"
+#include "../tfs_frontend/deserialization.hpp"
+#include "../kfs_frontend/deserialization.hpp"
 #include "../tensor_conversion.hpp"
 #include "opencv2/opencv.hpp"
 #include "test_utils.hpp"
@@ -158,7 +164,7 @@ TYPED_TEST(NativeFileInputConversionTest, positive_grayscale) {
     uint8_t grayscale_expected_tensor[] = {0x00};
 
     std::ifstream DataFile;
-    DataFile.open("/ovms/src/test/binaryutils/grayscale.jpg", std::ios::binary);
+    DataFile.open(getGenericFullPathForSrcTest("/ovms/src/test/binaryutils/grayscale.jpg"), std::ios::binary);
     DataFile.seekg(0, std::ios::end);
     size_t grayscale_filesize = DataFile.tellg();
     DataFile.seekg(0);
@@ -188,7 +194,7 @@ TYPED_TEST(NativeFileInputConversionTest, positive_batch_size_2) {
     size_t batchsize = 2;
     this->prepareBinaryTensor(batchSize2RequestTensor, image_bytes, filesize, batchsize);
 
-    for (const auto layout : std::vector<Layout>{Layout("NHWC"), Layout::getDefaultLayout(4)}) {
+    for (const auto& layout : std::vector<Layout>{Layout("NHWC"), Layout::getDefaultLayout(4)}) {
         auto tensorInfo = std::make_shared<const TensorInfo>("", ovms::Precision::U8, ovms::Shape{2, 1, 1, 3}, layout);
 
         ASSERT_EQ(convertNativeFileFormatRequestTensorToOVTensor(batchSize2RequestTensor, tensor, *tensorInfo, nullptr), ovms::StatusCode::OK);
@@ -578,7 +584,8 @@ TEST_P(NativeFileInputConversionKFSInvalidPrecisionTest, Invalid) {
         Layout{"NHWC"});
 
     ov::Tensor tensor;
-    ASSERT_EQ(convertNativeFileFormatRequestTensorToOVTensor(inferTensorContent, tensor, *tensorInfo, nullptr), ovms::StatusCode::INVALID_PRECISION);
+    auto status = convertNativeFileFormatRequestTensorToOVTensor(inferTensorContent, tensor, *tensorInfo, nullptr);
+    ASSERT_EQ(status, ovms::StatusCode::INVALID_PRECISION) << status.string();
 }
 
 INSTANTIATE_TEST_SUITE_P(

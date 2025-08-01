@@ -34,19 +34,28 @@ alias(
 )
 
 alias(
-    name = "boost",
+    name = "genai",
     actual = select({
-        "//src:windows": "@windows_boost//:boost",
-        "//conditions:default": "@linux_boost//:boost",
+        "//src:windows": "@windows_genai//:genai",
+        "//conditions:default": "@linux_genai//:genai",
     }),
     visibility = ["//visibility:public"],
 )
 
 alias(
-    name = "libevent",
+    name = "python3",
     actual = select({
-        "//src:windows": "@com_github_libevent_libevent//:libevent",
-        "//conditions:default": "@com_github_libevent_libevent_windows//:libevent",
+        "//src:windows": "@python3_windows//:python3-lib",
+        "//conditions:default": "@python3_linux//:python3-lib",
+    }),
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "curl",
+    actual = select({
+        "//src:windows": "@windows_curl//:curl",
+        "//conditions:default": "@linux_curl//:curl",
     }),
     visibility = ["//visibility:public"],
 )

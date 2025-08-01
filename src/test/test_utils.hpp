@@ -55,21 +55,45 @@
 #include "../status.hpp"
 #include "../tensorinfo.hpp"
 
+#include "../kfs_frontend/validation.hpp"
+
 #if (PYTHON_DISABLE == 0)
 #include "../python/pythonnoderesources.hpp"
 #endif
 
 using inputs_info_t = std::map<std::string, std::tuple<ovms::signed_shape_t, ovms::Precision>>;
 
-const std::string dummy_model_location = std::filesystem::current_path().u8string() + "/src/test/dummy";
-const std::string dummy_fp64_model_location = std::filesystem::current_path().u8string() + "/src/test/dummy_fp64";
-const std::string sum_model_location = std::filesystem::current_path().u8string() + "/src/test/add_two_inputs_model";
-const std::string increment_1x3x4x5_model_location = std::filesystem::current_path().u8string() + "/src/test/increment_1x3x4x5";
-const std::string passthrough_model_location = std::filesystem::current_path().u8string() + "/src/test/passthrough";
-const std::string passthrough_string_model_location = std::filesystem::current_path().u8string() + "/src/test/passthrough_string";
-const std::string dummy_saved_model_location = std::filesystem::current_path().u8string() + "/src/test/dummy_saved_model";
-const std::string dummy_tflite_location = std::filesystem::current_path().u8string() + "/src/test/dummy_tflite";
-const std::string scalar_model_location = std::filesystem::current_path().u8string() + "/src/test/scalar";
+void SetEnvironmentVar(const std::string& var, const std::string& val);
+void UnSetEnvironmentVar(const std::string& var);
+const std::string GetEnvVar(const std::string& var);
+
+std::string dirTree(const std::string& path, const std::string& indent = "");
+const std::string& getGenericFullPathForSrcTest(const std::string& linuxPath, bool logChange = true);
+const std::string& getGenericFullPathForSrcTest(const char* linuxPath, bool logChange = true);
+const std::string& getGenericFullPathForTmp(const std::string& linuxPath, bool logChange = true);
+const std::string& getGenericFullPathForTmp(const char* linuxPath, bool logChange = true);
+const std::string& getGenericFullPathForBazelOut(const std::string& linuxPath, bool logChange = true);
+std::string getOvmsTestExecutablePath();
+
+#ifdef _WIN32
+const std::string getWindowsRepoRootPath();
+#endif
+void adjustConfigForTargetPlatform(std::string& input);
+const std::string& adjustConfigForTargetPlatformReturn(std::string& input);
+std::string adjustConfigForTargetPlatformCStr(const char* input);
+
+void adjustConfigToAllowModelFileRemovalWhenLoaded(ovms::ModelConfig& modelConfig);
+
+const std::string dummy_model_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/dummy", false);
+const std::string dummy_fp64_model_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/dummy_fp64", false);
+const std::string sum_model_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/add_two_inputs_model", false);
+const std::string increment_1x3x4x5_model_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/increment_1x3x4x5", false);
+const std::string passthrough_model_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/passthrough", false);
+const std::string passthrough_string_model_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/passthrough_string", false);
+const std::string dummy_saved_model_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/dummy_saved_model", false);
+const std::string dummy_tflite_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/dummy_tflite", false);
+const std::string scalar_model_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/scalar", false);
+const std::string no_name_output_model_location = getGenericFullPathForSrcTest(std::filesystem::current_path().u8string() + "/src/test/no_name_output", false);
 
 const ovms::ModelConfig DUMMY_MODEL_CONFIG{
     "dummy",
@@ -204,6 +228,21 @@ const ovms::ModelConfig SCALAR_MODEL_CONFIG{
     "",                     // cache directory
     1,                      // model_version unused since version are read from path
     scalar_model_location,  // local path
+};
+
+const ovms::ModelConfig NO_NAME_MODEL_CONFIG{
+    "no_name_output",
+    no_name_output_model_location,  // base path
+    "CPU",                          // target device
+    "1",                            // batchsize
+    1,                              // NIREQ
+    false,                          // is stateful
+    true,                           // idle sequence cleanup enabled
+    false,                          // low latency transformation enabled
+    500,                            // stateful sequence max number
+    "",                             // cache directory
+    1,                              // model_version unused since version are read from path
+    no_name_output_model_location,  // local path
 };
 
 constexpr const char* DUMMY_MODEL_INPUT_NAME = "b";
@@ -470,6 +509,8 @@ void prepareBinary4x4PredictRequest(tensorflow::serving::PredictRequest& request
 void prepareBinary4x4PredictRequest(::KFSRequest& request, const std::string& inputName, const int batchSize = 1);
 void prepareBinary4x4PredictRequest(ovms::InferenceRequest& request, const std::string& inputName, const int batchSize = 1);  // CAPI binary not supported
 
+std::string GetFileContents(const std::string& filePath);
+
 template <typename TensorType>
 void prepareInvalidImageBinaryTensor(TensorType& tensor);
 
@@ -692,8 +733,12 @@ public:
         models.clear();
         spdlog::info("Destructor of modelmanager(Enabled one). Models #:{}", models.size());
     }
+    /*
+     *  Loads config but resets the config filename to the one provided in the argument. In production server this is only changed once
+     */
     ovms::Status loadConfig(const std::string& jsonFilename) {
-        return ModelManager::loadConfig(jsonFilename);
+        this->configFilename = jsonFilename;
+        return ModelManager::loadConfig();
     }
 
     /**
@@ -724,6 +769,18 @@ public:
     const ovms::Status mockValidate(const ovms::InferenceRequest* request) {
         return validate(request);
     }
+    template <typename RequestType>
+    ovms::Status validate(const RequestType* request) {
+        return ovms::request_validation_utils::validate(
+            *request,
+            this->getInputsInfo(),
+            this->getOutputsInfo(),
+            this->getName(),
+            this->getVersion(),
+            this->getOptionalInputNames(),
+            this->getModelConfig().getBatchingMode(),
+            this->getModelConfig().getShapes());
+    }
 };
 
 class ResourcesAccessModelManager : public ConstructorEnabledModelManager {
@@ -737,6 +794,9 @@ public:
     }
 };
 
+void RemoveReadonlyFileAttributeFromDir(std::string& directoryPath);
+void SetReadonlyFileAttributeFromDir(std::string& directoryPath);
+
 class TestWithTempDir : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -747,12 +807,13 @@ protected:
            << "/"
            << std::string(test_info->name());
         const std::string directoryName = ss.str();
-        directoryPath = "/tmp/" + directoryName;
+        directoryPath = getGenericFullPathForTmp("/tmp/" + directoryName);
         std::filesystem::remove_all(directoryPath);
         std::filesystem::create_directories(directoryPath);
     }
 
     void TearDown() override {
+        SPDLOG_DEBUG("Directory tree of: {}.\n{}", directoryPath, dirTree(directoryPath));
         std::filesystem::remove_all(directoryPath);
     }
 
@@ -978,12 +1039,35 @@ static const std::vector<ovms::Precision> UNSUPPORTED_CAPI_INPUT_PRECISIONS_TENS
     // ovms::Precision::CUSTOM)
 };
 
-void randomizePort(std::string& port);
-void randomizePorts(std::string& port1, std::string& port2);
+void randomizeAndEnsureFree(std::string& port);
+void randomizeAndEnsureFrees(std::string& port1, std::string& port2);
 
 extern const int64_t SERVER_START_FROM_CONFIG_TIMEOUT_SECONDS;
 
-void SetUpServer(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& port, const char* configPath);
+/*
+ *  Waits until server is ready
+ */
+void EnsureServerStartedWithTimeout(ovms::Server& server, int timeoutSeconds);
+/*
+ *  Waits until server downloads model
+ */
+void EnsureServerModelDownloadFinishedWithTimeout(ovms::Server& server, int timeoutSeconds);
+/*
+ *  starts loading OVMS on separate thread but waits until it is shutdowned or model is downloaded
+ * --pull --source_model OpenVINO/Phi-3-mini-FastDraft-50M-int8-ov --download_path c:\download
+ */
+void SetUpServerForDownload(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& source_model, std::string& download_path, std::string& task, int expected_code = EXIT_SUCCESS, int timeoutSeconds = SERVER_START_FROM_CONFIG_TIMEOUT_SECONDS);
+
+/*
+ *  starts loading OVMS on separate thread but waits until it is shutdowned or model is downloaded and check if model is started in ovms
+ *  --source_model OpenVINO/Phi-3-mini-FastDraft-50M-int8-ov --download_path c:\download
+ */
+void SetUpServerForDownloadAndStart(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& source_model, std::string& download_path, std::string& task, int timeoutSeconds = SERVER_START_FROM_CONFIG_TIMEOUT_SECONDS);
+/*
+ *  starts loading OVMS on separate thread but waits until it is ready
+ */
+void SetUpServer(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& port, const char* configPath, int timeoutSeconds = SERVER_START_FROM_CONFIG_TIMEOUT_SECONDS);
+void SetUpServer(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& port, const char* modelPath, const char* modelName, int timeoutSeconds = SERVER_START_FROM_CONFIG_TIMEOUT_SECONDS);
 
 class ConstructorEnabledConfig : public ovms::Config {
 public:
@@ -1004,8 +1088,8 @@ public:
     std::string inputConfig;
 #if (PYTHON_DISABLE == 0)
     ovms::PythonNodeResources* getPythonNodeResources(const std::string& nodeName) {
-        auto it = this->pythonNodeResourcesMap.find(nodeName);
-        if (it == std::end(pythonNodeResourcesMap)) {
+        auto it = this->sidePacketMaps.pythonNodeResourcesMap.find(nodeName);
+        if (it == std::end(this->sidePacketMaps.pythonNodeResourcesMap)) {
             return nullptr;
         } else {
             return it->second.get();
@@ -1013,9 +1097,9 @@ public:
     }
 #endif
 
-    ovms::LLMNodeResources* getLLMNodeResources(const std::string& nodeName) {
-        auto it = this->llmNodeResourcesMap.find(nodeName);
-        if (it == std::end(llmNodeResourcesMap)) {
+    ovms::GenAiServable* getGenAiServable(const std::string& nodeName) {
+        auto it = this->sidePacketMaps.genAiServableMap.find(nodeName);
+        if (it == std::end(this->sidePacketMaps.genAiServableMap)) {
             return nullptr;
         } else {
             return it->second.get();
@@ -1026,7 +1110,7 @@ public:
         return this->validateForConfigLoadableness();
     }
 
-    ovms::LLMNodeResourcesMap& getLLMNodeResourcesMap() { return this->llmNodeResourcesMap; }
+    ovms::GenAiServableMap& getGenAiServableMap() { return this->sidePacketMaps.genAiServableMap; }
 
     DummyMediapipeGraphDefinition(const std::string name,
         const ovms::MediapipeGraphConfig& config,

@@ -18,12 +18,18 @@
 
 #include <openvino/openvino.hpp>
 
+#pragma warning(push)
+#pragma warning(disable : 4005 4018 4309 4018 6001 6385 6386 6326 6011 6246 4456 6246)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "mediapipe/framework/calculator_framework.h"
 #pragma GCC diagnostic pop
+#pragma warning(pop)
+#pragma warning(push)
+#pragma warning(disable : 6326 28182 6011 28020)
 #include <pybind11/embed.h>  // everything needed for embedding
 #include <pybind11/stl.h>
+#pragma warning(pop)
 
 #include "../precision.hpp"
 #include "python_backend.hpp"
@@ -143,6 +149,8 @@ public:
 
                 std::unique_ptr<PyObjectWrapper<py::object>> outputPyTensor;
                 std::vector<py::ssize_t> shape;
+#pragma warning(push)
+#pragma warning(disable : 4018)
                 for (const auto& dim : inputTensor.get_shape()) {
                     if (dim > std::numeric_limits<py::ssize_t>::max()) {
                         return mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
@@ -150,6 +158,7 @@ public:
                     }
                     shape.push_back(dim);
                 }
+#pragma warning(pop)
                 const auto& options = cc->Options<PyTensorOvTensorConverterCalculatorOptions>();
                 const auto& tagOutputNameMap = options.tag_to_output_tensor_names();
                 const auto& outputName = tagOutputNameMap.at(OVMS_PY_TENSOR_TAG_NAME);  // Existence of the key validated in GetContract
@@ -173,7 +182,7 @@ public:
                     auto& inputTensor = cc->Inputs().Tag(OVMS_PY_TENSOR_TAG_NAME).Get<PyObjectWrapper<py::object>>();
                     pythonBackend.validateOvmsPyTensor(inputTensor.getObject());
                     const auto precision = ovmsPrecisionToIE2Precision(fromKfsString(inputTensor.getProperty<std::string>("datatype")));
-                    if (precision == ov::element::Type_t::undefined) {
+                    if (precision == ov::element::Type_t::dynamic) {
                         return mediapipe::InvalidArgumentErrorBuilder(MEDIAPIPE_LOC)
                                << "Undefined precision in input python tensor: " << inputTensor.getProperty<std::string>("datatype");
                     }

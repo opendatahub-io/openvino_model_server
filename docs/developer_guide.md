@@ -53,7 +53,7 @@ In-case of problems, see [Debugging](#debugging).
 
 2. Download test LLM models
    ```bash
-   ./prepare_llm_models.sh llm_testing
+   ./prepare_llm_models.sh ./src/test/llm_testing
    ```
 
 3. Mount the source code in the Docker container :
@@ -61,28 +61,29 @@ In-case of problems, see [Debugging](#debugging).
 	docker run -it -v ${PWD}:/ovms --entrypoint bash -p 9178:9178 openvino/model_server-build:latest
 	```
 
-4. In the docker container context compile the source code via :
+4. In the docker container context compile the source code via (choose distro `ubuntu` or `redhat` depending on the image type):
 	```bash
-	bazel build --config=linux --define PYTHON_DISABLE=0 --cxxopt=-DPYTHON_DISABLE=0 //src:ovms
+	bazel build --//:distro=ubuntu --config=mp_on_py_on //src:ovms
+> **NOTE**: There are several options that would disable specific parts of OVMS. For details check ovms bazel build files.
 	```
 
-5. From the container, run a single unit test :
+5. From the container, run a single unit test (choose distro `ubuntu` or `redhat` depending on the image type):
 	```bash
-	bazel test --config=linux --test_env PYTHONPATH=${PYTHONPATH} --define PYTHON_DISABLE=0 --cxxopt=-DPYTHON_DISABLE=0 --test_summary=detailed --test_output=all --test_filter='ModelVersionStatus.*' //src:ovms_test
+	bazel test --//:distro=ubuntu --config=mp_on_py_on --test_summary=detailed --test_output=all --test_filter='ModelVersionStatus.*' //src:ovms_test
 	```
 
 | Argument      | Description |
 | :---        |    :----   |
 | `test`       | builds and runs the specified test target       |
 | `--test_summary=detailed`   |   the output includes failure information       |
-| `--test_output=all` | log all tests |
+| `--test_output=all` | log all tests stdout at the end |
 | `--test_filter='ModelVersionStatus.*'` | limits the tests run to the indicated test  |
 | `//src:ovms_test` | the test source |
 > **NOTE**: For more information, see the [bazel command-line reference](https://docs.bazel.build/versions/master/command-line-reference.html)
 > **NOTE**: If container has access to Intel GPU device and test models, add `--test_env RUN_GPU_TESTS=1` to run GPU unit tests.
 
 
-5. Select one of these options to change the target image name or network port to be used in tests. It might be helpful on a shared development host:
+6. Select one of these options to change the target image name or network port to be used in tests. It might be helpful on a shared development host:
 
 	* With a Docker cache :
 
@@ -142,7 +143,7 @@ openvino/model_server:latest --model_name resnet-binary --model_path /models/res
 	make venv
 	source .venv/bin/activate
 	pip3 install -r demos/common/python/requirements.txt
-	python3 tests/performance/grpc_latency.py --images_numpy_path tests/performance/imgs.npy --labels_numpy_path tests/performance/labels.npy \
+	python tests/performance/grpc_latency.py --images_numpy_path tests/performance/imgs.npy --labels_numpy_path tests/performance/labels.npy \
 	--iteration 1000 --model_name resnet-binary --batchsize 1 --report_every 100 --input_name 0 --output_name 1463 --grpc_port 9178
 	```
 
@@ -340,10 +341,10 @@ Debugging options are available. Click on the required option :
 	mkdir -p /models/1 && wget -P /models/1 https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/models_bin/2/resnet50-binary-0001/FP32-INT1/resnet50-binary-0001.bin && wget -P /models/1 https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/models_bin/2/resnet50-binary-0001/FP32-INT1/resnet50-binary-0001.xml
 	```
 	```bash
-	bazel build --config=linux //src:ovms -c dbg
+	bazel build --config=mp_on_py_on //src:ovms -c dbg
 	```
 	```bash
-	gdb --args ./bazel-bin/src/ovms --model_name resnet --model_path /models
+	gdb --args ./bazel-bin/src/ovms --model_name resnet --model_path /models --port 9178
 	```
     > **NOTE**: For best results, use the makefile parameter `BAZEL_BUILD_TYPE=dbg` to build the dependencies in debug mode as shown above
 
@@ -357,6 +358,7 @@ Debugging options are available. Click on the required option :
 	```
 	# (in gdb cli) set follow-fork-mode child
 	```
+- For tracing what OpenVINO calls are used underneath you can use `--define OV_TRACE=1` option when building ovms with bazel or its tests.
 </details>
 
 <details><summary>Use minitrace to display flame graph</summary>
@@ -387,7 +389,7 @@ bazel build --config=linux --copt="-DMTR_ENABLED" //src:ovms
 
 4. Run OVMS with `--trace_path` specifying where to save flame graph JSON file.
 ```bash
-bazel-bin/src/ovms --model_name resnet --model_path models/resnet --trace_path trace.json
+bazel-bin/src/ovms --model_name resnet --model_path models/resnet --trace_path trace.json --port 9178
 ```
 
 5. During app exit, the trace info will be saved into `trace.json`.
@@ -407,7 +409,7 @@ make docker_build MINITRACE=ON
 mkdir traces
 chmod -R 777 traces
 
-docker run -it -v ${PWD}:/workspace:rw -p 9178:9178 openvino/model_server --model_name resnet --model_path /workspace/models/resnet --trace_path /workspace/traces/trace.json
+docker run -it -v ${PWD}:/workspace:rw -p 9178:9178 openvino/model_server --model_name resnet --model_path /workspace/models/resnet --trace_path /workspace/traces/trace.json --port 9178
 ```
 
 3. During app exit, the trace info will be saved into `${PWD}/traces/trace.json`.

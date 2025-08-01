@@ -1,0 +1,286 @@
+diff --git a/lib/inc/drogon/HttpResponse.h b/lib/inc/drogon/HttpResponse.h
+index 620577e5..30798b59 100644
+--- a/lib/inc/drogon/HttpResponse.h
++++ b/lib/inc/drogon/HttpResponse.h
+@@ -74,8 +74,8 @@ inline HttpResponsePtr toResponse<Json::Value &>(Json::Value &pJson)
+ class DROGON_EXPORT ResponseStream
+ {
+   public:
+-    explicit ResponseStream(trantor::AsyncStreamPtr asyncStream)
+-        : asyncStream_(std::move(asyncStream))
++    explicit ResponseStream(trantor::AsyncStreamPtr asyncStream, trantor::TcpConnectionPtr tcpConnection)
++        : asyncStream_(std::move(asyncStream)), tcpConnection_(std::move(tcpConnection))
+     {
+     }
+ 
+@@ -84,6 +84,11 @@ class DROGON_EXPORT ResponseStream
+         close();
+     }
+ 
++    void sendHeader(const std::string& data)
++    {
++        tcpConnection_->send(data);
++    }
++
+     bool send(const std::string &data)
+     {
+         if (!asyncStream_)
+@@ -109,6 +114,7 @@ class DROGON_EXPORT ResponseStream
+ 
+   private:
+     trantor::AsyncStreamPtr asyncStream_;
++    trantor::TcpConnectionPtr tcpConnection_;
+ };
+ 
+ using ResponseStreamPtr = std::unique_ptr<ResponseStream>;
+@@ -315,6 +321,8 @@ class DROGON_EXPORT HttpResponse
+         return body();
+     }
+ 
++    virtual std::string renderHeaderToString() = 0;
++
+     /// Return the string of http version of request, such as HTTP/1.0,
+     /// HTTP/1.1, etc.
+     virtual const char *versionString() const = 0;
+diff --git a/lib/src/HttpAppFrameworkImpl.cc b/lib/src/HttpAppFrameworkImpl.cc
+index 623d906a..bd61837d 100644
+--- a/lib/src/HttpAppFrameworkImpl.cc
++++ b/lib/src/HttpAppFrameworkImpl.cc
+@@ -525,15 +525,15 @@ void HttpAppFrameworkImpl::run()
+     }
+     LOG_TRACE << "Start to run...";
+     // Create dirs for cache files
+-    for (int i = 0; i < 256; ++i)
+-    {
+-        char dirName[4];
+-        snprintf(dirName, sizeof(dirName), "%02x", i);
+-        std::transform(dirName, dirName + 2, dirName, [](unsigned char c) {
+-            return toupper(c);
+-        });
+-        utils::createPath(getUploadPath() + "/tmp/" + dirName);
+-    }
++    // for (int i = 0; i < 256; ++i)
++    // {
++    //     char dirName[4];
++    //     snprintf(dirName, sizeof(dirName), "%02x", i);
++    //     std::transform(dirName, dirName + 2, dirName, [](unsigned char c) {
++    //         return toupper(c);
++    //     });
++    //     utils::createPath(getUploadPath() + "/tmp/" + dirName);
++    // }
+     if (runAsDaemon_)
+     {
+         // go daemon!
+diff --git a/lib/src/HttpResponseImpl.cc b/lib/src/HttpResponseImpl.cc
+index 5e9e46f1..533d3581 100644
+--- a/lib/src/HttpResponseImpl.cc
++++ b/lib/src/HttpResponseImpl.cc
+@@ -726,6 +726,12 @@ std::shared_ptr<trantor::MsgBuffer> HttpResponseImpl::renderToBuffer()
+     return httpString;
+ }
+ 
++std::string HttpResponseImpl::renderHeaderToString()
++{
++    auto msg = this->renderToBuffer();
++    return std::string(msg->peek(), msg->readableBytes());
++}
++
+ std::shared_ptr<trantor::MsgBuffer> HttpResponseImpl::
+     renderHeaderForHeadMethod()
+ {
+diff --git a/lib/src/HttpResponseImpl.h b/lib/src/HttpResponseImpl.h
+index d6b949c8..fadb6e8b 100644
+--- a/lib/src/HttpResponseImpl.h
++++ b/lib/src/HttpResponseImpl.h
+@@ -177,6 +177,8 @@ class DROGON_EXPORT HttpResponseImpl : public HttpResponse
+ 
+     void addHeader(const char *start, const char *colon, const char *end);
+ 
++    std::string renderHeaderToString() override;
++
+     void addCookie(const std::string &key, const std::string &value) override
+     {
+         cookies_[key] = Cookie(key, value);
+diff --git a/lib/src/HttpServer.cc b/lib/src/HttpServer.cc
+index 257976b1..1d407514 100644
+--- a/lib/src/HttpServer.cc
++++ b/lib/src/HttpServer.cc
+@@ -965,24 +965,36 @@ void HttpServer::sendResponse(const TcpConnectionPtr &conn,
+     auto respImplPtr = static_cast<HttpResponseImpl *>(response.get());
+     if (!isHeadMethod)
+     {
+-        auto httpString = respImplPtr->renderToBuffer();
+-        conn->send(httpString);
++        // It used to send http response header before we even have any streaming response or http status
++        // It is moved to ResponseStream API
++        // auto httpString = respImplPtr->renderToBuffer();
++        // conn->send(httpString);
++        
+         if (!respImplPtr->contentLengthIsAllowed())
+             return;
+         auto &asyncStreamCallback = respImplPtr->asyncStreamCallback();
+         if (asyncStreamCallback)
+         {
+-            if (!respImplPtr->ifCloseConnection())
++            // ifCloseConnection is true when request contains header "connection: close"
++            // As seen in Continue (code completion plugin) it is common to include such header in the request
++            //if (!respImplPtr->ifCloseConnection())
++            if (true)
+             {
+                 asyncStreamCallback(
+                     std::make_unique<ResponseStream>(conn->sendAsyncStream(
+-                        respImplPtr->asyncStreamKickoffDisabled())));
++                        respImplPtr->asyncStreamKickoffDisabled()), conn));
+             }
+             else
+             {
+                 LOG_INFO << "Chunking Set CloseConnection !!!";
+             }
+         }
++        else
++        {
++            // This is called for non-streaming scenarios, we do not need to delay
++            auto httpString = respImplPtr->renderToBuffer();
++            conn->send(httpString);
++        }
+         auto &streamCallback = respImplPtr->streamCallback();
+         const std::string &sendfileName = respImplPtr->sendfileName();
+         if (streamCallback || !sendfileName.empty())
+@@ -1056,11 +1068,16 @@ void HttpServer::sendResponses(
+             {
+                 conn->send(buffer);
+                 buffer.retrieveAll();
+-                if (!respImplPtr->ifCloseConnection())
++                
++                // ifCloseConnection is true when request contains header "connection: close"
++                // As seen in Continue (code completion plugin) it is common to include such header in the request
++                //if (!respImplPtr->ifCloseConnection())
++                if (true)
+                 {
+                     asyncStreamCallback(
+                         std::make_unique<ResponseStream>(conn->sendAsyncStream(
+-                            respImplPtr->asyncStreamKickoffDisabled())));
++                            respImplPtr->asyncStreamKickoffDisabled()),
++                            conn));
+                 }
+                 else
+                 {
+diff --git a/lib/src/Utilities.cc b/lib/src/Utilities.cc
+index c6601f61..8c55ed15 100644
+--- a/lib/src/Utilities.cc
++++ b/lib/src/Utilities.cc
+@@ -20,11 +20,11 @@
+ #include <brotli/decode.h>
+ #include <brotli/encode.h>
+ #endif
++#include <iomanip>
+ #ifdef _WIN32
+ #include <rpc.h>
+ #include <direct.h>
+ #include <io.h>
+-#include <iomanip>
+ #else
+ #include <uuid.h>
+ #include <unistd.h>
+@@ -916,6 +916,7 @@ std::string gzipCompress(const char *data, const size_t ndata)
+                          Z_DEFAULT_STRATEGY) != Z_OK)
+         {
+             LOG_ERROR << "deflateInit2 error!";
++            (void)deflateEnd(&strm);
+             return std::string{};
+         }
+         std::string outstr;
+diff --git a/orm_lib/inc/drogon/orm/SqlBinder.h b/orm_lib/inc/drogon/orm/SqlBinder.h
+index 3335e6ff..7874f18b 100644
+--- a/orm_lib/inc/drogon/orm/SqlBinder.h
++++ b/orm_lib/inc/drogon/orm/SqlBinder.h
+@@ -57,6 +57,8 @@
+ #define __LITTLE_ENDIAN LITTLE_ENDIAN
+ #endif
+ 
++#endif
++
+ #include <algorithm>  // std::reverse()
+ 
+ template <typename T>
+@@ -71,7 +73,6 @@ constexpr T htonT(T value) noexcept
+ #endif
+ }
+ 
+-#if (!defined _WIN32) || (defined _WIN32 && _WIN32_WINNT < _WIN32_WINNT_WIN8)
+ inline uint64_t htonll(uint64_t value)
+ {
+     return htonT<uint64_t>(value);
+@@ -81,8 +82,6 @@ inline uint64_t ntohll(uint64_t value)
+ {
+     return htonll(value);
+ }
+-#endif
+-#endif
+ 
+ namespace drogon
+ {
+Submodule trantor contains modified content
+diff --git a/trantor/trantor/net/EventLoop.cc b/trantor/trantor/net/EventLoop.cc
+index 8db1090..682ed64 100644
+--- a/trantor/trantor/net/EventLoop.cc
++++ b/trantor/trantor/net/EventLoop.cc
+@@ -54,7 +54,9 @@ int createEventfd()
+     int evtfd = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+     if (evtfd < 0)
+     {
+-        std::cout << "Failed in eventfd" << std::endl;
++        std::cout << "Failed in eventfd: " << strerror(errno) << " (errno: " << errno << ")" << std::endl;
++        if (errno == EMFILE || errno == ENFILE)
++            std::cout << "try reducing the number of rest_workers or increase open files limit" << std::endl;
+         abort();
+     }
+ 
+diff --git a/trantor/trantor/net/inner/Socket.cc b/trantor/trantor/net/inner/Socket.cc
+index 2aff5a0..145f9eb 100755
+--- a/trantor/trantor/net/inner/Socket.cc
++++ b/trantor/trantor/net/inner/Socket.cc
+@@ -23,6 +23,8 @@
+ #include <netinet/tcp.h>
+ #endif
+ 
++#include <stdexcept>
++
+ using namespace trantor;
+ 
+ bool Socket::isSelfConnect(int sockfd)
+@@ -65,7 +67,8 @@ void Socket::bindAddress(const InetAddress &localaddr)
+     else
+     {
+         LOG_SYSERR << ", Bind address failed at " << localaddr.toIpPort();
+-        exit(1);
++        throw std::runtime_error("bind address failed");
++        // exit(1);
+     }
+ }
+ void Socket::listen()
+@@ -75,7 +78,8 @@ void Socket::listen()
+     if (ret < 0)
+     {
+         LOG_SYSERR << "listen failed";
+-        exit(1);
++        throw std::runtime_error("listen failed");
++        // exit(1);
+     }
+ }
+ int Socket::accept(InetAddress *peeraddr)
+diff --git a/trantor/trantor/net/inner/TcpConnectionImpl.cc b/trantor/trantor/net/inner/TcpConnectionImpl.cc
+index 6a75707..4b436b3 100644
+--- a/trantor/trantor/net/inner/TcpConnectionImpl.cc
++++ b/trantor/trantor/net/inner/TcpConnectionImpl.cc
+@@ -391,7 +391,9 @@ void TcpConnectionImpl::sendInLoop(const char *buffer, size_t length)
+         return;
+     }
+     ssize_t sendLen = 0;
+-    if (!ioChannelPtr_->isWriting() && writeBufferList_.empty())
++
++    // Always send directly to avoid order issue: streaming response before unary one
++    //if (!ioChannelPtr_->isWriting() && writeBufferList_.empty())
+     {
+         // send directly
+         sendLen = writeInLoop(buffer, length);

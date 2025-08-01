@@ -729,7 +729,7 @@ TEST(EnsembleMetadata, OneUnavailableNodeBeforeRevalidationShouldWork) {
 TEST(EnsembleMetadata, OneCustomNode) {
     ConstructorEnabledModelManager manager;
     CustomNodeLibraryManager libraryManager;
-    ASSERT_EQ(libraryManager.loadLibrary("add_sub", "/ovms/bazel-bin/src/lib_node_add_sub.so"), StatusCode::OK);
+    ASSERT_EQ(libraryManager.loadLibrary("add_sub", getGenericFullPathForBazelOut("/ovms/bazel-bin/src/lib_node_add_sub.so")), StatusCode::OK);
     NodeLibrary library{};
     ASSERT_EQ(libraryManager.getLibrary("add_sub", library), StatusCode::OK);
     ASSERT_TRUE(library.isValid());
@@ -777,7 +777,7 @@ TEST(EnsembleMetadata, OneCustomNode) {
 TEST(EnsembleMetadata, ParallelCustomNodes) {
     ConstructorEnabledModelManager manager;
     CustomNodeLibraryManager libraryManager;
-    ASSERT_EQ(libraryManager.loadLibrary("add_sub", "/ovms/bazel-bin/src/lib_node_add_sub.so"), StatusCode::OK);
+    ASSERT_EQ(libraryManager.loadLibrary("add_sub", getGenericFullPathForBazelOut("/ovms/bazel-bin/src/lib_node_add_sub.so")), StatusCode::OK);
     NodeLibrary library{};
     ASSERT_EQ(libraryManager.getLibrary("add_sub", library), StatusCode::OK);
     ASSERT_TRUE(library.isValid());

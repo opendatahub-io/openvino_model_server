@@ -156,6 +156,9 @@ public:
 class MediapipeServableMetricReporter {
     MetricRegistry* registry;
 
+protected:
+    std::vector<double> buckets;
+
 public:
     std::unique_ptr<MetricGauge> currentGraphs;
 
@@ -183,9 +186,56 @@ public:
 
     std::unique_ptr<MetricCounter> responseRestModelInfer;
 
+    std::unique_ptr<MetricCounter> requestSuccessGrpcModelMetadata;
+    std::unique_ptr<MetricCounter> requestSuccessGrpcModelReady;
+
+    std::unique_ptr<MetricCounter> requestSuccessRestModelMetadata;
+    std::unique_ptr<MetricCounter> requestSuccessRestModelReady;
+
+    std::unique_ptr<MetricCounter> requestFailGrpcModelMetadata;
+    std::unique_ptr<MetricCounter> requestFailGrpcModelReady;
+
+    std::unique_ptr<MetricCounter> requestFailRestModelMetadata;
+    std::unique_ptr<MetricCounter> requestFailRestModelReady;
+
     // V3
     std::unique_ptr<MetricCounter> responseRestV3Unary;
     std::unique_ptr<MetricCounter> responseRestV3Stream;
+
+    std::unique_ptr<MetricCounter> requestErrorGrpcModelInfer;
+    std::unique_ptr<MetricCounter> requestErrorGrpcModelInferStream;
+    std::unique_ptr<MetricCounter> requestErrorRestModelInfer;
+    std::unique_ptr<MetricCounter> requestErrorRestV3Unary;
+    std::unique_ptr<MetricCounter> requestErrorRestV3Stream;
+
+    std::unique_ptr<MetricHistogram> processingTimeGrpcModelInfer;
+    std::unique_ptr<MetricHistogram> processingTimeGrpcModelInferStream;
+    std::unique_ptr<MetricHistogram> processingTimeRestModelInfer;
+    std::unique_ptr<MetricHistogram> processingTimeRestV3Unary;
+    std::unique_ptr<MetricHistogram> processingTimeRestV3Stream;
+
+    std::unique_ptr<MetricHistogram> requestLatencyGrpcModelInferStream;
+    std::unique_ptr<MetricHistogram> requestLatencyRestV3Stream;
+
+    inline MetricHistogram* getRequestLatencyMetric(const ExecutionContext& context) {
+        if (context.method == ExecutionContext::Method::ModelInferStream)
+            return this->requestLatencyGrpcModelInferStream.get();
+        if (context.method == ExecutionContext::Method::V3Stream)
+            return this->requestLatencyRestV3Stream.get();
+        return nullptr;
+    }
+
+    inline MetricHistogram* getProcessingTimeMetric(const ExecutionContext& context) {
+        if (context.method == ExecutionContext::Method::ModelInfer)
+            return this->processingTimeGrpcModelInfer.get();
+        if (context.method == ExecutionContext::Method::ModelInferStream)
+            return this->processingTimeGrpcModelInferStream.get();
+        if (context.method == ExecutionContext::Method::V3Unary)
+            return this->processingTimeRestV3Unary.get();
+        if (context.method == ExecutionContext::Method::V3Stream)
+            return this->processingTimeRestV3Stream.get();
+        return nullptr;
+    }
 
     inline MetricCounter* getRequestsMetric(const ExecutionContext& context, bool success = true) {
         if (context.interface == ExecutionContext::Interface::GRPC) {
@@ -201,6 +251,27 @@ public:
                 return success ? this->requestAcceptedRestV3Unary.get() : this->requestRejectedRestV3Unary.get();
             if (context.method == ExecutionContext::Method::V3Stream)
                 return success ? this->requestAcceptedRestV3Stream.get() : this->requestRejectedRestV3Stream.get();
+            return nullptr;
+        } else {
+            return nullptr;
+        }
+        return nullptr;
+    }
+
+    inline MetricCounter* getGraphErrorMetric(const ExecutionContext& context) {
+        if (context.interface == ExecutionContext::Interface::GRPC) {
+            if (context.method == ExecutionContext::Method::ModelInfer)
+                return this->requestErrorGrpcModelInfer.get();
+            if (context.method == ExecutionContext::Method::ModelInferStream)
+                return this->requestErrorGrpcModelInferStream.get();
+            return nullptr;
+        } else if (context.interface == ExecutionContext::Interface::REST) {
+            if (context.method == ExecutionContext::Method::ModelInfer)
+                return this->requestErrorRestModelInfer.get();
+            if (context.method == ExecutionContext::Method::V3Unary)
+                return this->requestErrorRestV3Unary.get();
+            if (context.method == ExecutionContext::Method::V3Stream)
+                return this->requestErrorRestV3Stream.get();
             return nullptr;
         } else {
             return nullptr;
@@ -227,6 +298,22 @@ public:
             return nullptr;
         }
         return nullptr;
+    }
+
+    inline std::unique_ptr<MetricCounter>& getModelMetadataMetric(const ExecutionContext& context, bool success = true) {
+        if (context.interface == ExecutionContext::Interface::GRPC) {
+            return success ? this->requestSuccessGrpcModelMetadata : this->requestFailGrpcModelMetadata;
+        } else {
+            return success ? this->requestSuccessRestModelMetadata : this->requestFailRestModelMetadata;
+        }
+    }
+
+    inline std::unique_ptr<MetricCounter>& getModelReadyMetric(const ExecutionContext& context, bool success = true) {
+        if (context.interface == ExecutionContext::Interface::GRPC) {
+            return success ? this->requestSuccessGrpcModelReady : this->requestFailGrpcModelReady;
+        } else {
+            return success ? this->requestSuccessRestModelReady : this->requestFailRestModelReady;
+        }
     }
 
     MediapipeServableMetricReporter(const MetricConfig* metricConfig, MetricRegistry* registry, const std::string& graphName);

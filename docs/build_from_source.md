@@ -1,13 +1,15 @@
-# Building from source
+# Building from source {#ovms_docs_build_from_source}
 
 This document gives information how to build docker images and the binary package from source with different variants.
 
 ## Prerequisites
 
 1. [Docker Engine](https://docs.docker.com/engine/)
-1. Ubuntu 20.04, Ubuntu 22.04 or RedHat 8.8 host
+1. Ubuntu 22.04, Ubuntu 24.04 or RedHat 9.6 host
 1. make
 1. bash
+
+ > **Note**: Building Windows Model Server is covered in [Developer Guide for Windows](windows_developer_guide.md).
 
 ## Makefile and building
 
@@ -27,8 +29,8 @@ To build the image with non default configuration, add parameters described belo
 
 Select base OS:
 - `ubuntu22` for Ubuntu 22.04 (default)
-- `ubuntu20` for Ubuntu 20.04
-- `redhat` for Red Hat UBI 8.8
+- `ubuntu24` for Ubuntu 24.04
+- `redhat` for Red Hat UBI 9.6
 
 ```bash
 make release_image BASE_OS=redhat
@@ -43,11 +45,11 @@ Example:
 Parameter used to control which GPU driver version will be installed. Supported versions:
 | OS | Versions |
 |---|---|
-| Ubuntu22 | 23.13.26032 (default), <br />22.35.24055, <br />22.10.22597, <br />21.48.21782 |
-| Ubuntu20 | 22.43.24595 (default), <br />22.35.24055, <br />22.10.22597, <br />21.48.21782 |
-| RedHat | 22.43.24595 (default), <br />22.28.23726, <br />22.10.22597, <br />21.38.21026 |
+| Ubuntu22 | 24.39.31294 (default), <br /> 24.26.30049 (default), <br /> 23.22.26516|
+| Ubuntu24 | 24.52.32224 (default), <br /> 24.39.31294 |
+| RedHat | 23.22.26516 (default), <br /> 24.26.30049, <br />23.22.26516, <br /> 22.10.22597 |
 
-Additionally it is possible to specify custom (pre-production) drivers by providing location to NEO Runtime packages on local disk. Contact Intel representative to get the access to the pre-production drivers.  
+Additionally it is possible to specify custom (pre-production) drivers by providing location to NEO Runtime packages on local disk. Contact Intel representative to get the access to the pre-production drivers.
 Warning: _Maintained only for Ubuntu base OS._
 
 Put NEO Runtime deb packages in the catalog `<model_server_dir>/release_files/drivers/dg2`. Expected structure is like below:
@@ -80,26 +82,9 @@ Use this parameter together with `OV_USE_BINARY=1`.
 
 <hr />
 
-### `NVIDIA`
-
-By default set to `0`. When set to `1`, there will be additional docker image prepared: `openvino/model_server:latest-cuda` which contains environment required to run inference on NVIDIA GPUs. Please note that such image is significantly larger than the base one.
-
-Hint: optionally use `OV_SOURCE_BRANCH` parameter to specify which branch from [OpenVINO repository](https://github.com/openvinotoolkit/openvino) should be used
-and `OV_CONTRIB_BRANCH` to choose the branch from [OpenVINO contrib](https://github.com/openvinotoolkit/openvino_contrib) repository for NVIDIA plugin.
-
-Example:
-```bash
-make release_image NVIDIA=1
-```
-
- > **Note**: In order to build the image with redhat UBI8.8 as the base os, it is required to use a host with RedHat subscription and entitlements in `/etc/pki/entitlement` and `/etc/rhsm`. 
-That is required to install several building dependencies.
-
-<hr />
-
 ### `OV_USE_BINARY`
 
-By default set to `0`. With that setting, OpenVINO backend will be built from sources and `DLDT_PACKAGE_URL` will be omitted.  
+By default set to `0`. With that setting, OpenVINO backend will be built from sources and `DLDT_PACKAGE_URL` will be omitted.
 Use `OV_SOURCE_BRANCH` and `OV_SOURCE_ORG` to select [OpenVINO repository](https://github.com/openvinotoolkit/openvino) branch and fork. By default the latest tested commit from `master` branch will be used and org `openvinotoolkit`.
 When `OV_USE_BINARY=1`, the OpenVINO backend will be installed from the binary archive set in `DLDT_PACKAGE_URL`.
 
@@ -141,7 +126,7 @@ make release_image MEDIAPIPE_DISABLE=1 PYTHON_DISABLE=1
 
 ### `GPU`
 
-When set to `1`, OpenVINO&trade Model Server will be built with the drivers required by [GPU plugin](https://docs.openvino.ai/2024/openvino-workflow/running-inference/inference-devices-and-modes/gpu-device.html) support. Default value: `0`.
+When set to `1`, OpenVINO&trade Model Server will be built with the drivers required by [GPU plugin](https://docs.openvino.ai/2025/openvino-workflow/running-inference/inference-devices-and-modes/gpu-device.html) support. Default value: `0`.
 
 Example:
 ```bash
@@ -171,5 +156,7 @@ dist/ubuntu22
 └── ovms.tar.gz.sha256
 ```
 
+---
 
-Read more detailed usage in [developer guide](https://github.com/openvinotoolkit/model_server/blob/main/docs/developer_guide.md).
+Read more details about building and testing changes in [developer guide](./developer_guide.md).
+

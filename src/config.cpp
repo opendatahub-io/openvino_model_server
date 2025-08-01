@@ -19,26 +19,29 @@
 #include <limits>
 #include <regex>
 #include <thread>
+#include <vector>
 
 #include "logging.hpp"
-// TODO: Write windows/linux specific status codes.
-#ifdef __linux__
-#include <sysexits.h>
-#elif _WIN32
-#include <ntstatus.h>
-#endif
+#include "ovms_exit_codes.hpp"
 
 #include "capi_frontend/server_settings.hpp"
 #include "cli_parser.hpp"
 #include "modelconfig.hpp"
+#include "stringutils.hpp"
 #include "systeminfo.hpp"
 
 namespace ovms {
 
 const uint32_t AVAILABLE_CORES = getCoreCount();
+const uint32_t WIN_MAX_GRPC_WORKERS = 1;
 const uint32_t MAX_PORT_NUMBER = std::numeric_limits<uint16_t>::max();
 
+// For drogon, we need to minimize the number of default workers since this value is set for both: unary and streaming (making it always double)
+#if (USE_DROGON == 0)
 const uint64_t DEFAULT_REST_WORKERS = AVAILABLE_CORES * 4.0;
+#else
+const uint64_t DEFAULT_REST_WORKERS = AVAILABLE_CORES;
+#endif
 const uint32_t DEFAULT_GRPC_MAX_THREADS = AVAILABLE_CORES * 8.0;
 const size_t DEFAULT_GRPC_MEMORY_QUOTA = (size_t)2 * 1024 * 1024 * 1024;  // 2GB
 const uint64_t MAX_REST_WORKERS = 10'000;
@@ -50,11 +53,7 @@ Config& Config::parse(int argc, char** argv) {
     p.parse(argc, argv);
     p.prepare(&serverSettings, &modelsSettings);
     if (!this->parse(&serverSettings, &modelsSettings))
-#ifdef __linux__
-        exit(EX_USAGE);
-#elif _WIN32
-        exit(3);
-#endif
+        exit(OVMS_EX_USAGE);
     return *this;
 }
 
@@ -70,44 +69,176 @@ bool Config::check_hostname_or_ip(const std::string& input) {
     }
     bool all_numeric = true;
     for (char c : input) {
-        if (c == '.') {
+        if (c == '.' || c == ':') {
             continue;
         }
-        if (!::isdigit(c)) {
+        if (!::isxdigit(c)) {
             all_numeric = false;
         }
     }
     if (all_numeric) {
-        std::regex valid_ip_regex("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$");
-        return std::regex_match(input, valid_ip_regex);
+        static const std::regex valid_ipv4_regex("^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$");
+        static const std::regex valid_ipv6_regex(R"(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))");
+        return std::regex_match(input, valid_ipv4_regex) ||
+               std::regex_match(input, valid_ipv6_regex);
     } else {
         std::regex valid_hostname_regex("^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]*[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-]*[A-Za-z0-9])$");
         return std::regex_match(input, valid_hostname_regex);
     }
 }
 
+bool Config::validateUserSettingsInConfigAddRemoveModel(const ModelsSettingsImpl& modelsSettings) {
+    static const std::vector<std::string> allowedUserSettings = {"model_name", "model_path"};
+    std::vector<std::string> usedButDisallowedUserSettings;
+    for (const std::string& userSetting : modelsSettings.userSetSingleModelArguments) {
+        bool isAllowed = false;
+        for (const std::string& allowedSetting : allowedUserSettings) {
+            if (userSetting == allowedSetting)
+                isAllowed = true;
+        }
+
+        if (!isAllowed)
+            usedButDisallowedUserSettings.push_back(userSetting);
+    }
+
+    if (!usedButDisallowedUserSettings.empty()) {
+        std::string arguments = "";
+        for (const std::string& userSetting : usedButDisallowedUserSettings) {
+            arguments += userSetting + ", ";
+        }
+        std::cerr << "Adding or removing models from the configuration file, allows passing only model_name and model_path parameters. Invalid parameters passed: " << arguments << std::endl;
+
+        return false;
+    }
+
+    return true;
+}
+
 bool Config::validate() {
-    if (!configPath().empty() && (!modelName().empty() || !modelPath().empty())) {
-        std::cerr << "Use either config_path or model_path with model_name" << std::endl;
-        return false;
+    if (this->serverSettings.serverMode == HF_PULL_MODE || this->serverSettings.serverMode == HF_PULL_AND_START_MODE) {
+        if (!serverSettings.hfSettings.sourceModel.size()) {
+            std::cerr << "source_model parameter is required for pull mode";
+            return false;
+        }
+        if (!serverSettings.hfSettings.downloadPath.size()) {
+            std::cerr << "model_repository_path parameter is required for pull mode";
+            return false;
+        }
+        if (this->serverSettings.hfSettings.task == UNKNOWN_GRAPH) {
+            std::cerr << "Error: --task parameter not set." << std::endl;
+            return false;
+        }
+        if (serverSettings.hfSettings.downloadType != OPTIMUM_CLI_DOWNLOAD && !startsWith(toLower(serverSettings.hfSettings.sourceModel), toLower("OpenVINO/"))) {
+            std::cerr << "For now only OpenVINO models are supported in pulling mode";
+            return false;
+        }
+        if (this->serverSettings.hfSettings.task == TEXT_GENERATION_GRAPH) {
+            if (!std::holds_alternative<TextGenGraphSettingsImpl>(this->serverSettings.hfSettings.graphSettings)) {
+                std::cerr << "Graph options not initialized for text generation.";
+                return false;
+            }
+            auto settings = std::get<TextGenGraphSettingsImpl>(this->serverSettings.hfSettings.graphSettings);
+            std::vector allowedPipelineTypes = {"LM", "LM_CB", "VLM", "VLM_CB", "AUTO"};
+            if (settings.pipelineType.has_value() && std::find(allowedPipelineTypes.begin(), allowedPipelineTypes.end(), settings.pipelineType) == allowedPipelineTypes.end()) {
+                std::cerr << "pipeline_type: " << settings.pipelineType.value() << " is not allowed. Supported types: LM, LM_CB, VLM, VLM_CB, AUTO" << std::endl;
+                return false;
+            }
+
+            std::vector allowedTargetDevices = {"CPU", "GPU", "NPU", "AUTO"};
+            if (std::find(allowedTargetDevices.begin(), allowedTargetDevices.end(), settings.targetDevice) == allowedTargetDevices.end() && settings.targetDevice.rfind("HETERO", 0) != 0) {
+                std::cerr << "target_device: " << settings.targetDevice << " is not allowed. Supported devices: CPU, GPU, NPU, HETERO, AUTO" << std::endl;
+                return false;
+            }
+
+            std::vector allowedBoolValues = {"false", "true"};
+            if (std::find(allowedBoolValues.begin(), allowedBoolValues.end(), settings.enablePrefixCaching) == allowedBoolValues.end()) {
+                std::cerr << "enable_prefix_caching: " << settings.enablePrefixCaching << " is not allowed. Supported values: true, false" << std::endl;
+                return false;
+            }
+
+            if (std::find(allowedBoolValues.begin(), allowedBoolValues.end(), settings.dynamicSplitFuse) == allowedBoolValues.end()) {
+                std::cerr << "dynamic_split_fuse: " << settings.dynamicSplitFuse << " is not allowed. Supported values: true, false" << std::endl;
+                return false;
+            }
+        }
+
+        if (this->serverSettings.hfSettings.task == EMBEDDINGS_GRAPH) {
+            if (!std::holds_alternative<EmbeddingsGraphSettingsImpl>(this->serverSettings.hfSettings.graphSettings)) {
+                std::cerr << "Graph options not initialized for embeddings.";
+                return false;
+            }
+            auto settings = std::get<EmbeddingsGraphSettingsImpl>(this->serverSettings.hfSettings.graphSettings);
+
+            std::vector allowedBoolValues = {"false", "true"};
+            if (std::find(allowedBoolValues.begin(), allowedBoolValues.end(), settings.normalize) == allowedBoolValues.end()) {
+                std::cerr << "normalize: " << settings.normalize << " is not allowed. Supported values: true, false" << std::endl;
+                return false;
+            }
+        }
+        // No more validation needed
+        if (this->serverSettings.serverMode == HF_PULL_MODE) {
+            return true;
+        }
+    }
+    if (this->serverSettings.serverMode == LIST_MODELS_MODE) {
+        if (this->serverSettings.hfSettings.downloadPath.empty()) {
+            std::cerr << "Use --list_models with --model_repository_path" << std::endl;
+            return false;
+        }
+        return true;
     }
 
-    if (configPath().empty() && !(!modelName().empty() && !modelPath().empty())) {
-        std::cerr << "Use config_path or model_path with model_name" << std::endl;
-        return false;
-    }
+    if (this->serverSettings.serverMode != MODIFY_CONFIG_MODE) {
+        if (!configPath().empty() && (!modelName().empty() || !modelPath().empty())) {
+            std::cerr << "Use either config_path or model_path with model_name" << std::endl;
+            return false;
+        }
+        if (configPath().empty() && !(!modelName().empty() && !modelPath().empty())) {
+            std::cerr << "Use config_path or model_path with model_name" << std::endl;
+            return false;
+        }
+        if (!configPath().empty() && (!this->modelsSettings.batchSize.empty() || !shape().empty() ||
+                                         nireq() != 0 || !modelVersionPolicy().empty() || !this->modelsSettings.targetDevice.empty() ||
+                                         !pluginConfig().empty())) {
+            std::cerr << "Model parameters in CLI are exclusive with the config file" << std::endl;
+            return false;
+        }
+        // check grpc_workers value
+        if (((grpcWorkers() > AVAILABLE_CORES) || (grpcWorkers() < 1))) {
+            std::cerr << "grpc_workers count should be from 1 to CPU core count : " << AVAILABLE_CORES << std::endl;
+            return false;
+        }
+        // metrics on rest port
+        if (metricsEnabled() && restPort() == 0) {
+            std::cerr << "rest_port setting is missing, metrics are enabled on rest port" << std::endl;
+            return false;
+        }
+        // metrics_list without metrics_enable
+        if (!metricsEnabled() && !metricsList().empty()) {
+            std::cerr << "metrics_enable setting is missing, required when metrics_list is provided" << std::endl;
+            return false;
+        }
+        // both ports cannot be unset
+        if (startedFromCLI() && ((restPort() == 0) && (port() == 0))) {
+            std::cerr << "port and rest_port cannot both be unset" << std::endl;
+            return false;
+        }
+    } else {
+        if (configPath().empty()) {
+            std::cerr << "Set config_path with add_to_config, remove_from_config" << std::endl;
+            return false;
+        }
+        if (modelName().empty()) {
+            std::cerr << "Set model_name with add_to_config, remove_from_config" << std::endl;
+            return false;
+        }
+        if (modelPath().empty() && this->serverSettings.exportConfigType == ENABLE_MODEL) {
+            std::cerr << "Set model_path or model_repository_path and model_name with add_to_config, remove_from_config" << std::endl;
+            return false;
+        }
 
-    if (!configPath().empty() && (!this->modelsSettings.batchSize.empty() || !shape().empty() ||
-                                     nireq() != 0 || !modelVersionPolicy().empty() || !this->modelsSettings.targetDevice.empty() ||
-                                     !pluginConfig().empty())) {
-        std::cerr << "Model parameters in CLI are exclusive with the config file" << std::endl;
-        return false;
-    }
-
-    // check grpc_workers value
-    if (((grpcWorkers() > AVAILABLE_CORES) || (grpcWorkers() < 1))) {
-        std::cerr << "grpc_workers count should be from 1 to CPU core count : " << AVAILABLE_CORES << std::endl;
-        return false;
+        if (!Config::validateUserSettingsInConfigAddRemoveModel(this->modelsSettings))
+            return false;
     }
 
     // check rest_workers value
@@ -121,6 +252,13 @@ bool Config::validate() {
         return false;
     }
 
+#ifdef _WIN32
+    if (grpcWorkers() > WIN_MAX_GRPC_WORKERS) {
+        std::cerr << "grpcWorkers count can only be set to 1 on Windows. Set " << grpcWorkers() << std::endl;
+        return false;
+    }
+#endif
+
     if (port() && (port() > MAX_PORT_NUMBER)) {
         std::cerr << "port number out of range from 0 to " << MAX_PORT_NUMBER << std::endl;
         return false;
@@ -128,18 +266,6 @@ bool Config::validate() {
 
     if (restPort() && (restPort() > MAX_PORT_NUMBER)) {
         std::cerr << "rest_port number out of range from 0 to " << MAX_PORT_NUMBER << std::endl;
-        return false;
-    }
-
-    // metrics on rest port
-    if (metricsEnabled() && restPort() == 0) {
-        std::cerr << "rest_port setting is missing, metrics are enabled on rest port" << std::endl;
-        return false;
-    }
-
-    // metrics_list without metrics_enable
-    if (!metricsEnabled() && !metricsList().empty()) {
-        std::cerr << "metrics_enable setting is missing, required when metrics_list is provided" << std::endl;
         return false;
     }
 
@@ -152,16 +278,15 @@ bool Config::validate() {
         std::cerr << "grpc_bind_address has invalid format: proper hostname or IP address expected." << std::endl;
         return false;
     }
-
     // port and rest_port cannot be the same
-    if (port() == restPort()) {
+    if ((port() == restPort()) && (port() != 0)) {
         std::cerr << "port and rest_port cannot have the same values" << std::endl;
         return false;
     }
 
     // check cpu_extension path:
     if (!cpuExtensionLibraryPath().empty() && !std::filesystem::exists(cpuExtensionLibraryPath())) {
-        std::cerr << "File path provided as an --cpu_extension parameter does not exists in the filesystem: " << this->cpuExtensionLibraryPath() << std::endl;
+        std::cerr << "File path provided as an --cpu_extension parameter does not exist in the filesystem: " << this->cpuExtensionLibraryPath() << std::endl;
         return false;
     }
 
@@ -219,6 +344,10 @@ const std::string& Config::grpcChannelArguments() const { return this->serverSet
 uint32_t Config::filesystemPollWaitMilliseconds() const { return this->serverSettings.filesystemPollWaitMilliseconds; }
 uint32_t Config::sequenceCleanerPollWaitMinutes() const { return this->serverSettings.sequenceCleanerPollWaitMinutes; }
 uint32_t Config::resourcesCleanerPollWaitSeconds() const { return this->serverSettings.resourcesCleanerPollWaitSeconds; }
+bool Config::allowCredentials() const { return this->serverSettings.allowCredentials; }
+const std::string& Config::allowedOrigins() const { return this->serverSettings.allowedOrigins; }
+const std::string& Config::allowedMethods() const { return this->serverSettings.allowedMethods; }
+const std::string& Config::allowedHeaders() const { return this->serverSettings.allowedHeaders; }
 const std::string Config::cacheDir() const { return this->serverSettings.cacheDir; }
 
 }  // namespace ovms

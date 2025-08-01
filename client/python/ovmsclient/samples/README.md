@@ -34,8 +34,8 @@ pip3 install -r requirements.txt
 Download [Resnet50-tf Model](https://github.com/openvinotoolkit/open_model_zoo/blob/master/models/public/resnet-50-tf/README.md) and convert it into Intermediate Representation format:
 ```bash
 mkdir models
-docker run -u $(id -u):$(id -g) -v ${PWD}/models:/models openvino/ubuntu20_dev:latest omz_downloader --name resnet-50-tf --output_dir /models
-docker run -u $(id -u):$(id -g) -v ${PWD}/models:/models:rw openvino/ubuntu20_dev:latest omz_converter --name resnet-50-tf --download_dir /models --output_dir /models --precisions FP32
+docker run -u $(id -u):$(id -g) -v ${PWD}/models:/models openvino/ubuntu20_dev:2024.6.0 omz_downloader --name resnet-50-tf --output_dir /models
+docker run -u $(id -u):$(id -g) -v ${PWD}/models:/models:rw openvino/ubuntu20_dev:2024.6.0 omz_converter --name resnet-50-tf --download_dir /models --output_dir /models --precisions FP32
 mv ${PWD}/models/public/resnet-50-tf/FP32 ${PWD}/models/public/resnet-50-tf/1
 ```
 
@@ -111,7 +111,7 @@ optional arguments:
 
 ```bash
 python grpc_get_model_metadata.py --model_name resnet --model_version 1 --service_url localhost:9000
-{'model_version': 1, 'inputs': {'map/TensorArrayStack/TensorArrayGatherV3': {'shape': [1, 224, 224, 3], 'dtype': 'DT_FLOAT'}}, 'outputs': {'softmax_tensor': {'shape': [1, 1001], 'dtype': 'DT_FLOAT'}}}
+{'model_version': 1, 'inputs': {'map/TensorArrayStack/TensorArrayGatherV3': {'shape': [1, 224, 224, 3], 'dtype': 'DT_FLOAT'}}, 'outputs': {'softmax_tensor:0': {'shape': [1, 1001], 'dtype': 'DT_FLOAT'}}}
 ```
 
 
@@ -334,7 +334,7 @@ optional arguments:
 
 ```bash
 python http_get_model_metadata.py --model_name resnet --model_version 1 --service_url localhost:8000
-{'inputs': {'map/TensorArrayStack/TensorArrayGatherV3': {'dtype': 'DT_FLOAT', 'shape': [1, 3, 224, 224]}}, 'outputs': {'softmax_tensor': {'dtype': 'DT_FLOAT', 'shape': [1, 1001]}}, 'model_version': 1}
+{'inputs': {'map/TensorArrayStack/TensorArrayGatherV3': {'dtype': 'DT_FLOAT', 'shape': [1, 224, 224, 3]}}, 'outputs': {'softmax_tensor:0': {'dtype': 'DT_FLOAT', 'shape': [1, 1001]}}, 'model_version': 1}
 ```
 
 

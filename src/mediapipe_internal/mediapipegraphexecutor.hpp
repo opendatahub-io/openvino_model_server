@@ -27,11 +27,15 @@
 #include "../model_metric_reporter.hpp"
 #include "../profiler.hpp"
 #include "../status.hpp"
+#include "../timer.hpp"
+#pragma warning(push)
+#pragma warning(disable : 4324 6001 6385 6386 6326 6011 4309 4005 4456 6246)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "mediapipe/framework/calculator_graph.h"
 #include "mediapipe/framework/port/status.h"
 #pragma GCC diagnostic pop
+#pragma warning(pop)
 #include "mediapipe_utils.hpp"
 #include "mediapipegraphdefinition.hpp"  // for version in response and PythonNodeResourceMap
 #include "packettypes.hpp"
@@ -48,7 +52,8 @@ inline StatusCode mediapipeAbslToOvmsStatus(absl::StatusCode code) {
 }
 
 #define OVMS_WRITE_ERROR_ON_FAIL_AND_CONTINUE(code, message, isSuccess)  \
-    {                                                                    \
+    _Pragma("warning(push)")                                             \
+        _Pragma("warning(disable : 4456 6246)") {                        \
         auto status = code;                                              \
         if (!status.ok()) {                                              \
             std::stringstream ss;                                        \
@@ -63,7 +68,8 @@ inline StatusCode mediapipeAbslToOvmsStatus(absl::StatusCode code) {
         } else {                                                         \
             isSuccess = true;                                            \
         }                                                                \
-    }
+    }                                                                    \
+    _Pragma("warning(pop)")
 
 class MediapipeGraphExecutor {
     const std::string name;
@@ -74,8 +80,7 @@ class MediapipeGraphExecutor {
     const std::vector<std::string> inputNames;
     const std::vector<std::string> outputNames;
 
-    PythonNodeResourcesMap pythonNodeResourcesMap;
-    LLMNodeResourcesMap llmNodeResourcesMap;
+    GraphSidePackets sidePacketMaps;
     PythonBackend* pythonBackend;
 
     ::mediapipe::Timestamp currentStreamTimestamp;
@@ -85,6 +90,9 @@ class MediapipeGraphExecutor {
 public:
     static const std::string PYTHON_SESSION_SIDE_PACKET_TAG;
     static const std::string LLM_SESSION_SIDE_PACKET_TAG;
+    static const std::string IMAGE_GEN_SESSION_SIDE_PACKET_TAG;
+    static const std::string EMBEDDINGS_SESSION_SIDE_PACKET_TAG;
+    static const std::string RERANK_SESSION_SIDE_PACKET_TAG;
     static const ::mediapipe::Timestamp STARTING_TIMESTAMP;
 
     MediapipeGraphExecutor(const std::string& name, const std::string& version, const ::mediapipe::CalculatorGraphConfig& config,
@@ -92,7 +100,16 @@ public:
         stream_types_mapping_t outputTypes,
         std::vector<std::string> inputNames, std::vector<std::string> outputNames,
         const PythonNodeResourcesMap& pythonNodeResourcesMap,
-        const LLMNodeResourcesMap& llmNodeResourcesMap,
+        const GenAiServableMap& llmNodeResourcesMap,
+        const EmbeddingsServableMap& embeddingsServableMap,
+        const RerankServableMap& rerankServableMap,
+        PythonBackend* pythonBackend,
+        MediapipeServableMetricReporter* mediapipeServableMetricReporter);
+    MediapipeGraphExecutor(const std::string& name, const std::string& version, const ::mediapipe::CalculatorGraphConfig& config,
+        stream_types_mapping_t inputTypes,
+        stream_types_mapping_t outputTypes,
+        std::vector<std::string> inputNames, std::vector<std::string> outputNames,
+        const GraphSidePackets& sidePacketMaps,
         PythonBackend* pythonBackend,
         MediapipeServableMetricReporter* mediapipeServableMetricReporter);
 
@@ -104,6 +121,12 @@ public:
         MetricGaugeGuard currentGraphsGuard(this->mediapipeServableMetricReporter->currentGraphs.get());
         ::mediapipe::CalculatorGraph graph;
         MP_RETURN_ON_FAIL(graph.Initialize(this->config), std::string("failed initialization of MediaPipe graph: ") + this->name, StatusCode::MEDIAPIPE_GRAPH_INITIALIZATION_ERROR);
+        enum : unsigned int {
+            PROCESS,
+            TIMER_END2
+        };
+        Timer<TIMER_END2> timer;
+        timer.start(PROCESS);
         std::unordered_map<std::string, ::mediapipe::OutputStreamPoller> outputPollers;
         for (auto& name : this->outputNames) {
             if (name.empty()) {
@@ -121,27 +144,34 @@ public:
         std::map<std::string, mediapipe::Packet> inputSidePackets;
         OVMS_RETURN_ON_FAIL(deserializeInputSidePacketsFromFirstRequestImpl(inputSidePackets, *request));
 #if (PYTHON_DISABLE == 0)
-        inputSidePackets[PYTHON_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<PythonNodeResourcesMap>(this->pythonNodeResourcesMap).At(STARTING_TIMESTAMP);
-        inputSidePackets[LLM_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<LLMNodeResourcesMap>(this->llmNodeResourcesMap).At(STARTING_TIMESTAMP);
+        inputSidePackets[PYTHON_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<PythonNodeResourcesMap>(this->sidePacketMaps.pythonNodeResourcesMap).At(STARTING_TIMESTAMP);
 #endif
+        inputSidePackets[LLM_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<GenAiServableMap>(this->sidePacketMaps.genAiServableMap).At(STARTING_TIMESTAMP);
+        inputSidePackets[IMAGE_GEN_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<ImageGenerationPipelinesMap>(this->sidePacketMaps.imageGenPipelinesMap).At(STARTING_TIMESTAMP);
+        inputSidePackets[EMBEDDINGS_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<EmbeddingsServableMap>(this->sidePacketMaps.embeddingsServableMap).At(STARTING_TIMESTAMP);
+
+        inputSidePackets[RERANK_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<RerankServableMap>(this->sidePacketMaps.rerankServableMap).At(STARTING_TIMESTAMP);
         MP_RETURN_ON_FAIL(graph.StartRun(inputSidePackets), std::string("start MediaPipe graph: ") + this->name, StatusCode::MEDIAPIPE_GRAPH_START_ERROR);
 
         ::mediapipe::Packet packet;
         std::set<std::string> outputPollersWithReceivedPacket;
 
         size_t numberOfPacketsCreated = 0;
-        OVMS_RETURN_ON_FAIL(
-            createAndPushPacketsImpl(
-                std::shared_ptr<const RequestType>(request,
-                    // Custom deleter to avoid deallocation by custom holder
-                    // Conversion to shared_ptr is required for unified deserialization method
-                    // for first and subsequent requests
-                    [](const RequestType*) {}),
-                this->inputTypes,
-                this->pythonBackend,
-                graph,
-                this->currentStreamTimestamp,
-                numberOfPacketsCreated));
+        auto ovms_status = createAndPushPacketsImpl(
+            std::shared_ptr<const RequestType>(request,
+                // Custom deleter to avoid deallocation by custom holder
+                // Conversion to shared_ptr is required for unified deserialization method
+                // for first and subsequent requests
+                [](const RequestType*) {}),
+            this->inputTypes,
+            this->pythonBackend,
+            graph,
+            this->currentStreamTimestamp,
+            numberOfPacketsCreated);
+        if (!ovms_status.ok()) {
+            INCREMENT_IF_ENABLED(this->mediapipeServableMetricReporter->getGraphErrorMetric(executionContext));
+            return ovms_status;
+        }
 
         // This differs from inferStream - we require user to feed all streams
         if (this->inputNames.size() > numberOfPacketsCreated) {
@@ -159,6 +189,9 @@ public:
         // can be still processing those. Closing packet sources triggers Calculator::Close() on nodes that do not expect
         // new packets
         auto status = graph.WaitUntilIdle();
+        if (!status.ok()) {  // Collect error metric after Open()
+            INCREMENT_IF_ENABLED(this->mediapipeServableMetricReporter->getGraphErrorMetric(executionContext));
+        }
         MP_RETURN_ON_FAIL(status, "graph wait until idle", mediapipeAbslToOvmsStatus(status.code()));
 
         MP_RETURN_ON_FAIL(graph.CloseAllPacketSources(), "graph close all packet sources", StatusCode::MEDIAPIPE_GRAPH_CLOSE_INPUT_STREAM_ERROR);
@@ -186,11 +219,17 @@ public:
             SPDLOG_TRACE("Received all: {} packets for: {}", receivedOutputs, outputStreamName);
         }
         status = graph.WaitUntilDone();
+        if (!status.ok()) {  // Collect error metric after Process()
+            INCREMENT_IF_ENABLED(this->mediapipeServableMetricReporter->getGraphErrorMetric(executionContext));
+        }
         MP_RETURN_ON_FAIL(status, "graph wait until done", mediapipeAbslToOvmsStatus(status.code()));
         if (outputPollers.size() != outputPollersWithReceivedPacket.size()) {
             SPDLOG_DEBUG("Mediapipe failed to execute. Failed to receive all output packets");
             return Status(StatusCode::MEDIAPIPE_EXECUTION_ERROR, "Unknown error during mediapipe execution");
         }
+        timer.stop(PROCESS);
+        double processTime = timer.template elapsed<std::chrono::microseconds>(PROCESS);
+        OBSERVE_IF_ENABLED(this->mediapipeServableMetricReporter->getProcessingTimeMetric(executionContext), processTime);
         INCREMENT_IF_ENABLED(this->mediapipeServableMetricReporter->getResponsesMetric(executionContext));
         SPDLOG_DEBUG("Received all output stream packets for graph: {}", this->name);
         return StatusCode::OK;
@@ -209,6 +248,12 @@ public:
                 // Init
                 MP_RETURN_ON_FAIL(graph.Initialize(this->config), "graph initialization", StatusCode::MEDIAPIPE_GRAPH_INITIALIZATION_ERROR);
             }
+            enum : unsigned int {
+                PROCESS,
+                TIMER_END2
+            };
+            Timer<TIMER_END2> timer;
+            timer.start(PROCESS);
             {
                 OVMS_PROFILE_SCOPE("Mediapipe graph installing packet observers");
                 // Installing observers
@@ -226,9 +271,14 @@ public:
                                                              packet,
                                                              serverReaderWriter),
                                 "error in send packet routine");
+
+                            auto now = std::chrono::system_clock::now();
+                            auto currentTimestamp = ::mediapipe::Timestamp(std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
+                            OBSERVE_IF_ENABLED(this->mediapipeServableMetricReporter->getRequestLatencyMetric(executionContext), (currentTimestamp - packet.Timestamp()).Microseconds());
                             INCREMENT_IF_ENABLED(this->mediapipeServableMetricReporter->getResponsesMetric(executionContext));
                             return absl::OkStatus();
                         } catch (...) {
+                            SPDLOG_DEBUG("Error occurred during packet serialization in mediapipe graph: {}", this->name);
                             return absl::Status(absl::StatusCode::kCancelled, "error in serialization");
                         }
                     }),
@@ -241,10 +291,12 @@ public:
                 OVMS_PROFILE_SCOPE("Mediapipe graph creating input side packets");
                 OVMS_RETURN_ON_FAIL(deserializeInputSidePacketsFromFirstRequestImpl(inputSidePackets, req));
 #if (PYTHON_DISABLE == 0)
-                inputSidePackets[PYTHON_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<PythonNodeResourcesMap>(this->pythonNodeResourcesMap)
+                inputSidePackets[PYTHON_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<PythonNodeResourcesMap>(this->sidePacketMaps.pythonNodeResourcesMap)
                                                                        .At(STARTING_TIMESTAMP);
-                inputSidePackets[LLM_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<LLMNodeResourcesMap>(this->llmNodeResourcesMap).At(STARTING_TIMESTAMP);
 #endif
+                inputSidePackets[LLM_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<GenAiServableMap>(this->sidePacketMaps.genAiServableMap).At(STARTING_TIMESTAMP);
+                inputSidePackets[EMBEDDINGS_SESSION_SIDE_PACKET_TAG] = mediapipe::MakePacket<EmbeddingsServableMap>(this->sidePacketMaps.embeddingsServableMap).At(STARTING_TIMESTAMP);
+                // Add image generation side packet in case image generation allow for streaming
             }
 
             {
@@ -296,11 +348,12 @@ public:
                             numberOfPacketsCreated),
                         "partial deserialization of subsequent requests", isSuccess);
                 } else {
-                    OVMS_WRITE_ERROR_ON_FAIL_AND_CONTINUE(pstatus, "validate subsequent requests", isSuccess);
+                    OVMS_WRITE_ERROR_ON_FAIL_AND_CONTINUE(std::move(pstatus), "validate subsequent requests", isSuccess);
                 }
                 INCREMENT_IF_ENABLED(this->mediapipeServableMetricReporter->getRequestsMetric(executionContext, isSuccess));
 
                 if (graph.HasError()) {
+                    INCREMENT_IF_ENABLED(this->mediapipeServableMetricReporter->getGraphErrorMetric(executionContext));
                     SPDLOG_DEBUG("Graph {}: encountered an error, stopping the execution", this->name);
                     break;
                 }
@@ -317,11 +370,18 @@ public:
                 OVMS_PROFILE_SCOPE("MediaPipe waiting until done");
                 SPDLOG_DEBUG("Graph {}: Closed all packet sources. Waiting until done...", this->name);
                 auto status = graph.WaitUntilDone();
+                if (!status.ok()) {
+                    INCREMENT_IF_ENABLED(this->mediapipeServableMetricReporter->getGraphErrorMetric(executionContext));
+                }
                 MP_RETURN_ON_FAIL(status, "graph wait until done", mediapipeAbslToOvmsStatus(status.code()));
                 SPDLOG_DEBUG("Graph {}: Done execution", this->name);
             }
+            timer.stop(PROCESS);
+            double processTime = timer.template elapsed<std::chrono::microseconds>(PROCESS);
+            OBSERVE_IF_ENABLED(this->mediapipeServableMetricReporter->getProcessingTimeMetric(executionContext), processTime);
             return StatusCode::OK;
         } catch (...) {
+            SPDLOG_DEBUG("Graph {}: Exception while processing MediaPipe graph", this->name);
             return Status(StatusCode::UNKNOWN_ERROR, "Exception while processing MediaPipe graph");  // To be displayed in method level above
         }
     }

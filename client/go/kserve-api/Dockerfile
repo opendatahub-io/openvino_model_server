@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM golang:1.21.9
+FROM golang:1.23.0
 
 RUN apt-get update && \
     apt-get -y install git unzip build-essential autoconf libtool protobuf-compiler libprotobuf-dev && \
@@ -32,4 +32,9 @@ RUN protoc --go_out="./" --go-grpc_out="./" ./grpc_predict_v2.proto
 
 COPY . /app
 WORKDIR /app/build
+RUN go get google.golang.org/grpc@v1.62.0 
+RUN go get google.golang.org/grpc/internal/transport@v1.62.0
 RUN for I in ../*go; do go build $I; done
+# In case of dependencies version updates below might be useful, so we can substitute the go.mod and go.sum files
+# with versions that has been processed by go. 
+# RUN cp /app/go.mod /app/go.sum /app/build 

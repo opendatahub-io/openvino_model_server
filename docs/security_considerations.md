@@ -11,7 +11,7 @@ wget -P models/resnet/1 https://storage.openvinotoolkit.org/repositories/open_mo
 wget -P models/resnet/1 https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/models_bin/2/resnet50-binary-0001/FP32-INT1/resnet50-binary-0001.xml
 
 docker run --rm -d --user $(id -u):$(id -g) --read-only --tmpfs /tmp -v ${PWD}/models/:/models -p 9178:9178 openvino/model_server:latest \
---model_path /models/resnet/ --model_name resnet
+--model_path /models/resnet/ --model_name resnet --port 9178
 
 ```
 ---
@@ -19,7 +19,7 @@ OpenVINO Model Server currently does not provide access restrictions and traffic
 
 See also:
 - [Securing OVMS with NGINX](../extras/nginx-mtls-auth/README.md)
-- [Securing models with OVSA](https://docs.openvino.ai/2024/documentation/openvino-ecosystem/openvino-security-add-on.html)
+- [Securing models with OVSA](https://docs.openvino.ai/2025/about-openvino/openvino-ecosystem/openvino-project/openvino-security-add-on.html)
 
 ---
 

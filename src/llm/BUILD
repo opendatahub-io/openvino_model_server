@@ -16,9 +16,9 @@
 
 load("@mediapipe//mediapipe/framework/port:build_config.bzl", "mediapipe_cc_proto_library", "mediapipe_proto_library")
 load("//:common_settings.bzl",
-     "COMMON_STATIC_LIBS_COPTS", "COMMON_STATIC_LIBS_LINKOPTS", "COMMON_FUZZER_COPTS", "COMMON_FUZZER_LINKOPTS", "COMMON_LOCAL_DEFINES", "PYBIND_DEPS")
+     "COMMON_STATIC_LIBS_COPTS", "COMMON_STATIC_LIBS_LINKOPTS", "COMMON_FUZZER_COPTS", "COMMON_FUZZER_LINKOPTS", "COMMON_LOCAL_DEFINES", "PYBIND_DEPS", "COPTS_PYTHON")
 
-COPTS_ADJUSTED = COMMON_STATIC_LIBS_COPTS + select({
+COPTS_ADJUSTED = COMMON_STATIC_LIBS_COPTS + COPTS_PYTHON + select({
         "//conditions:default": [],
         "//:fuzzer_build" : COMMON_FUZZER_COPTS,
 })
@@ -47,13 +47,12 @@ cc_library(
         "@com_github_tencent_rapidjson//:rapidjson",
         "//src/kfserving_api:kfserving_api_cpp",
         "//src:libovmsprofiler",
-        ":llm_engine",
-        ":llmnoderesources",
-        "//src:httppayload",
-        "//src:libhttpclientconnection",
-        ":text_processor",
-        ":openai_completions_api_handler"
-    ],
+        ":genai_servables",
+        "//src:httppayload"
+    ]+ select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
     visibility = ["//visibility:public"],
     local_defines = COMMON_LOCAL_DEFINES,
     copts = COPTS_ADJUSTED,
@@ -73,14 +72,22 @@ mediapipe_proto_library(
 
 cc_library(
     name = "openai_completions_api_handler",
-    hdrs = ["apis/openai_completions.hpp"],
+    hdrs = ["apis/openai_completions.hpp", "apis/openai_json_response.hpp"],
     srcs = ["apis/openai_completions.cpp"],
     deps = [
         "@com_github_tencent_rapidjson//:rapidjson",
         "@mediapipe//mediapipe/framework:calculator_framework", # required for absl status
-        ":llm_engine",
-        "//src:libovmsprofiler"
-    ],
+        "//src:libovmsprofiler",
+        "//third_party:curl",
+        "//src:image_conversion",
+        "//src:libovmsfilesystem",
+        "@stb//:image",
+        ":openai_request",
+        ":output_parsers",
+    ] + select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
     visibility = ["//visibility:public"],
     copts = COPTS_ADJUSTED,
     linkopts = LINKOPTS_ADJUSTED,
@@ -88,9 +95,99 @@ cc_library(
 )
 
 cc_library(
-    name = "llmnoderesources",
-    hdrs = ["llmnoderesources.hpp", "llm_executor.hpp",],
-    srcs = ["llmnoderesources.cpp",],
+    name = "openai_request",
+    hdrs = ["apis/openai_request.hpp"],
+    srcs = [],
+    deps = select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
+    visibility = ["//visibility:public"],
+    copts = COPTS_ADJUSTED,
+    linkopts = LINKOPTS_ADJUSTED,
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "output_parsers",
+    hdrs = ["io_processing/base_output_parser.hpp",
+            "io_processing/hermes3/output_parser.hpp",
+            "io_processing/llama3/output_parser.hpp",
+            "io_processing/phi4/output_parser.hpp",
+            "io_processing/qwen3/output_parser.hpp",
+            "io_processing/output_parser.hpp",
+            "io_processing/partial_json_builder.hpp",
+            "io_processing/utils.hpp"],
+    srcs = ["io_processing/base_output_parser.cpp",
+            "io_processing/hermes3/output_parser.cpp",
+            "io_processing/llama3/output_parser.cpp",
+            "io_processing/phi4/output_parser.cpp",
+            "io_processing/qwen3/output_parser.cpp",
+            "io_processing/partial_json_builder.cpp",
+            "io_processing/utils.cpp"],
+    deps = [
+        "@com_github_tencent_rapidjson//:rapidjson",
+        "//src:libovmslogging",
+    ] + select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
+    visibility = ["//visibility:public"],
+    copts = COPTS_ADJUSTED,
+    linkopts = LINKOPTS_ADJUSTED,
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "generation_config_builders",
+    hdrs = ["io_processing/base_generation_config_builder.hpp",
+            "io_processing/phi4/generation_config_builder.hpp",
+            "io_processing/llama3/generation_config_builder.hpp",
+            "io_processing/hermes3/generation_config_builder.hpp",
+            "io_processing/generation_config_builder.hpp"],
+    srcs = ["io_processing/base_generation_config_builder.cpp",
+            "io_processing/phi4/generation_config_builder.cpp",
+            "io_processing/llama3/generation_config_builder.cpp",
+            "io_processing/hermes3/generation_config_builder.cpp"],
+    deps = [
+        ":openai_request",
+        "//src:libovmslogging",
+    ] + select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
+    visibility = ["//visibility:public"],
+    copts = COPTS_ADJUSTED,
+    linkopts = LINKOPTS_ADJUSTED,
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "genai_servables",
+    hdrs = ["servable.hpp", 
+            "servable_initializer.hpp", 
+            "language_model/continuous_batching/servable.hpp",
+            "language_model/continuous_batching/llm_executor.hpp",
+            "language_model/continuous_batching/servable_initializer.hpp",
+            "visual_language_model/continuous_batching/servable.hpp",
+            "language_model/legacy/servable.hpp",
+            "language_model/legacy/servable_initializer.hpp",
+            "language_model/legacy/legacy_executor.hpp",
+            "visual_language_model/legacy/servable.hpp",
+            "visual_language_model/legacy/servable_initializer.hpp",
+            "visual_language_model/legacy/legacy_executor.hpp",
+            "text_utils.hpp"],
+    srcs = ["servable.cpp",
+            "servable_initializer.cpp",
+            "language_model/continuous_batching/servable.cpp",
+            "language_model/continuous_batching/servable_initializer.cpp",
+            "visual_language_model/continuous_batching/servable.cpp",
+            "language_model/legacy/servable.cpp",
+            "language_model/legacy/servable_initializer.cpp",
+            "language_model/legacy/legacy_executor.cpp",
+            "visual_language_model/legacy/servable.cpp",
+            "visual_language_model/legacy/servable_initializer.cpp",
+            "visual_language_model/legacy/legacy_executor.cpp"],
     deps = [
         "//third_party:openvino",
         "@mediapipe//mediapipe/framework:calculator_framework",
@@ -100,11 +197,19 @@ cc_library(
         "//src:libovmsstatus",
         "//src:libovmsmediapipe_utils",
         "//src:libovmsprofiler",
+        "//src:libovmsfilesystem",
         "llmcalculator_cc_proto",
-        ":llm_engine",
-        "//src/python:utils",
-        ":text_processor",
-    ] + PYBIND_DEPS,
+        ":openai_completions_api_handler",
+        ":generation_config_builders",
+        "//src:httppayload",
+        "//src:libhttpclientconnection",
+    ] + select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }) + select({
+        "//:disable_python": [],
+        "//:not_disable_python" : [":py_jinja_template_processor"],
+    }),
     visibility = ["//visibility:public"],
     local_defines = COMMON_LOCAL_DEFINES,
     copts = COPTS_ADJUSTED,
@@ -113,9 +218,9 @@ cc_library(
 )
 
 cc_library(
-    name = "text_processor",
-    hdrs = ["text_processor.hpp"],
-    srcs = ["text_processor.cpp"],
+    name = "py_jinja_template_processor",
+    hdrs = ["py_jinja_template_processor.hpp"],
+    srcs = ["py_jinja_template_processor.cpp"],
     deps = ["@mediapipe//mediapipe/framework:calculator_framework",
             "//third_party:openvino",
             "//src:libovmslogging",

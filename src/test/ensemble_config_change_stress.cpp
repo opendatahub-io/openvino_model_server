@@ -181,7 +181,12 @@ TEST_F(StressPipelineConfigChanges, KFSAddNewVersionDuringPredictLoad) {
         requiredLoadResults,
         allowedLoadResults);
 }
+// Disabled because we cannot start http server multiple times https://github.com/drogonframework/drogon/issues/2210
+#if (USE_DROGON == 0)
 TEST_F(ConfigChangeStressTest, GetMetricsDuringLoad) {
+#else
+TEST_F(ConfigChangeStressTest, DISABLED_GetMetricsDuringLoad) {
+#endif
     bool performWholeConfigReload = false;                        // we just need to have all model versions rechecked
     std::set<StatusCode> requiredLoadResults = {StatusCode::OK};  // we expect full continuity of operation
     std::set<StatusCode> allowedLoadResults = {};
@@ -195,9 +200,10 @@ TEST_F(ConfigChangeStressTest, GetMetricsDuringLoad) {
 TEST_F(StressPipelineConfigChanges, RemoveDefaultVersionDuringPredictLoad) {
     std::set<StatusCode> requiredLoadResults = {StatusCode::OK,
         StatusCode::PIPELINE_DEFINITION_NOT_LOADED_YET,  // we hit when all config changes finish to propagate
-        StatusCode::MODEL_VERSION_NOT_LOADED_ANYMORE,    // we hit default version which is unloaded already but default is not changed yet
         StatusCode::MODEL_VERSION_MISSING};              // there is no default version since all are either not loaded properly or retired
-    std::set<StatusCode> allowedLoadResults = {};
+    std::set<StatusCode> allowedLoadResults = {
+        StatusCode::MODEL_VERSION_NOT_LOADED_ANYMORE,  // we hit default version which is unloaded already but default is not changed yet
+    };
     // we need whole config reload since there is no other way to dispose
     // all model versions different than removing model from config
     bool performWholeConfigReload = true;

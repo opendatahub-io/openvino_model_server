@@ -18,19 +18,24 @@
 #include <limits>
 #include <numeric>
 #include <optional>
+#include <regex>
 #include <string>
 #include <utility>
 
+#pragma warning(push)
+#pragma warning(disable : 4624)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wall"
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow_serving/apis/prediction_service.grpc.pb.h"
 #pragma GCC diagnostic pop
+#pragma warning(pop)
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "../cleaner_utils.hpp"
 #include "../dags/custom_node.hpp"
 #include "../dags/custom_node_library_manager.hpp"
 #include "../dags/dl_node.hpp"
@@ -65,7 +70,7 @@ protected:
         CustomNodeLibraryManager manager;
         ASSERT_EQ(manager.loadLibrary(
                       this->libraryName,
-                      this->libraryPath),
+                      getGenericFullPathForBazelOut(this->libraryPath)),
             StatusCode::OK);
         ASSERT_EQ(manager.getLibrary(
                       this->libraryName,
@@ -274,7 +279,7 @@ protected:
         ASSERT_EQ(modelManager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
         ASSERT_EQ(manager.loadLibrary(
                       differentOpsLibraryName,
-                      differentOpsLibraryPath),
+                      getGenericFullPathForBazelOut(differentOpsLibraryPath)),
             StatusCode::OK);
         ASSERT_EQ(manager.getLibrary(
                       differentOpsLibraryName,
@@ -282,7 +287,7 @@ protected:
             StatusCode::OK);
         ASSERT_EQ(manager.loadLibrary(
                       chooseMaxLibraryName,
-                      chooseMaxLibraryPath),
+                      getGenericFullPathForBazelOut(chooseMaxLibraryPath)),
             StatusCode::OK);
         ASSERT_EQ(manager.getLibrary(
                       chooseMaxLibraryName,
@@ -1491,7 +1496,7 @@ protected:
     }
 
     void loadConfiguration(const char* configContent, Status expectedStatus = StatusCode::OK) {
-        createConfigFileWithContent(configContent, configJsonFilePath);
+        createConfigFileWithContent(adjustConfigForTargetPlatformCStr(configContent), configJsonFilePath);
         ASSERT_EQ(manager.loadConfig(configJsonFilePath), expectedStatus);
     }
 
@@ -2444,13 +2449,13 @@ struct LibraryParamControlledMetadata {
         const char* end = str;
         for (; *end != '\0'; ++end) {
             if ((end - str) > MAX) {
-                EXPECT_TRUE(false);
+                EXPECT_TRUE(false) << *end;
             }
         }
         const char* end2 = prefix;
         for (; *end2 != '\0'; ++end2) {
-            if ((end2 - str) > MAX) {
-                EXPECT_TRUE(false);
+            if ((end2 - prefix) > MAX) {
+                EXPECT_TRUE(false) << *end2;
             }
         }
         size_t strLen = std::strlen(str);
@@ -5638,8 +5643,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, MultipleDeinitializeCallsOnR
     //  O--------->O--------->O--------->O---------->O
     //          add-sub    add-sub    add-sub
     ResourcesAccessModelManager manager;
-    manager.setResourcesCleanupIntervalMillisec(20);  // Mock cleaner to work in 20ms intervals instead of >1s
-    manager.startCleaner();
+    ovms::FunctorResourcesCleaner cleaner(manager);
     ASSERT_EQ(manager.getResourcesSize(), 0);
     PipelineFactory factory;
 
@@ -5682,11 +5686,11 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, MultipleDeinitializeCallsOnR
         {"custom_node_3", {{customNodeOutputName, pipelineOutputName}}}};
 
     ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
-    waitForOVMSResourcesCleanup(manager);
+    cleaner.cleanup();
     ASSERT_EQ(manager.getResourcesSize(), 3);
 
     factory.retireOtherThan({}, manager);
-    waitForOVMSResourcesCleanup(manager);
+    cleaner.cleanup();
     ASSERT_EQ(manager.getResourcesSize(), 0);
     manager.join();
     // Each custom node has effectively 1 internalManager initialized, because they use same library instance
@@ -5700,8 +5704,8 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, ReloadPipelineWithoutNodeDei
     //  O--------->O--------->O--------->O---------->O
     //          add-sub    add-sub    add-sub
     ResourcesAccessModelManager manager;
-    manager.setResourcesCleanupIntervalMillisec(20);  // Mock cleaner to work in 20ms intervals instead of >1s
-    manager.startCleaner();
+    ovms::FunctorResourcesCleaner cleaner(manager);
+    cleaner.cleanup();
     ASSERT_EQ(manager.getResourcesSize(), 0);
     PipelineFactory factory;
 
@@ -5744,7 +5748,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, ReloadPipelineWithoutNodeDei
         {"custom_node_3", {{customNodeOutputName, pipelineOutputName}}}};
 
     ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
-    waitForOVMSResourcesCleanup(manager);  // 20ms * 1.8 wait time
+    cleaner.cleanup();
     ASSERT_EQ(manager.getResourcesSize(), 3);
 
     // Nodes
@@ -5756,9 +5760,8 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, ReloadPipelineWithoutNodeDei
     connections[EXIT_NODE_NAME] = {
         {"custom_node_2", {{customNodeOutputName, pipelineOutputName}}}};
     ASSERT_EQ(factory.reloadDefinition("my_new_pipeline", std::move(info), std::move(connections), manager), StatusCode::OK);
-    waitForOVMSResourcesCleanup(manager);  // 20ms * 1.8 wait time
+    cleaner.cleanup();
     ASSERT_EQ(manager.getResourcesSize(), 2);
-    manager.join();
     // Each custom node has effectively 1 internalManager initialized, because they use same library instance
     // in order to count whether deinitialize has been called expected number of times
     ASSERT_EQ(LibraryCountDeinitialize::deinitializeCounter, 3);
@@ -5872,7 +5875,8 @@ template <typename Pair,
     typename ResponseType = typename Pair::second_type>
 class EnsembleFlowStringInput : public ::testing::Test {
 public:
-    void SetUp() override {}
+    void SetUp() override {
+    }
 
     RequestType request;
     ResponseType response;

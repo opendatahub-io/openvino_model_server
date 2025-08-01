@@ -1,15 +1,14 @@
---extra-index-url https://download.pytorch.org/whl/cpu 
-
-git+https://github.com/dtrawins/optimum-intel.git@concurrency_support_cloneall
-## used a fork to provide support for multi concurrency https://github.com/huggingface/optimum-intel/pull/519
-
-onnx==1.16.0
+--extra-index-url "https://download.pytorch.org/whl/cpu"
+optimum-intel@git+https://github.com/huggingface/optimum-intel.git
 pillow==10.3.0
-optimum[diffusers]==1.17.1
-tritonclient[grpc]==2.37.0.9383150  # Required to use batch string serialization/deserialization (4byte length prepend)
-transformers==4.40
-diffusers==0.26.3
-datasets==2.18.0
+tritonclient[grpc]==2.57.0  # Required to use batch string serialization/deserialization (4byte length prepend)
 numpy<2.0
-huggingface_hub==0.24.7
-
+huggingface_hub==0.32.0
+nncf>=2.11.0
+sentence_transformers
+sentencepiece==0.2.0
+transformers<4.52
+einops
+torchvision
+timm==1.0.15
+diffusers==0.33.1  # for image generation

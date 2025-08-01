@@ -19,9 +19,11 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
-
+#pragma warning(push)
+#pragma warning(disable : 6313)
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
+#pragma warning(pop)
 
 #include "../logging.hpp"
 #include "../profiler.hpp"
@@ -31,6 +33,11 @@ using namespace rapidjson;
 namespace ovms {
 
 absl::Status RerankHandler::parseRequest() {
+    // Parsed JSON is not guaranteed to be valid, we may reach this point via multipart content type request with no valid JSON parser
+    if (doc.HasParseError()) {
+        return absl::InvalidArgumentError("Non-json request received in rerank calculator");
+    }
+
     // model: string
     auto it = doc.FindMember("model");
     if (it != doc.MemberEnd()) {
@@ -180,8 +187,8 @@ absl::Status RerankHandler::parseResponse(StringBuffer& buffer, std::vector<floa
 
 std::string RerankHandler::getModel() const { return request.model; }
 std::string RerankHandler::getQuery() const { return request.query; }
-std::vector<std::string> RerankHandler::getDocumentsList() const { return request.documentsList; }
-std::unordered_map<std::string, std::string> RerankHandler::getDocumentsMap() const { return request.documentsMap; }
+const std::vector<std::string>& RerankHandler::getDocumentsList() const { return request.documentsList; }
+const std::unordered_map<std::string, std::string>& RerankHandler::getDocumentsMap() const { return request.documentsMap; }
 std::optional<int> RerankHandler::getTopN() const { return request.topN; }
 std::optional<bool> RerankHandler::getReturnDocuments() const { return request.returnDocuments; }
 std::optional<std::vector<std::string>> RerankHandler::getRankFields() const { return request.rankFields; }
@@ -194,7 +201,7 @@ absl::Status chunkDocuments(
     const ov::Tensor& in_input_ids, const ov::Tensor& in_attention_mask,
     ov::Tensor& out_input_ids, ov::Tensor& out_attention_mask,
     std::vector<size_t>& chunk_mapping, size_t max_tokens_per_chunk,
-    int64_t pad_token) {
+    size_t max_allowed_chunks, int64_t pad_token) {
 
     if (max_tokens_per_chunk == 0) {
         return absl::InvalidArgumentError("no space left for chunks");
@@ -218,6 +225,9 @@ absl::Status chunkDocuments(
 
     size_t tokens_count_of_longest_document = in_input_ids.get_shape()[1];
     size_t batch_size = in_input_ids.get_shape()[0];
+    if (batch_size > max_allowed_chunks) {
+        return absl::InvalidArgumentError(std::string{"exceeding max_allowed_chunks before chunking limit: "} + std::to_string(max_allowed_chunks) + std::string{"; actual: "} + std::to_string(batch_size));
+    }
 
     if (tokens_count_of_longest_document <= max_tokens_per_chunk) {
         out_input_ids = in_input_ids;
@@ -245,6 +255,9 @@ absl::Status chunkDocuments(
     }
 
     size_t new_batch_size = chunk_mapping.size();
+    if (new_batch_size > max_allowed_chunks) {
+        return absl::InvalidArgumentError(std::string{"exceeding max_allowed_chunks after chunking limit: "} + std::to_string(max_allowed_chunks) + std::string{"; actual: "} + std::to_string(new_batch_size));
+    }
 
     if (new_batch_size != batch_size) {
         SPDLOG_LOGGER_DEBUG(rerank_calculator_logger, "Chunking required, initial batch size: {}, final batch size: {}", batch_size, new_batch_size);

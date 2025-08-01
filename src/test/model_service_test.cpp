@@ -30,6 +30,7 @@
 #include "../dags/pipelinedefinition.hpp"
 #include "../execution_context.hpp"
 #include "../model_service.hpp"
+#include "../modelinstanceunloadguard.hpp"
 #include "../model_version_policy.hpp"
 #include "../modelmanager.hpp"
 #include "../modelversionstatus.hpp"
@@ -163,8 +164,8 @@ static const char* pipelineOneDummyConfig = R"(
 })";
 
 TYPED_TEST(ModelServiceTest, pipeline) {
-    std::string fileToReload = "/tmp/ovms_single_version_pipeline.json";
-    createConfigFileWithContent(pipelineOneDummyConfig, fileToReload);
+    std::string fileToReload = getGenericFullPathForTmp("/tmp/ovms_single_version_pipeline.json");
+    createConfigFileWithContent(adjustConfigForTargetPlatformCStr(pipelineOneDummyConfig), fileToReload);
     ASSERT_EQ(this->manager.startFromFile(fileToReload), StatusCode::OK);
 
     const std::string name = "dummyPipeline";
@@ -190,7 +191,7 @@ TYPED_TEST(ModelServiceTest, pipeline) {
 
 #if (MEDIAPIPE_DISABLE == 0)
 TYPED_TEST(ModelServiceTest, MediapipeGraph) {
-    std::string fileToReload = "/ovms/src/test/mediapipe/config_mediapipe_dummy_adapter_full.json";
+    std::string fileToReload = getGenericFullPathForSrcTest("/ovms/src/test/mediapipe/config_mediapipe_dummy_adapter_full.json");
     ASSERT_EQ(this->manager.startFromFile(fileToReload), StatusCode::OK);
 
     const std::string name = "mediaDummyADAPTFULL";
@@ -304,18 +305,34 @@ protected:
             ::testing::UnitTest::GetInstance()->current_test_info();
 
         const std::string directoryName = std::string(test_info->test_suite_name());
-        directoryPath = "/tmp/" + directoryName;
+        directoryPath = getGenericFullPathForTmp("/tmp/" + directoryName);
         modelPath = directoryPath + "/dummy";
 
         // Copy dummy model to temporary destination
         std::filesystem::remove_all(directoryPath);
         std::filesystem::create_directories(modelPath + "/1/");
         std::filesystem::create_directories(modelPath + "/2/");
-        std::filesystem::copy("/ovms/src/test/dummy/1", modelPath + "/1", std::filesystem::copy_options::recursive);
-        std::filesystem::copy("/ovms/src/test/dummy/1", modelPath + "/2", std::filesystem::copy_options::recursive);
+        std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/dummy/1"), modelPath + "/1", std::filesystem::copy_options::recursive);
+        std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/dummy/1"), modelPath + "/2", std::filesystem::copy_options::recursive);
     }
 
     void TearDown() override {
+#ifdef _WIN32
+        // Unload model to allow folder delete on Windows
+        std::shared_ptr<ovms::ModelInstance> modelInstance1;
+        std::unique_ptr<ovms::ModelInstanceUnloadGuard> modelInstanceUnloadGuard;
+        manager.getModelInstance("dummy", 1, modelInstance1, modelInstanceUnloadGuard);
+        // Release guard
+        modelInstanceUnloadGuard.reset();
+        // Unload model
+        modelInstance1->retireModel();
+
+        manager.getModelInstance("dummy", 2, modelInstance1, modelInstanceUnloadGuard);
+        // Release guard
+        modelInstanceUnloadGuard.reset();
+        // Unload model
+        modelInstance1->retireModel();
+#endif
         // Clean up temporary destination
         std::filesystem::remove_all(directoryPath);
     }
@@ -328,7 +345,7 @@ TEST_F(ModelServiceDummyWith2Versions, all_versions) {
     tensorflow::serving::GetModelStatusRequest modelStatusRequest;
     tensorflow::serving::GetModelStatusResponse modelStatusResponse;
     auto config = DUMMY_MODEL_CONFIG;
-    config.setBasePath(modelPath);
+    config.setBasePath(getGenericFullPathForSrcTest(modelPath));
     config.setModelVersionPolicy(std::make_shared<AllModelVersionPolicy>());
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
 
@@ -349,7 +366,7 @@ TEST_F(ModelServiceDummyWith2Versions, getAllModelsStatuses_one_model_two_versio
     EXPECT_EQ(modelsStatuses.begin()->second.model_version_status_size(), 0);
 
     config = DUMMY_MODEL_CONFIG;
-    config.setBasePath(modelPath);
+    config.setBasePath(getGenericFullPathForSrcTest(modelPath));
     config.setModelVersionPolicy(std::make_shared<AllModelVersionPolicy>());
     this->manager.reloadModelWithVersions(config);
     std::map<std::string, tensorflow::serving::GetModelStatusResponse> modelsStatusesAfterReload;
@@ -382,13 +399,13 @@ TEST_F(TFSModelServiceTest, getAllModelsStatuses_two_models_with_one_versions) {
 
 TEST_F(TFSModelServiceTest, config_reload) {
     std::string port = "9000";
-    randomizePort(port);
+    randomizeAndEnsureFree(port);
     char* argv[] = {
         (char*)"OpenVINO Model Server",
         (char*)"--model_name",
         (char*)"dummy",
         (char*)"--model_path",
-        (char*)"/ovms/src/test/dummy",
+        (char*)getGenericFullPathForSrcTest("/ovms/src/test/dummy").c_str(),
         (char*)"--log_level",
         (char*)"DEBUG",
         (char*)"--port",
@@ -398,10 +415,7 @@ TEST_F(TFSModelServiceTest, config_reload) {
     std::thread t([&argv, &server]() {
         ASSERT_EQ(EXIT_SUCCESS, server.start(9, argv));
     });
-    auto start = std::chrono::high_resolution_clock::now();
-    while ((server.getModuleState(ovms::GRPC_SERVER_MODULE_NAME) != ovms::ModuleState::INITIALIZED) &&
-           (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count() < 5)) {
-    }
+    EnsureServerStartedWithTimeout(server, 5);
     ModelServiceImpl s(server);
     tensorflow::serving::ReloadConfigRequest modelStatusRequest;
     tensorflow::serving::ReloadConfigResponse modelStatusResponse;

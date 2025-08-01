@@ -17,14 +17,18 @@
 
 #include <string>
 
+#pragma warning(push)
+#pragma warning(disable : 4624 6001 6385 6386 6326 6011 4457 6308 6387 6246)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #pragma GCC diagnostic ignored "-Wall"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow_serving/apis/prediction_service.grpc.pb.h"
 #pragma GCC diagnostic pop
+#pragma warning(pop)
 
 #include "../precision.hpp"
+#include "../tensor_conversion_common.hpp"
 
 using TFSDataType = tensorflow::DataType;
 using TFSPredictRequest = tensorflow::serving::PredictRequest;
@@ -47,4 +51,10 @@ bool requiresPreProcessing(const TFSInputTensorType& proto);
 std::string& createOrGetString(TFSInputTensorType& proto, int index);
 void setBatchSize(TFSInputTensorType& proto, int64_t batch);
 void setStringPrecision(TFSInputTensorType& proto);
+const std::string& getBinaryInput(const tensorflow::TensorProto& tensor, size_t i);
+int getBinaryInputsSize(const tensorflow::TensorProto& tensor);
+Status validateTensor(const TensorInfo& tensorInfo,
+    const tensorflow::TensorProto& src,
+    const std::string* buffer);
+Status convertBinaryExtensionStringFromBufferToNativeOVTensor(const tensorflow::TensorProto& src, ov::Tensor& tensor, const std::string* buffer);
 }  // namespace ovms

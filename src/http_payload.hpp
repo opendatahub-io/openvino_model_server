@@ -17,21 +17,26 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
-
+#pragma warning(push)
+#pragma warning(disable : 6313)
 #include <rapidjson/document.h>
+#pragma warning(pop)
 
 #include "client_connection.hpp"
+#include "multi_part_parser.hpp"
 
 namespace ovms {
 
 struct HttpPayload {
     std::string uri;
-    std::vector<std::pair<std::string, std::string>> headers;
-    std::string body;                 // always
-    rapidjson::Document* parsedJson;  // pre-parsed body             = null
+    std::unordered_map<std::string, std::string> headers;
+    std::string body;                                 // always
+    std::shared_ptr<rapidjson::Document> parsedJson;  // pre-parsed body             = null
     std::shared_ptr<ClientConnection> client;
+    std::shared_ptr<MultiPartParser> multipartParser;
 };
 
 }  // namespace ovms

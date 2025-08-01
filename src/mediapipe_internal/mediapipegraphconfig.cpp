@@ -16,10 +16,12 @@
 #include "mediapipegraphconfig.hpp"
 
 #include <string>
-
+#pragma warning(push)
+#pragma warning(disable : 6313)
 #include <rapidjson/istreamwrapper.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#pragma warning(pop)
 #include <spdlog/spdlog.h>
 
 #include "../filesystem.hpp"
@@ -29,6 +31,7 @@ namespace ovms {
 
 const std::string DEFAULT_GRAPH_FILENAME = "graph.pbtxt";
 const std::string DEFAULT_SUBCONFIG_FILENAME = "subconfig.json";
+const std::string DEFAULT_MODELMESH_SUBCONFIG_FILENAME = "config.json";
 
 void MediapipeGraphConfig::setBasePathWithRootPath() {
     this->basePath = this->rootDirectoryPath;
@@ -44,6 +47,10 @@ void MediapipeGraphConfig::setGraphPath(const std::string& graphPath) {
 
 void MediapipeGraphConfig::setSubconfigPath(const std::string& subconfigPath) {
     FileSystem::setPath(this->subconfigPath, subconfigPath, this->basePath);
+}
+
+void MediapipeGraphConfig::setModelMeshSubconfigPath(const std::string& subconfigPath) {
+    FileSystem::setPath(this->modelMeshSubconfigPath, subconfigPath, this->basePath);
 }
 
 bool MediapipeGraphConfig::isReloadRequired(const MediapipeGraphConfig& rhs) const {
@@ -81,14 +88,14 @@ Status MediapipeGraphConfig::parseNode(const rapidjson::Value& v) {
         if (v.HasMember("base_path")) {
             std::string providedBasePath(v["base_path"].GetString());
             if (providedBasePath.size() == 0)
-                this->setBasePath(this->getGraphName() + "/");
-            else if (providedBasePath.back() == '/')
+                this->setBasePath(this->getGraphName() + FileSystem::getOsSeparator());
+            else if (providedBasePath.back() == FileSystem::getOsSeparator().back())
                 this->setBasePath(providedBasePath);
             else
-                this->setBasePath(providedBasePath + "/");
+                this->setBasePath(providedBasePath + FileSystem::getOsSeparator());
         } else {
             if (!getRootDirectoryPath().empty()) {
-                this->setBasePath(this->getGraphName() + "/");
+                this->setBasePath(this->getGraphName() + FileSystem::getOsSeparator());
                 SPDLOG_DEBUG("base_path not defined in config so it will be set to default based on main config directory: {}", this->getBasePath());
             } else {
                 SPDLOG_ERROR("Mediapipe {} root directory path is not set.", getGraphName());
@@ -105,10 +112,12 @@ Status MediapipeGraphConfig::parseNode(const rapidjson::Value& v) {
 
         if (v.HasMember("subconfig")) {
             this->setSubconfigPath(v["subconfig"].GetString());
+            this->setModelMeshSubconfigPath(DEFAULT_MODELMESH_SUBCONFIG_FILENAME);
         } else {
             std::string defaultSubconfigPath = getBasePath() + "subconfig.json";
             SPDLOG_DEBUG("No subconfig path was provided for graph: {} so default subconfig file: {} will be loaded.", getGraphName(), defaultSubconfigPath);
             this->setSubconfigPath(DEFAULT_SUBCONFIG_FILENAME);
+            this->setModelMeshSubconfigPath(DEFAULT_MODELMESH_SUBCONFIG_FILENAME);
         }
     } catch (std::logic_error& e) {
         SPDLOG_DEBUG("Relative path error: {}", e.what());

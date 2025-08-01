@@ -69,15 +69,27 @@ class ConfigApi : public TestWithTempDir {
 
 public:
     void SetUpConfig(const std::string& configContent) {
+        std::string adjustedConfigContent = configContent;
+        adjustConfigForTargetPlatform(adjustedConfigContent);
         configFilePath = directoryPath + "/ovms_config.json";
-        createConfigFileWithContent(configContent, configFilePath);
-        char* n_argv[] = {(char*)"ovms", (char*)"--config_path", (char*)configFilePath.data(), (char*)"--file_system_poll_wait_seconds", (char*)"0"};
-        int arg_count = 5;
+        createConfigFileWithContent(adjustedConfigContent, configFilePath);
+        std::string port{"9000"};
+        randomizeAndEnsureFree(port);
+        char* n_argv[] = {(char*)"ovms", (char*)"--config_path", (char*)configFilePath.data(), (char*)"--file_system_poll_wait_seconds", (char*)"0", (char*)"--port", (char*)port.c_str()};
+        int arg_count = 7;
         ovms::Config::instance().parse(arg_count, n_argv);
     }
 
     void LoadConfig(ovms::ModelManager& manager) {
-        manager.loadConfig(configFilePath);
+        manager.startFromFile(configFilePath);
+    }
+
+    void UnloadConfig(ovms::ModelManager& manager) {
+        std::string configContent = R"({
+            "model_config_list": []
+        })";
+        createConfigFileWithContent(configContent, configFilePath);
+        manager.startFromFile(configFilePath);
     }
 
     void RemoveConfig() {
@@ -87,8 +99,10 @@ public:
     void SetUpSingleModel(std::string modelPath, std::string modelName) {
         this->modelPath = modelPath;
         this->modelName = modelName;
-        char* n_argv[] = {(char*)"ovms", (char*)"--model_path", (char*)this->modelPath.data(), (char*)"--model_name", (char*)this->modelName.data(), (char*)"--file_system_poll_wait_seconds", (char*)"0"};
-        int arg_count = 7;
+        std::string port{"9000"};
+        randomizeAndEnsureFree(port);
+        char* n_argv[] = {(char*)"ovms", (char*)"--model_path", (char*)this->modelPath.data(), (char*)"--model_name", (char*)this->modelName.data(), (char*)"--file_system_poll_wait_seconds", (char*)"0", (char*)"--port", (char*)port.c_str()};
+        int arg_count = 9;
         ovms::Config::instance().parse(arg_count, n_argv);
     }
     struct TestHelper1 {
@@ -98,7 +112,7 @@ public:
             if (configJson)
                 configApi.SetUpConfig(configJson);
             else
-                configApi.SetUpSingleModel("/ovms/src/test/dummy", "dummy");
+                configApi.SetUpSingleModel(getGenericFullPathForSrcTest("/ovms/src/test/dummy"), "dummy");
 
             auto& config = ovms::Config::instance();
             auto retCode = ovmsServer.startModules(config);
@@ -262,13 +276,15 @@ TEST_F(ConfigReload, singleModel) {
     EXPECT_EQ(status, ovms::StatusCode::OK_NOT_RELOADED);
 }
 
+// Plugin config set to be able to remove the model from disk when model is still loaded
 static const char* configWith1DummyInTmp = R"(
 {
     "model_config_list": [
         {
             "config": {
                 "name": "dummy",
-                "base_path": "/tmp/dummy"
+                "base_path": "/tmp/dummy",
+                "plugin_config": {"ENABLE_MMAP": "NO"}
             }
         }
     ]
@@ -276,8 +292,8 @@ static const char* configWith1DummyInTmp = R"(
 
 TEST_F(ConfigReload, startWith1DummyThenAddVersion) {
     ovms::Server& ovmsServer = ovms::Server::instance();
-    std::filesystem::remove_all("/tmp/dummy");
-    std::filesystem::copy("/ovms/src/test/dummy", "/tmp/dummy", std::filesystem::copy_options::recursive);
+    std::filesystem::remove_all(getGenericFullPathForTmp("/tmp/dummy"));
+    std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/dummy"), getGenericFullPathForTmp("/tmp/dummy"), std::filesystem::copy_options::recursive);
     TestHelper1 t(*this, configWith1DummyInTmp);
     auto handler = ovms::HttpRestApiHandler(ovmsServer, 10);
 
@@ -305,7 +321,7 @@ TEST_F(ConfigReload, startWith1DummyThenAddVersion) {
     EXPECT_EQ(expectedJson1, response);
     EXPECT_EQ(status, ovms::StatusCode::OK_NOT_RELOADED);
 
-    std::filesystem::copy("/ovms/src/test/dummy/1", "/tmp/dummy/2", std::filesystem::copy_options::recursive);
+    std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/dummy/1"), getGenericFullPathForTmp("/tmp/dummy/2"), std::filesystem::copy_options::recursive);
 
     const char* expectedJson2 = R"({
 "dummy" : 
@@ -334,15 +350,17 @@ TEST_F(ConfigReload, startWith1DummyThenAddVersion) {
 
     EXPECT_EQ(expectedJson2, response);
     EXPECT_EQ(status, ovms::StatusCode::OK_RELOADED);
-    std::filesystem::remove_all("/tmp/dummy");
+
+    // Remove the model from disk when model is still loaded
+    std::filesystem::remove_all(getGenericFullPathForTmp("/tmp/dummy"));
 }
 
 TEST_F(ConfigReload, startWithMissingXmlThenAddAndReload) {
     ovms::Server& ovmsServer = ovms::Server::instance();
-    std::filesystem::remove_all("/tmp/dummy");
-    std::filesystem::create_directory("/tmp/dummy");
-    std::filesystem::create_directory("/tmp/dummy/1");
-    std::filesystem::copy("/ovms/src/test/dummy/1/dummy.bin", "/tmp/dummy/1/dummy.bin", std::filesystem::copy_options::recursive);
+    std::filesystem::remove_all(getGenericFullPathForTmp("/tmp/dummy"));
+    std::filesystem::create_directory(getGenericFullPathForTmp("/tmp/dummy"));
+    std::filesystem::create_directory(getGenericFullPathForTmp("/tmp/dummy/1"));
+    std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/dummy/1/dummy.bin"), getGenericFullPathForTmp("/tmp/dummy/1/dummy.bin"), std::filesystem::copy_options::recursive);
     TestHelper1 t(*this, configWith1DummyInTmp);
     auto handler = ovms::HttpRestApiHandler(ovmsServer, 10);
 
@@ -353,7 +371,7 @@ TEST_F(ConfigReload, startWithMissingXmlThenAddAndReload) {
     EXPECT_EQ(expectedJson1, response);
     EXPECT_EQ(status, ovms::StatusCode::FILE_INVALID);
 
-    std::filesystem::copy("/ovms/src/test/dummy/1/dummy.xml", "/tmp/dummy/1/dummy.xml", std::filesystem::copy_options::recursive);
+    std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/dummy/1/dummy.xml"), getGenericFullPathForTmp("/tmp/dummy/1/dummy.xml"), std::filesystem::copy_options::recursive);
 
     const char* expectedJson2 = R"({
 "dummy" : 
@@ -374,13 +392,15 @@ TEST_F(ConfigReload, startWithMissingXmlThenAddAndReload) {
 
     EXPECT_EQ(expectedJson2, response);
     EXPECT_EQ(status, ovms::StatusCode::OK_RELOADED);
-    std::filesystem::remove_all("/tmp/dummy");
+
+    // Remove the model from disk when model is still loaded
+    std::filesystem::remove_all(getGenericFullPathForTmp("/tmp/dummy"));
 }
 
 TEST_F(ConfigReload, startWithEmptyModelDir) {
     ovms::Server& ovmsServer = ovms::Server::instance();
-    std::filesystem::remove_all("/tmp/dummy");
-    std::filesystem::create_directory("/tmp/dummy");
+    std::filesystem::remove_all(getGenericFullPathForTmp("/tmp/dummy"));
+    std::filesystem::create_directory(getGenericFullPathForTmp("/tmp/dummy"));
     TestHelper1 t(*this, configWith1DummyInTmp);
     auto handler = ovms::HttpRestApiHandler(ovmsServer, 10);
 
@@ -393,10 +413,69 @@ TEST_F(ConfigReload, startWithEmptyModelDir) {
     std::string response;
     auto status = handler.processConfigReloadRequest(response, t.getManager());
 
+    ASSERT_EQ(status, ovms::StatusCode::OK_NOT_RELOADED);
     EXPECT_EQ(expectedJson, response);
+
+    // Remove the model from disk when model is still loaded
+    std::filesystem::remove_all(getGenericFullPathForSrcTest("/tmp/dummy"));
+}
+
+// Config which restricts deleting model from disk when model is still loaded
+static const char* configWith1DummyInTmpEnableMmap = R"(
+{
+    "model_config_list": [
+        {
+            "config": {
+                "name": "dummy",
+                "base_path": "/tmp/dummy",
+                "plugin_config": {"ENABLE_MMAP": "YES"}
+            }
+        }
+    ]
+})";
+
+TEST_F(ConfigReload, removeModelFromDiskWhenLoaded) {
+    ovms::Server& ovmsServer = ovms::Server::instance();
+    std::filesystem::remove_all(getGenericFullPathForTmp("/tmp/dummy"));
+    std::filesystem::copy(getGenericFullPathForSrcTest("/ovms/src/test/dummy"), getGenericFullPathForTmp("/tmp/dummy"), std::filesystem::copy_options::recursive);
+    TestHelper1 t(*this, configWith1DummyInTmpEnableMmap);
+    auto handler = ovms::HttpRestApiHandler(ovmsServer, 10);
+
+    std::string response;
+
+    LoadConfig(t.getManager());
+
+    const char* expectedJson1 = R"({
+"dummy" : 
+{
+ "model_version_status": [
+  {
+   "version": "1",
+   "state": "AVAILABLE",
+   "status": {
+    "error_code": "OK",
+    "error_message": "OK"
+   }
+  }
+ ]
+}
+})";
+    auto status = handler.processConfigReloadRequest(response, t.getManager());
+
+    EXPECT_EQ(expectedJson1, response);
     EXPECT_EQ(status, ovms::StatusCode::OK_NOT_RELOADED);
 
-    std::filesystem::remove_all("/tmp/dummy");
+    // On windows, the test expects inability to remove model
+#ifdef _WIN32
+    EXPECT_THROW({
+        std::filesystem::remove_all(getGenericFullPathForSrcTest("/tmp/dummy"));
+    },
+        std::filesystem::filesystem_error);
+#else
+    // On linux, removing the model should be possible even if ENABLE_MMAP=YES
+    std::filesystem::remove_all(getGenericFullPathForSrcTest("/tmp/dummy"));
+#endif
+    this->UnloadConfig(t.getManager());
 }
 
 static const char* emptyConfig = R"(
@@ -616,7 +695,7 @@ TEST_F(ConfigReload, StartWith1DummyThenReloadToMediapipe) {
 
     std::string contents;
     auto fs = std::make_shared<ovms::LocalFileSystem>();
-    fs->readTextFile("/ovms/src/test/mediapipe/config_mediapipe_add_adapter_full.json", &contents);
+    fs->readTextFile(getGenericFullPathForSrcTest("/ovms/src/test/mediapipe/config_mediapipe_add_adapter_full.json"), &contents);
 
     SetUpConfig(contents);
 
@@ -1049,7 +1128,7 @@ TEST_F(ConfigStatus, configWithMediapipe) {
 
     std::string contents;
     auto fs = std::make_shared<ovms::LocalFileSystem>();
-    fs->readTextFile("/ovms/src/test/mediapipe/config_mediapipe_add_adapter_full.json", &contents);
+    fs->readTextFile(getGenericFullPathForSrcTest("/ovms/src/test/mediapipe/config_mediapipe_add_adapter_full.json"), &contents);
 
     TestHelper1 t(*this, contents.c_str());
     auto handler = ovms::HttpRestApiHandler(ovmsServer, 10);
@@ -1106,7 +1185,7 @@ TEST_F(ConfigStatus, configWithMediapipeRemoved) {
 
     std::string contents;
     auto fs = std::make_shared<ovms::LocalFileSystem>();
-    fs->readTextFile("/ovms/src/test/mediapipe/config_mediapipe_add_adapter_full.json", &contents);
+    fs->readTextFile(getGenericFullPathForSrcTest("/ovms/src/test/mediapipe/config_mediapipe_add_adapter_full.json"), &contents);
 
     TestHelper1 t(*this, contents.c_str());
     auto handler = ovms::HttpRestApiHandler(ovmsServer, 10);
@@ -1221,3 +1300,10 @@ TEST_F(ConfigStatus, configWithMediapipeRemoved) {
     EXPECT_EQ(status, ovms::StatusCode::OK_RELOADED);
 }
 #endif
+
+TEST_F(ConfigStatus, url_decode) {
+    EXPECT_EQ("a b c d", ovms::urlDecode("a%20b%20c%20d"));
+    EXPECT_EQ("model/name", ovms::urlDecode("model%2Fname"));
+    EXPECT_EQ("model%", ovms::urlDecode("model%"));
+    EXPECT_EQ("model%2", ovms::urlDecode("model%2"));
+}
