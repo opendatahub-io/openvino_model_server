@@ -1,2 +1,2 @@
-tensorflow-serving-api==2.18.1
+tensorflow-serving-api==2.19.0
 tensorflow==2.18.1
