@@ -322,14 +322,28 @@ FROM $BUILD_IMAGE as capi-build
 ARG CAPI_FLAGS="--strip=always  --config=mp_off_py_off --//:distro=redhat"
 ARG JOBS=40
 ARG LTO_ENABLE=OFF
-RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:ovms_shared
+RUN mkdir -p /tmp/bazel-output && \
+    bazel --output_base=/tmp/bazel-output \
+          build --jobs=$JOBS ${CAPI_FLAGS} //src:ovms_shared && \
+    find /tmp/bazel-output -name libovms_shared.so && \
+    LIB_PATH=$(find /tmp/bazel-output -name libovms_shared.so | head -n1) && \
+    echo "Found built file: $LIB_PATH" && \
+    mkdir -p /ovms_release/lib && \
+    cp -v "$LIB_PATH" /ovms_release/lib/
 
 # C api app with bazel
 # hadolint ignore=DL3059
 RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:capi_cpp_example
 
 # C-API benchmark app
-RUN bazel build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark && ./bazel-bin/src/capi_benchmark --niter 2 --nstreams 1 --servable_name "dummy"
+RUN mkdir -p /tmp/bazel-output && \
+    bazel --output_base=/tmp/bazel-output \
+          build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark && \
+    CAPI_BIN=$(find /tmp/bazel-output -type f -name capi_benchmark | head -n1) && \
+    echo "Found built capi_benchmark: $CAPI_BIN" && \
+    chmod +x "$CAPI_BIN" && \
+    "$CAPI_BIN" --niter 2 --nstreams 1 --servable_name "dummy"
+
 # C-api C/C++ app with gcc
 COPY MakefileCapi /ovms/
 RUN make -f MakefileCapi cpp CAPI_FLAGS="${CAPI_FLAGS}" && \
