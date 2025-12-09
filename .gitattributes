@@ -1,5 +1,2 @@
 # Always leave tekton alone since it branch specific
 .tekton/* merge=ours
-
-# We alway want the new config or it won't build
-.konflux/* merge=theirs
