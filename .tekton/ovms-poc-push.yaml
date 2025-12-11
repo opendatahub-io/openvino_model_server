@@ -28,7 +28,7 @@ spec:
   - name: output-image
     value: quay.io/opendatahub/openvino_model_server:odh-stable
   - name: dockerfile
-    value: Dockerfile.redhat
+    value: Dockerfile.odh
   - name: path-context
     value: .
   - name: hermetic
@@ -47,8 +47,6 @@ spec:
     value: "2147483647"
   - name: build-platform
     value: linux-extra-fast/amd64
-  - name: build-args-file
-    value: .konflux/build-args.conf
   taskRunSpecs:
     - pipelineTaskName: build-container
       stepSpecs:
