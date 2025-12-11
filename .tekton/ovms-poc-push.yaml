@@ -47,6 +47,8 @@ spec:
     value: "2147483647"
   - name: build-platform
     value: linux-extra-fast/amd64
+  - name: build-args-file
+    value: .konflux/build-args.conf
   taskRunSpecs:
     - pipelineTaskName: build-container
       stepSpecs:
