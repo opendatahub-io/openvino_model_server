@@ -27,7 +27,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/open-data-hub-tenant/ovms-20251:{{revision}}
+    value: quay.io/opendatahub/openvino_model_server:odh-stable
   - name: dockerfile
     value: Dockerfile.redhat
   - name: path-context
