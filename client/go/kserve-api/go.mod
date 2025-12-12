@@ -20,7 +20,7 @@ go 1.23
 
 require (
 	google.golang.org/grpc v1.62.0
-	google.golang.org/protobuf v1.34.1
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
