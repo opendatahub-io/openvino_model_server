@@ -11,4 +11,4 @@ einops
 torchvision
 timm==1.0.15
 torch<2.9
-diffusers==0.33.1  # for image generation
+diffusers==0.36.0  # for image generation
