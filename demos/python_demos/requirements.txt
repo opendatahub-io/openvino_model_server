@@ -12,4 +12,4 @@ einops
 torchvision
 timm==1.0.15
 auto_gptq==0.7.1 # for GPTQ models
-diffusers==0.33.1  # for image generation
+diffusers==0.36.0  # for image generation
