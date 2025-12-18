@@ -64,6 +64,17 @@ def create_config_settings():
         negate = ":disable_mediapipe",
     )
     native.config_setting(
+        name = "genai_bin",
+        define_values = {
+            "GENAI_USE_BINARY": "1",
+        },
+        visibility = ["//visibility:public"],
+    )
+    more_selects.config_setting_negation(
+        name = "not_genai_bin",
+        negate = ":genai_bin",
+    )
+    native.config_setting(
         name = "enable_drogon",
         define_values = {
             "USE_DROGON": "1",
@@ -166,7 +177,6 @@ LINUX_COMMON_STATIC_LIBS_COPTS = [
 ]
 
 WINDOWS_COMMON_STATIC_LIBS_COPTS = [
-                        "/guard:cf",
                         "/W4",
                         "/WX",
                         "/external:anglebrackets",
@@ -222,6 +232,20 @@ COMMON_STATIC_TEST_COPTS = select({
                         "/utf-8",
                     ],
                 })
+
+COMMON_STATIC_LIBS_COPTS_VISIBLE = select({
+                "//conditions:default": [
+                    "-Wall",
+                    # TODO: was in ovms bin "-Wconversion",
+                    "-Wno-unknown-pragmas", 
+                    "-Wno-sign-compare",
+                    "-Werror",
+                ],
+                "//src:windows" : [
+                        "-W0",
+                        "-Isrc",
+                    ],
+                }) 
 
 COMMON_STATIC_LIBS_LINKOPTS = select({
                 "//conditions:default": [

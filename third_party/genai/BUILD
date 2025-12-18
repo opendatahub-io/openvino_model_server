@@ -17,21 +17,14 @@
 package(
     default_visibility = ["//visibility:public"],
 )
-
-cc_library(
-    name = "genai_headers",
-    hdrs = glob([
-        "include/openvino/**/*.*"
-    ]),
-    strip_include_prefix = "include",
-    visibility = ["//visibility:public"],
-)
+#TODO
 
 cc_library(
     name = "genai",
     srcs = glob([
-        "lib/intel64/libopenvino_genai.so",
+        ""
     ]),
     visibility = ["//visibility:public"],
-    deps = [":genai_headers"],
+    deps = [
+    ],
 )

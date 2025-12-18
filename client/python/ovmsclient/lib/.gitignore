@@ -1,0 +1,6 @@
+build/
+dist/
+tensorflow/
+tensorflow_serving/
+ovmsclient/tfs_compat/protos/
+*.egg-info/

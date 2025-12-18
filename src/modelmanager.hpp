@@ -313,8 +313,6 @@ public:
         return models;
     }
 
-    const std::vector<std::string> getNamesOfAvailableModels() const;
-
     /**
      * @brief Starts monitoring cleanup as new thread
      */
@@ -370,7 +368,7 @@ public:
         ResponseType* response) {
         return pipelineFactory.create(pipeline, name, request, response, *this);
     }
-    Status createPipeline(std::unique_ptr<MediapipeGraphExecutor>& graph,
+    Status createPipeline(std::shared_ptr<MediapipeGraphExecutor>& graph,
         const std::string& name);
 
     const bool pipelineDefinitionExists(const std::string& name) const {

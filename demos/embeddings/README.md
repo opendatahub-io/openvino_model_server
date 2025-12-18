@@ -4,209 +4,35 @@ Text generation use case is exposed via OpenAI API `embeddings` endpoint.
 
 ## Prerequisites
 
-**Model Server deployment**: Installed Docker Engine or OVMS binary package according to the [baremetal deployment guide](../../docs/deploying_server_baremetal.md)
+**Model preparation**: Python 3.9 or higher with pip 
 
-**(Optional) Model preparation**: Can be omitted when pulling models in IR format directly from HuggingFaces. Otherwise Python 3.9 or higher with pip for manual model export step.
+**Model Server deployment**: Installed Docker Engine or OVMS binary package according to the [baremetal deployment guide](../../docs/deploying_server_baremetal.md)
 
 **(Optional) Client**: Python with pip
 
 ## Model preparation
-
-### Direct pulling of pre-configured HuggingFace models
-
-This procedure can be used to pull preconfigured models from OpenVINO organization in HuggingFace Hub
-
-**CPU**
-::::{tab-set}
-:::{tab-item} OpenVINO/Qwen3-Embedding-0.6B-int8-ov
-:sync: Qwen3-Embedding-0.6B-int8-ov
-**Using docker image**
-```bash
-docker run --user $(id -u):$(id -g) --rm -v $(pwd)/models:/models:rw openvino/model_server:latest --pull --model_repository_path /models --source_model OpenVINO/Qwen3-Embedding-0.6B-int8-ov --pooling LAST --task embeddings
-
-docker run --user $(id -u):$(id -g) --rm -v $(pwd)/models:/models:rw openvino/model_server:latest --add_to_config --config_path /models/config.json --model_name OpenVINO/Qwen3-Embedding-0.6B-int8-ov --model_path OpenVINO/Qwen3-Embedding-0.6B-int8-ov
-```
-
-**On Bare Metal (Windows/Linux)**
-```console
-ovms --pull --model_repository_path /models --source_model OpenVINO/Qwen3-Embedding-0.6B-int8-ov --pooling LAST --task embeddings
-
-ovms --add_to_config --config_path /models/config.json --model_name OpenVINO/Qwen3-Embedding-0.6B-int8-ov --model_path OpenVINO/Qwen3-Embedding-0.6B-int8-ov
-```
-:::
-:::{tab-item} OpenVINO/bge-base-en-v1.5-int8-ov
-:sync: bge-base-en-v1.5-int8-ov
-**Using docker image**
-```bash
-docker run --user $(id -u):$(id -g) --rm -v $(pwd)/models:/models:rw openvino/model_server:latest --pull --model_repository_path /models --source_model OpenVINO/bge-base-en-v1.5-int8-ov --pooling CLS --task embeddings
-
-docker run --user $(id -u):$(id -g) --rm -v $(pwd)/models:/models:rw openvino/model_server:latest --add_to_config --config_path /models/config.json --model_name OpenVINO/bge-base-en-v1.5-int8-ov --model_path OpenVINO/bge-base-en-v1.5-int8-ov
-```
-
-**On Bare Metal (Windows/Linux)**
-```console
-ovms --pull --model_repository_path /models --source_model OpenVINO/bge-base-en-v1.5-int8-ov --pooling CLS --task embeddings
-
-ovms --add_to_config --config_path /models/config.json --model_name OpenVINO/bge-base-en-v1.5-int8-ov --model_path OpenVINO/bge-base-en-v1.5-int8-ov
-```
-:::
-::::
-
-**GPU**
-::::{tab-set}
-:::{tab-item} OpenVINO/Qwen3-Embedding-0.6B-int8-ov
-:sync: Qwen3-Embedding-0.6B-int8-ov
-**Using docker image**
-```bash
-docker run --user $(id -u):$(id -g) --rm -v $(pwd)/models:/models:rw openvino/model_server:latest --pull --model_repository_path /models --source_model OpenVINO/Qwen3-Embedding-0.6B-int8-ov --pooling LAST --target_device GPU --task embeddings
-
-docker run --user $(id -u):$(id -g) --rm -v $(pwd)/models:/models:rw openvino/model_server:latest --add_to_config --config_path /models/config.json --model_name OpenVINO/Qwen3-Embedding-0.6B-int8-ov --model_path OpenVINO/Qwen3-Embedding-0.6B-int8-ov
-```
-
-**On Bare Metal (Windows/Linux)**
-```console
-ovms --pull --model_repository_path /models --source_model OpenVINO/Qwen3-Embedding-0.6B-int8-ov --pooling LAST --target_device GPU --task embeddings
-
-ovms --add_to_config --config_path /models/config.json --model_name OpenVINO/Qwen3-Embedding-0.6B-int8-ov --model_path OpenVINO/Qwen3-Embedding-0.6B-int8-ov
-```
-:::
-:::{tab-item} OpenVINO/bge-base-en-v1.5-int8-ov
-:sync: OpenVINO/bge-base-en-v1.5-int8-ov
-**Using docker image**
-```bash
-docker run --user $(id -u):$(id -g) --rm -v $(pwd)/models:/models:rw openvino/model_server:latest --pull --model_repository_path /models --source_model OpenVINO/bge-base-en-v1.5-int8-ov --pooling CLS --target_device GPU --task embeddings
-
-docker run --user $(id -u):$(id -g) --rm -v $(pwd)/models:/models:rw openvino/model_server:latest --add_to_config --config_path /models/config.json --model_name OpenVINO/bge-base-en-v1.5-int8-ov --model_path OpenVINO/bge-base-en-v1.5-int8-ov
-```
-
-**On Bare Metal (Windows/Linux)**
-```console
-ovms --pull --model_repository_path /models --source_model OpenVINO/bge-base-en-v1.5-int8-ov --pooling CLS --target_device GPU --task embeddings
-
-ovms --add_to_config --config_path /models/config.json --model_name OpenVINO/bge-base-en-v1.5-int8-ov --model_path OpenVINO/bge-base-en-v1.5-int8-ov
-```
-:::
-::::
-
-### Export model
 
 Here, the original Pytorch LLM model and the tokenizer will be converted to IR format and optionally quantized.
 That ensures faster initialization time, better performance and lower memory consumption.
 
 Download export script, install it's dependencies and create directory for the models:
 ```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/3/demos/common/export_models/export_model.py -o export_model.py
+pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/3/demos/common/export_models/requirements.txt
 mkdir models 
 ```
 
 Run `export_model.py` script to download and quantize the model:
 
 **CPU**
-::::{tab-set}
-:::{tab-item} BAAI/bge-large-en-v1.5
-:sync: bge-large-en-v1.5
 ```console
-python export_model.py embeddings_ov --source_model BAAI/bge-large-en-v1.5 --pooling CLS --weight-format int8 --config_file_path models/config.json --model_repository_path models
+python export_model.py embeddings_ov --source_model BAAI/bge-large-en-v1.5 --weight-format int8 --config_file_path models/config.json --model_repository_path models
 ```
-:::
-:::{tab-item} BAAI/bge-large-zh-v1.5
-:sync: bge-large-zh-v1.5
-```console
-python export_model.py embeddings_ov --source_model BAAI/bge-large-zh-v1.5 --pooling CLS --weight-format int8 --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} thenlper/gte-small
-:sync: gte-small
-```console
-python export_model.py embeddings_ov --source_model thenlper/gte-small --pooling CLS --weight-format int8 --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} sentence-transformers/all-MiniLM-L12-v2
-:sync: all-MiniLM-L12-v2
-```console
-python export_model.py embeddings_ov --source_model sentence-transformers/all-MiniLM-L12-v2 --pooling MEAN --weight-format int8 --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} sentence-transformers/all-distilroberta-v1
-:sync: all-distilroberta-v1
-```console
-python export_model.py embeddings_ov --source_model sentence-transformers/all-distilroberta-v1 --pooling MEAN --weight-format int8 --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} mixedbread-ai/deepset-mxbai-embed-de-large-v1
-:sync: deepset-mxbai-embed-de-large-v1
-```console
-python export_model.py embeddings_ov --source_model mixedbread-ai/deepset-mxbai-embed-de-large-v1 --pooling MEAN --weight-format int8 --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} intfloat/multilingual-e5-large-instruct
-:sync: multilingual-e5-large-instruc
-```console
-python export_model.py embeddings_ov --source_model intfloat/multilingual-e5-large-instruct --pooling MEAN --weight-format int8 --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} intfloat/multilingual-e5-large
-:sync: multilingual-e5-large
-```console
-python export_model.py embeddings_ov --source_model intfloat/multilingual-e5-large --pooling MEAN --weight-format int8 --config_file_path models/config.json --model_repository_path models
-```
-:::
-::::
-
 
 **GPU**
-::::{tab-set}
-:::{tab-item} BAAI/bge-large-en-v1.5
-:sync: bge-large-en-v1.5
 ```console
-python export_model.py embeddings_ov --source_model BAAI/bge-large-en-v1.5 --pooling CLS --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
+python export_model.py embeddings_ov --source_model BAAI/bge-large-en-v1.5 --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
 ```
-:::
-:::{tab-item} BAAI/bge-large-zh-v1.5
-:sync: bge-large-zh-v1.5
-```console
-python export_model.py embeddings_ov --source_model BAAI/bge-large-zh-v1.5 --pooling CLS --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} thenlper/gte-small
-:sync: gte-small
-```console
-python export_model.py embeddings_ov --source_model thenlper/gte-small --pooling CLS --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} sentence-transformers/all-MiniLM-L12-v2
-:sync: all-MiniLM-L12-v2
-```console
-python export_model.py embeddings_ov --source_model sentence-transformers/all-MiniLM-L12-v2 --pooling MEAN --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} sentence-transformers/all-distilroberta-v1
-:sync: all-distilroberta-v1
-```console
-python export_model.py embeddings_ov --source_model sentence-transformers/all-distilroberta-v1 --pooling MEAN --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} mixedbread-ai/deepset-mxbai-embed-de-large-v1
-:sync: deepset-mxbai-embed-de-large-v1
-```console
-python export_model.py embeddings_ov --source_model mixedbread-ai/deepset-mxbai-embed-de-large-v1 --pooling MEAN --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} intfloat/multilingual-e5-large-instruct
-:sync: multilingual-e5-large-instruc
-```console
-python export_model.py embeddings_ov --source_model intfloat/multilingual-e5-large-instruct --pooling MEAN --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
-```
-:::
-:::{tab-item} intfloat/multilingual-e5-large
-:sync: multilingual-e5-large
-```console
-python export_model.py embeddings_ov --source_model intfloat/multilingual-e5-large --pooling MEAN --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
-```
-:::
-::::
-
 
 > **Note** Change the `--weight-format` to quantize the model to `fp16`, `int8` or `int4` precision to reduce memory consumption and improve performance.
 > **Note:** The users in China need to set environment variable HF_ENDPOINT="https://hf-mirror.com" before running the export script to connect to the HF Hub.
@@ -217,18 +43,19 @@ You should have a model folder like below:
 tree models
 models
 ├── BAAI
-│   └── bge-large-en-v1.5
-│       ├── config.json
-│       ├── graph.pbtxt
-│       ├── openvino_model.bin
-│       ├── openvino_model.xml
-│       ├── openvino_tokenizer.bin
-│       ├── openvino_tokenizer.xml
-│       ├── special_tokens_map.json
-│       ├── tokenizer_config.json
-│       ├── tokenizer.json
-│       └── vocab.txt
+│   └── bge-large-en-v1.5
+│       ├── config.json
+│       ├── graph.pbtxt
+│       ├── openvino_model.bin
+│       |── openvino_model.xml
+│       ├── openvino_tokenizer.bin
+│       ├── openvino_tokenizer.xml
+│       ├── special_tokens_map.json
+│       ├── tokenizer_config.json
+│       ├── tokenizer.json
+│       └── vocab.txt
 └── config.json
+
 ```
 
 The default configuration of the `EmbeddingsCalculatorOV` should work in most cases but the parameters can be tuned inside the `node_options` section in the `graph.pbtxt` file. They can be set automatically via export parameters in the `export_model.py` script.
@@ -236,27 +63,19 @@ The default configuration of the `EmbeddingsCalculatorOV` should work in most ca
 For example:
 `python export_model.py embeddings_ov --source_model BAAI/bge-large-en-v1.5 --weight-format int8 --skip_normalize --config_file_path models/config.json`
 
-> **Note:** By default OVMS returns first token embeddings as sequence embeddings (called CLS pooling). It can be changed using `--pooling` option if needed by the model. Supported values are CLS, MEAN and LAST. For example:
+> **Note:** By default OVMS returns first token embeddings as sequence embeddings (called CLS pooling). It can be changed using `--pooling` option if needed by the model. Supported values are CLS and LAST. For example:
 ```console
 python export_model.py embeddings_ov --source_model Qwen/Qwen3-Embedding-0.6B --weight-format fp16 --pooling LAST --config_file_path models/config.json
 ```
 
 ## Tested models
-All models supported by [optimum-intel](https://github.com/huggingface/optimum-intel) should be compatible. The demo is validated against following Hugging Face models:
-
-|Model name|Pooling|
-|---|---|
-|OpenVINO/Qwen3-Embedding-0.6B-int8-ov|LAST|
-|OpenVINO/bge-base-en-v1.5-int8-ov|CLS|
-|BAAI/bge-large-en-v1.5|CLS|
-|BAAI/bge-large-zh-v1.5|CLS|
-|thenlper/gte-small|CLS|
-|sentence-transformers/all-MiniLM-L12-v2|MEAN|
-|sentence-transformers/all-distilroberta-v1|MEAN|
-|mixedbread-ai/deepset-mxbai-embed-de-large-v1|MEAN|
-|intfloat/multilingual-e5-large-instruct|MEAN|
-|intfloat/multilingual-e5-large|MEAN|
-
+All models supported by [optimum-intel](https://github.com/huggingface/optimum-intel) should be compatible. In serving validation are included Hugging Face models:
+```
+    BAAI/bge-large-en-v1.5
+    BAAI/bge-large-zh-v1.5
+    thenlper/gte-small
+    Qwen/Qwen3-Embedding-0.6B
+```
 
 ## Server Deployment
 
@@ -296,9 +115,18 @@ ovms --rest_port 8000 --config_path ./models/config.json
 
 Wait for the model to load. You can check the status with a simple command below. Note that the slash `/` in the model name needs to be escaped with `%2F`:
 ```bash
-curl http://localhost:9999/v3/models/BAAI%2Fbge-large-en-v1.5
-
-{"id":"BAAI/bge-large-en-v1.5","object":"model","created":1763997378,"owned_by":"OVMS"}
+curl -s http://localhost:8000/v3/models | jq
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "BAAI/bge-large-en-v1.5",
+      "object": "model",
+      "created": 1760740840,
+      "owned_by": "OVMS"
+    }
+  ]
+}
 ```
 
 ## Client code
@@ -335,7 +163,7 @@ curl http://localhost:8000/v3/embeddings -H "Content-Type: application/json" -d 
 :::{dropdown} **Request embeddings with OpenAI Python package**
 
 ```bash
-pip3 install openai "numpy<2"
+pip3 install openai
 ```
 ```bash
 echo '
@@ -361,7 +189,7 @@ print("Similarity score as cos_sim", cos_sim)' >> openai_client.py
 
 python openai_client.py
 ```
-It will report results like `Similarity score as cos_sim 0.9605122725993963`.
+It will report results like `Similarity score as cos_sim 0.9612974628414152`.
 
 :::
 
@@ -371,87 +199,75 @@ An asynchronous benchmarking client can be used to access the model server perfo
 ```console
 git clone https://github.com/openvinotoolkit/model_server
 pushd .
-cd model_server/demos/benchmark/v3/
+cd model_server/demos/benchmark/embeddings/
 pip install -r requirements.txt
-python benchmark.py --api_url http://localhost:8000/v3/embeddings --dataset synthetic --synthetic_length 5 --request_rate 10 --batch_size 1 --model BAAI/bge-large-en-v1.5
+python benchmark_embeddings.py --api_url http://localhost:8000/v3/embeddings --dataset synthetic --synthetic_length 5 --request_rate 10 --batch_size 1 --model BAAI/bge-large-en-v1.5
 Number of documents: 1000
-100%|████████████████████████████████████████████████████████████████| 1000/1000 [01:44<00:00,  9.56it/s]
+100%|████████████████████████████████████████████████████████████████| 1000/1000 [01:45<00:00,  9.50it/s]
 Tokens: 5000
 Success rate: 100.0%. (1000/1000)
-Throughput - Tokens per second: 47.8
-Mean latency: 14.40 ms
-Median latency: 13.97 ms
+Throughput - Tokens per second: 48.588129701166125
+Mean latency: 17 ms
+Median latency: 16 ms
 Average document length: 5.0 tokens
 
 
-python benchmark.py --api_url http://localhost:8000/v3/embeddings --request_rate inf --batch_size 32 --dataset synthetic --synthetic_length 510 --model BAAI/bge-large-en-v1.5
+python benchmark_embeddings.py --api_url http://localhost:8000/v3/embeddings --request_rate inf --batch_size 32 --dataset synthetic --synthetic_length 510 --model BAAI/bge-large-en-v1.5
 Number of documents: 1000
-100%|████████████████████████████████████████████████████████████████| 32/32 [00:17<00:00,  1.82it/s]
+100%|████████████████████████████████████████████████████████████████| 50/50 [00:21<00:00,  2.32it/s]
 Tokens: 510000
 Success rate: 100.0%. (32/32)
-Throughput - Tokens per second: 29,066.2
-Mean latency: 9768.28 ms
-Median latency: 9905.79 ms
+Throughput - Tokens per second: 27995.652060806977
+Mean latency: 10113 ms
+Median latency: 10166 ms
 Average document length: 510.0 tokens
 
 
-python benchmark.py --api_url http://localhost:8000/v3/embeddings --request_rate inf --batch_size 1 --dataset Cohere/wikipedia-22-12-simple-embeddings --model BAAI/bge-large-en-v1.5
+python benchmark_embeddings.py --api_url http://localhost:8000/v3/embeddings --request_rate inf --batch_size 1 --dataset Cohere/wikipedia-22-12-simple-embeddings
 Number of documents: 1000
 100%|████████████████████████████████████████████████████████████████| 1000/1000 [00:15<00:00, 64.02it/s]
 Tokens: 83208
 Success rate: 100.0%. (1000/1000)
-Throughput - Tokens per second: 4,120.6
-Mean latency: 1882.98 ms
-Median latency: 1608.47 ms
+Throughput - Tokens per second: 5433.913083411673
+Mean latency: 1424 ms
+Median latency: 1451 ms
 Average document length: 83.208 tokens
 ```
 
 ## RAG with Model Server
 
 Embeddings endpoint can be applied in RAG chains to delegated text feature extraction both for documented vectorization and in context retrieval.
-Check this demo to see the langchain code example which is using OpenVINO Model Server both for text generation and embedding endpoint in [RAG application demo](https://github.com/openvinotoolkit/model_server/tree/releases/2025/4/demos/continuous_batching/rag)
+Check this demo to see the langchain code example which is using OpenVINO Model Server both for text generation and embedding endpoint in [RAG application demo](https://github.com/openvinotoolkit/model_server/tree/releases/2025/3/demos/continuous_batching/rag)
 
 
 ## Testing the model accuracy over serving API
 
 A simple method of testing the response accuracy is via comparing the response for a sample prompt from the model server and with local python execution based on HuggingFace python code.
 
-The script [compare_results.py](https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/embeddings/compare_results.py) can assist with such experiment.
+The script [compare_results.py](./compare_results.py) can assist with such experiment.
 ```bash
 popd
 cd model_server/demos/embeddings
-python compare_results.py --model BAAI/bge-large-en-v1.5 --service_url http://localhost:8000/v3/embeddings --pooling CLS --input "hello world" --input "goodbye world"
-
-input ['hello world', 'goodbye world']
-HF Duration: 93.921 ms BertModel
-OVMS Duration: 160.806 ms
+python compare_results.py --model BAAI/bge-large-en-v1.5 --service_url http://localhost:8000/v3/embeddings --pooling CLS --input "Model Server hosts models and makes them accessible to software components over standard network protocols."
+input ['Model Server hosts models and makes them accessible to software components over standard network protocols.']
+HF Duration: 133.467 ms BertModel
+OVMS Duration: 48.964 ms
 Batch number: 0
 OVMS embeddings: shape: (1024,) emb[:20]:
- [ 0.0336  0.0321  0.0213 -0.0373 -0.0156 -0.0122  0.0246  0.0412  0.0492
-  0.0207  0.0056  0.0169 -0.0133  0.0009 -0.0421  0.0206 -0.0222 -0.0291
- -0.0532  0.0382]
+ [-0.0016  0.0049 -0.0257 -0.0273  0.0264  0.0313 -0.0177 -0.0102  0.0194
+  0.0469 -0.0181  0.0092  0.0448 -0.0288 -0.01    0.0629 -0.0341 -0.0489
+ -0.0557 -0.0283]
 HF AutoModel: shape: (1024,) emb[:20]:
- [ 0.0343  0.0332  0.0219 -0.0371 -0.0158 -0.0131  0.0247  0.0408  0.0489
-  0.0208  0.0053  0.0176 -0.0132  0.001  -0.0422  0.0208 -0.0213 -0.0278
- -0.0538  0.0388]
-Difference score with HF AutoModel: 0.020708760995591734
-Batch number: 1
-OVMS embeddings: shape: (1024,) emb[:20]:
- [ 0.0161  0.0156  0.0235  0.0199  0.0005 -0.0559  0.0124  0.0122  0.0205
- -0.027   0.0152  0.0153 -0.0429 -0.0537 -0.0514 -0.0059 -0.0294 -0.0451
- -0.0371  0.0361]
-HF AutoModel: shape: (1024,) emb[:20]:
- [ 0.0175  0.0161  0.0234  0.0196  0.0012 -0.0565  0.0109  0.0111  0.0194
- -0.0275  0.0148  0.0144 -0.0425 -0.0538 -0.0515 -0.0062 -0.0298 -0.0447
- -0.0376  0.0359]
-Difference score with HF AutoModel: 0.020293646680283224
+ [-0.0013  0.0053 -0.0264 -0.0281  0.0251  0.0311 -0.0176 -0.0108  0.0191
+  0.0479 -0.0181  0.0092  0.0453 -0.0286 -0.0101  0.0631 -0.0338 -0.0493
+ -0.0565 -0.0286]
+Difference score with HF AutoModel: 0.025911861732258994
 
 ```
 
 It is easy also to run model evaluation using [MTEB](https://github.com/embeddings-benchmark/mteb) framework using a custom class based on openai model:
 ```bash
-pip install "mteb<2" einops openai --extra-index-url "https://download.pytorch.org/whl/cpu"
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/embeddings/ovms_mteb.py -o ovms_mteb.py
+pip install mteb --extra-index-url "https://download.pytorch.org/whl/cpu"
 python ovms_mteb.py --model BAAI/bge-large-en-v1.5 --service_url http://localhost:8000/v3/embeddings
 ```
 Results will be stored in `results` folder:
@@ -459,66 +275,66 @@ Results will be stored in `results` folder:
 {
   "dataset_revision": "0fd18e25b25c072e09e0d92ab615fda904d66300",
   "task_name": "Banking77Classification",
-  "mteb_version": "1.39.7",
+  "mteb_version": "1.34.11",
   "scores": {
     "test": [
       {
-        "accuracy": 0.848636,
-        "f1": 0.842405,
-        "f1_weighted": 0.842405,
+        "accuracy": 0.848571,
+        "f1": 0.842365,
+        "f1_weighted": 0.842365,
         "scores_per_experiment": [
           {
-            "accuracy": 0.842532,
-            "f1": 0.835091,
-            "f1_weighted": 0.835091
+            "accuracy": 0.843831,
+            "f1": 0.836592,
+            "f1_weighted": 0.836592
           },
           {
-            "accuracy": 0.851299,
-            "f1": 0.844622,
-            "f1_weighted": 0.844622
-          },
-          {
-            "accuracy": 0.849026,
-            "f1": 0.842238,
-            "f1_weighted": 0.842238
-          },
-          {
-            "accuracy": 0.853571,
-            "f1": 0.849815,
-            "f1_weighted": 0.849815
-          },
-          {
-            "accuracy": 0.846104,
-            "f1": 0.839,
-            "f1_weighted": 0.839
+            "accuracy": 0.850649,
+            "f1": 0.84395,
+            "f1_weighted": 0.84395
           },
           {
             "accuracy": 0.849675,
-            "f1": 0.844259,
-            "f1_weighted": 0.844259
+            "f1": 0.843094,
+            "f1_weighted": 0.843094
           },
           {
-            "accuracy": 0.846104,
-            "f1": 0.840343,
-            "f1_weighted": 0.840343
+            "accuracy": 0.853896,
+            "f1": 0.850204,
+            "f1_weighted": 0.850204
           },
           {
             "accuracy": 0.846753,
-            "f1": 0.8397,
-            "f1_weighted": 0.8397
+            "f1": 0.83981,
+            "f1_weighted": 0.83981
           },
           {
-            "accuracy": 0.853571,
-            "f1": 0.848239,
-            "f1_weighted": 0.848239
+            "accuracy": 0.85,
+            "f1": 0.844339,
+            "f1_weighted": 0.844339
           },
           {
-            "accuracy": 0.847727,
-            "f1": 0.84074,
-            "f1_weighted": 0.84074
+            "accuracy": 0.844805,
+            "f1": 0.838669,
+            "f1_weighted": 0.838669
+          },
+          {
+            "accuracy": 0.846104,
+            "f1": 0.839095,
+            "f1_weighted": 0.839095
+          },
+          {
+            "accuracy": 0.852922,
+            "f1": 0.847884,
+            "f1_weighted": 0.847884
+          },
+          {
+            "accuracy": 0.847078,
+            "f1": 0.840013,
+            "f1_weighted": 0.840013
           }
         ],
-        "main_score": 0.848636,
+        "main_score": 0.848571,
         "hf_subset": "default",
         "languages": [
           "eng-Latn"
@@ -526,44 +342,8 @@ Results will be stored in `results` folder:
       }
     ]
   },
-  "evaluation_time": 3841.1886789798737,
+  "evaluation_time": 109.37459182739258,
   "kg_co2_emissions": null
 }
 ```
-Compare against local HuggingFace execution for reference:
-```console
-mteb run -m thenlper/gte-small -t Banking77Classification --output_folder results
-``` 
 
-# Usage of tokenize endpoint (release 2025.4 or weekly)
-
-The `tokenize` endpoint provides a simple API for tokenizing input text using the same tokenizer as the deployed embeddings model. This allows you to see how your text will be split into tokens before feature extraction or inference. The endpoint accepts a string or list of strings and returns the corresponding token IDs.
-
-Example usage:
-```console
-curl http://localhost:8000/v3/tokenize -H "Content-Type: application/json" -d "{ \"model\": \"BAAI/bge-large-en-v1.5\", \"text\": \"hello world\" }"
-```
-Response:
-```json
-{
-  "tokens": [101,7592,2088,102]
-}
-```
-
-It's possible to use additional parameters:
- - `pad_to_max_length` - whether to pad the sequence to the maximum length. Default is False. 
- - `max_length` - maximum length of the sequence. If specified, it truncates the tokens to the provided number.
- - `padding_side` - side to pad the sequence, can be `left` or `right`. Default is `right`.
- - `add_special_tokens` - whether to add special tokens like BOS, EOS, PAD. Default is True. 
-
- Example usage:
-```console
-curl http://localhost:8000/v3/tokenize -H "Content-Type: application/json" -d "{ \"model\": \"BAAI/bge-large-en-v1.5\", \"text\": \"hello world\", \"max_length\": 10, \"pad_to_max_length\": true, \"padding_side\": \"left\", \"add_special_tokens\": true }"
-```
-
-Response:
-```json
-{
-  "tokens":[0,0,0,0,0,0,101,7592,2088,102]
-}
-```

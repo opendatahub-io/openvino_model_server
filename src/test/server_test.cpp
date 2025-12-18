@@ -82,7 +82,6 @@ public:
         ASSERT_EQ(status.error_code(), expectedStatus);
         EXPECT_EQ(response.live(), alive);
     }
-
     void verifyReady(grpc::StatusCode expectedStatus = grpc::StatusCode::OK, bool ready = true) {
         ClientContext context;
         ::inference::ServerReadyRequest request;
@@ -93,7 +92,6 @@ public:
         ASSERT_EQ(status.error_code(), expectedStatus);
         EXPECT_EQ(response.ready(), ready);
     }
-
     void verifyModelReady(const std::string& modelName, grpc::StatusCode expectedStatus = grpc::StatusCode::OK, bool ready = true) {
         ClientContext context;
         ::KFSGetModelStatusRequest request;

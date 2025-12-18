@@ -21,7 +21,7 @@ mkdir models
 python demos/common/export_models/export_model.py text_generation --source_model meta-llama/Meta-Llama-3-8B-Instruct --weight-format fp16 --kv_cache_precision u8 --config_file_path models/config.json --model_repository_path models
 python demos/common/export_models/export_model.py text_generation --source_model meta-llama/Meta-Llama-3-8B --weight-format fp16 --kv_cache_precision u8 --config_file_path models/config.json --model_repository_path models
 python demos/common/export_models/export_model.py text_generation --source_model OpenGVLab/InternVL2_5-8B --weight-format fp16 --config_file_path models/config.json --model_repository_path models
-python demos/common/export_models/export_model.py text_generation --source_model Qwen/Qwen3-8B --model_name openvino-qwen3-8b-int8 --weight-format int8 --config_file_path models/config.json --model_repository_path models --tool_parser hermes3 --overwrite_models --enable_prefix_caching
+python demos/common/export_models/export_model.py text_generation --source_model Qwen/Qwen3-8B --model_name openvino-qwen3-8b-int8 --weight-format int8 --config_file_path models/config.json --model_repository_path models --tools_model_type qwen3 --overwrite_models --enable_prefix_caching
 ```
 
 ## Starting the model server
@@ -112,22 +112,15 @@ Use [Berkeley function call leaderboard ](https://github.com/ShishirPatil/gorill
 ```bash
 git clone https://github.com/ShishirPatil/gorilla
 cd gorilla/berkeley-function-call-leaderboard
-git checkout cd9429ccf3d4d04156affe883c495b3b047e6b64
-curl -s https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/continuous_batching/accuracy/gorilla.patch | git apply -v
+git checkout ac37049f00022af54cc44b6aa0cad4402c22d1a0
+curl -s https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/3/demos/continuous_batching/accuracy/gorilla.patch | git apply -v
 pip install -e . 
 ```
-The commands below assumes the models is deployed with the name `ovms-model`. It must match the name set in the `bfcl_eval/constants/model_config.py`.
+The commands below assumes the models is deployed with the name `openvino-qwen3-8b-int8`. It must match the name set in the `bfcl_eval/constants/model_config.py`.
 ```bash
 export OPENAI_BASE_URL=http://localhost:8000/v3
-bfcl generate --model ovms-model --test-category simple,multiple --temperature 0.0 --num-threads 100 -o --result-dir model_name_dir
-bfcl evaluate --model ovms-model --result-dir model_name_dir 
-```
-
-Alternatively, use the model name `ovms-model-stream` to run the tests with stream requests. The results should be the same.
-```bash
-export OPENAI_BASE_URL=http://localhost:8000/v3
-bfcl generate --model ovms-model-stream --test-category simple,multiple --temperature 0.0 --num-threads 100 -o --result-dir model_name_dir
-bfcl evaluate --model ovms-model-stream --result-dir model_name_dir 
+bfcl generate --model openvino-qwen3-8b-int8-FC --test-category multiple --num-threads 100 -o
+bfcl evaluate --model openvino-qwen3-8b-int8-FC
 ```
 
 **Analyzing results**

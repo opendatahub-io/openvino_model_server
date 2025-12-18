@@ -18,7 +18,12 @@
 #include <string>
 #include <vector>
 
-#include "src/port/rapidjson_document.hpp"
+#pragma warning(push)
+#pragma warning(disable : 6313)
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+#pragma warning(pop)
 
 #include "../../../logging.hpp"
 #include "reasoning_parser.hpp"
@@ -26,7 +31,7 @@
 
 namespace ovms {
 void Qwen3ReasoningParser::parse(ParsedOutput& parsedOutput, const std::vector<int64_t>& generatedTokens) {
-    std::string startReasoningTag = getParsingStartTags()[0];
+    std::string startReasoningTag = getParsingStartTag();
     std::string endReasoningTag = getParsingEndTag();
     size_t startPos = parsedOutput.content.find(startReasoningTag);
     size_t endPos = parsedOutput.content.find(endReasoningTag);
@@ -47,7 +52,7 @@ std::optional<rapidjson::Document> Qwen3ReasoningParser::parseChunk(const std::s
         return std::nullopt;
     }
 
-    if (chunk.find(getParsingStartTags()[0]) != std::string::npos || chunk.find(getParsingEndTag()) != std::string::npos) {
+    if (chunk.find(getParsingStartTag()) != std::string::npos || chunk.find(getParsingEndTag()) != std::string::npos) {
         return std::nullopt;
     } else {
         rapidjson::StringBuffer buffer;

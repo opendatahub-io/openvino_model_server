@@ -160,11 +160,32 @@ std::string HfDownloader::GetRepoUrl() {
     return repoUrl;
 }
 
-HfDownloader::HfDownloader(const std::string& inSourceModel, const std::string& inDownloadPath, const std::string& inHfEndpoint, const std::string& inHfToken, const std::string& inHttpProxy, bool inOverwrite) :
-    IModelDownloader(inSourceModel, inDownloadPath, inOverwrite),
-    hfEndpoint(inHfEndpoint),
-    hfToken(inHfToken),
-    httpProxy(inHttpProxy) {}
+HfDownloader::HfDownloader() {
+    this->sourceModel = "";
+    this->downloadPath = "";
+    this->hfEndpoint = "";
+    this->hfToken = "";
+    this->httpProxy = "";
+    this->overwriteModels = false;
+}
+
+std::string HfDownloader::getGraphDirectory() {
+    return this->downloadPath;
+}
+
+std::string HfDownloader::getGraphDirectory(const std::string& inDownloadPath, const std::string& inSourceModel) {
+    std::string fullPath = FileSystem::joinPath({inDownloadPath, inSourceModel});
+    return fullPath;
+}
+
+HfDownloader::HfDownloader(const std::string& inSourceModel, const std::string& inDownloadPath, const std::string& inHfEndpoint, const std::string& inHfToken, const std::string& inHttpProxy, bool inOverwrite) {
+    this->sourceModel = inSourceModel;
+    this->downloadPath = HfDownloader::getGraphDirectory(inDownloadPath, inSourceModel);
+    this->hfEndpoint = inHfEndpoint;
+    this->hfToken = inHfToken;
+    this->httpProxy = inHttpProxy;
+    this->overwriteModels = inOverwrite;
+}
 
 Status HfDownloader::RemoveReadonlyFileAttributeFromDir(const std::string& directoryPath) {
     for (const std::filesystem::directory_entry& dir_entry : std::filesystem::recursive_directory_iterator(directoryPath)) {
@@ -179,7 +200,24 @@ Status HfDownloader::RemoveReadonlyFileAttributeFromDir(const std::string& direc
     return StatusCode::OK;
 }
 
-Status HfDownloader::downloadModel() {
+Status HfDownloader::checkIfOverwriteAndRemove(const std::string& path) {
+    auto lfstatus = StatusCode::OK;
+    if (this->overwriteModels && std::filesystem::is_directory(path)) {
+        LocalFileSystem lfs;
+        lfstatus = lfs.deleteFileFolder(path);
+        if (lfstatus != StatusCode::OK) {
+            SPDLOG_ERROR("Error occurred while deleting path: {} reason: {}",
+                path,
+                lfstatus);
+        } else {
+            SPDLOG_DEBUG("Path deleted: {}", path);
+        }
+    }
+
+    return lfstatus;
+}
+
+Status HfDownloader::cloneRepository() {
     if (FileSystem::isPathEscaped(this->downloadPath)) {
         SPDLOG_ERROR("Path {} escape with .. is forbidden.", this->downloadPath);
         return StatusCode::PATH_INVALID;
@@ -191,7 +229,7 @@ Status HfDownloader::downloadModel() {
         return StatusCode::OK;
     }
 
-    auto status = IModelDownloader::checkIfOverwriteAndRemove();
+    auto status = checkIfOverwriteAndRemove(this->downloadPath);
     if (!status.ok()) {
         return status;
     }

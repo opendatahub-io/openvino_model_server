@@ -55,15 +55,11 @@
 #include "../shape.hpp"
 #include "../stringutils.hpp"
 #include "../tfs_frontend/tfs_utils.hpp"
-#include "constructor_enabled_model_manager.hpp"
 #include "c_api_test_utils.hpp"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/tensor.h"
 #include "opencv2/opencv.hpp"
-#include "platform_utils.hpp"
 #include "test_utils.hpp"
-#include "light_test_utils.hpp"
-#include "test_with_temp_dir.hpp"
 
 #if (PYTHON_DISABLE == 0)
 #pragma warning(push)
@@ -338,7 +334,7 @@ TEST_F(MediapipeEmbeddingsTest, startup) {
     const ovms::Module* servableModule = server.getModule(ovms::SERVABLE_MANAGER_MODULE_NAME);
     ASSERT_TRUE(servableModule != nullptr);
     ModelManager* manager = &dynamic_cast<const ServableManagerModule*>(servableModule)->getServableManager();
-    auto mediapipeGraphDefinition = manager->getMediapipeFactory().findDefinitionByName("embeddings_ov");
+    auto mediapipeGraphDefinition = manager->getMediapipeFactory().findDefinitionByName("embeddings");
     ASSERT_TRUE(mediapipeGraphDefinition != nullptr);
     ASSERT_TRUE(mediapipeGraphDefinition->getStatus().isAvailable());
 }
@@ -349,7 +345,7 @@ TEST_F(MediapipeEmbeddingsTest, grpcInference) {
     KFSInferenceServiceImpl& impl = dynamic_cast<const ovms::GRPCServerModule*>(grpcModule)->getKFSGrpcImpl();
     ::KFSRequest request;
     ::KFSResponse response;
-    const std::string modelName = "embeddings_ov";
+    const std::string modelName = "embeddings";
     request.Clear();
     response.Clear();
     inputs_info_t inputsMeta{{"input", {DUMMY_MODEL_SHAPE, precision}}};
@@ -2439,7 +2435,7 @@ public:
     static const std::string pbtxtContentNonexistentCalc;
     template <typename Request, typename Response>
     static void checkStatus(ModelManager& manager, ovms::StatusCode code) {
-        std::unique_ptr<MediapipeGraphExecutor> executor;
+        std::shared_ptr<MediapipeGraphExecutor> executor;
         Request request;
         Response response;
         auto status = manager.createPipeline(executor, mgdName);
@@ -2683,7 +2679,7 @@ class MediapipeSerialization : public ::testing::Test {
             std::vector<std::string> inputNames, std::vector<std::string> outputNames,
             const PythonNodeResourcesMap& pythonNodeResourcesMap,
             MediapipeServableMetricReporter* mediapipeServableMetricReporter) :
-            MediapipeGraphExecutor(name, version, config, inputTypes, outputTypes, inputNames, outputNames, pythonNodeResourcesMap, {}, {}, {}, {}, {}, nullptr, mediapipeServableMetricReporter) {}
+            MediapipeGraphExecutor(name, version, config, inputTypes, outputTypes, inputNames, outputNames, pythonNodeResourcesMap, {}, {}, {}, nullptr, mediapipeServableMetricReporter) {}
     };
 
 protected:
@@ -3322,7 +3318,7 @@ protected:
         }
         const ServableManagerModule* smm = dynamic_cast<const ServableManagerModule*>(this->server.getModule(SERVABLE_MANAGER_MODULE_NAME));
         ModelManager& modelManager = smm->getServableManager();
-        std::unique_ptr<MediapipeGraphExecutor> executor;
+        std::shared_ptr<MediapipeGraphExecutor> executor;
         ASSERT_EQ(modelManager.createPipeline(executor, this->request.model_name()), ovms::StatusCode::OK);
         using ovms::ExecutionContext;
         ExecutionContext executionContext{ExecutionContext::Interface::GRPC, ExecutionContext::Method::ModelInfer};
@@ -3796,6 +3792,7 @@ TEST(WhitelistRegistered, MediapipeCalculatorsList) {
         "DetectionSerializationCalculator",
         "DetectionsToRectsCalculator",
         "DetectionsToRenderDataCalculator",
+        "EmbeddingsCalculator",
         "EmbeddingsCalculatorOV",
         "RerankCalculator",
         "RerankCalculatorOV",
@@ -3931,8 +3928,6 @@ TEST(WhitelistRegistered, MediapipeCalculatorsList) {
         "SerializationCalculator",
         "SetLandmarkVisibilityCalculator",
         "SidePacketToStreamCalculator",
-        "S2tCalculator",
-        "T2sCalculator",
         "SplitAffineMatrixVectorCalculator",
         "SplitClassificationListVectorCalculator",
         "SplitDetectionVectorCalculator",

@@ -17,7 +17,6 @@
 #include <numeric>
 
 #include "sidepacket_servable.hpp"
-#include "logging.hpp"
 #include <spdlog/spdlog.h>
 #include <rapidjson/istreamwrapper.h>
 #include <rapidjson/error/en.h>
@@ -31,9 +30,6 @@
 #include "config.hpp"
 
 #include "filesystem.hpp"
-
-using namespace ov::genai;
-using namespace ov;
 
 namespace ovms {
 
@@ -54,10 +50,6 @@ namespace ovms {
     }
 
 SidepacketServable::SidepacketServable(const std::string& modelDir, const std::string& targetDevice, const std::string& pluginConfig, const std::string& graphPath) {
-    return;
-}
-
-void SidepacketServable::initialize(const std::string& modelDir, const std::string& targetDevice, const std::string& pluginConfig, const std::string& graphPath) {
     auto fsModelsPath = std::filesystem::path(modelDir);
     if (fsModelsPath.is_relative()) {
         parsedModelsPath = (std::filesystem::path(graphPath) / fsModelsPath);
@@ -130,7 +122,6 @@ void SidepacketServable::initialize(const std::string& modelDir, const std::stri
 
     ov::Core core;
     std::shared_ptr<ov::Model> m_model = core.read_model(parsedModelsPath / std::filesystem::path("openvino_model.xml"), {}, properties);
-    m_model = this->applyPrePostProcessing(m_model);
     compiledModel = core.compile_model(m_model, targetDevice, properties);
     auto& ovmsConfig = ovms::Config::instance();
     uint32_t numberOfParallelInferRequests = 1;

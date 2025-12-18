@@ -33,8 +33,7 @@
 #include "../status.hpp"
 #include "c_api_test_utils.hpp"
 #include "gpuenvironment.hpp"
-#include "light_test_utils.hpp"
-#include "test_with_temp_dir.hpp"
+#include "test_utils.hpp"
 
 using namespace ov;
 

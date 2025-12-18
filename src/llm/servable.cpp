@@ -38,19 +38,6 @@
 #include "text_utils.hpp"
 
 namespace ovms {
-
-void GenAiServable::determineDecodingMethod() {
-    getProperties()->decodingMethod = DecodingMethod::STANDARD;
-    auto& pluginConfig = getProperties()->pluginConfig;
-    if (pluginConfig.find("draft_model") != pluginConfig.end()) {
-        getProperties()->decodingMethod = DecodingMethod::SPECULATIVE_DECODING;
-    }
-    auto it = pluginConfig.find("prompt_lookup");
-    if (it != pluginConfig.end() && it->second.as<bool>() == true) {
-        getProperties()->decodingMethod = DecodingMethod::PROMPT_LOOKUP;
-    }
-}
-
 absl::Status GenAiServable::loadRequest(std::shared_ptr<GenAiServableExecutionContext>& executionContext, const ovms::HttpPayload& payload) {
     if (spdlog::default_logger_raw()->level() <= spdlog::level::debug) {
         logRequestDetails(payload);
@@ -92,19 +79,11 @@ absl::Status GenAiServable::parseRequest(std::shared_ptr<GenAiServableExecutionC
             lastStreamerCallbackOutput = text;
             return ov::genai::StreamingStatus::RUNNING;
         };
-        ov::AnyMap streamerConfig;
-        if (executionContext->apiHandler->getOutputParser() != nullptr &&
-            (executionContext->apiHandler->getOutputParser()->requiresStreamingWithSpecialTokens())) {
-            streamerConfig.insert(ov::genai::skip_special_tokens(false));
-        }
-        executionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback, streamerConfig);
+
+        executionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback);
     }
-    executionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig,
-        getProperties()->toolParserName,
-        getProperties()->enableToolGuidedGeneration,
-        getProperties()->decodingMethod);
+    executionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig, getProperties()->toolParserName, getProperties()->enableToolGuidedGeneration);
     executionContext->generationConfigBuilder->parseConfigFromRequest(executionContext->apiHandler->getRequest());
-    executionContext->generationConfigBuilder->adjustConfigForDecodingMethod();
     try {
         executionContext->generationConfigBuilder->validateStructuredOutputConfig(getProperties()->tokenizer);
     } catch (const std::exception& e) {
@@ -112,6 +91,13 @@ absl::Status GenAiServable::parseRequest(std::shared_ptr<GenAiServableExecutionC
         executionContext->generationConfigBuilder->unsetStructuredOutputConfig();
     }
 
+#if (PYTHON_DISABLE == 0)
+    // Due to issues in GGUF models EOS token generation, we add EOS tag as a stop string to properly handle end of generation
+    if (this->getProperties()->ggufEosToken.has_value()) {
+        SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Adding GGUF model stop string: [{}]", this->getProperties()->ggufEosToken.value());
+        executionContext->generationConfigBuilder->addStopString(this->getProperties()->ggufEosToken.value());
+    }
+#endif
     return absl::OkStatus();
 }
 
@@ -153,6 +139,18 @@ absl::Status GenAiServable::prepareInputs(std::shared_ptr<GenAiServableExecution
     }
     }
     bool encodeAddSpecialTokens = (executionContext->endpoint == Endpoint::COMPLETIONS);
+    if (executionContext->apiHandler->getToolChoice() == "required") {
+        const auto& outputParser = executionContext->apiHandler->getOutputParser();
+        if (outputParser != nullptr && outputParser->isToolParserAvailable()) {
+            // If tool parser is available, we add tool parser start tag to the input text
+            // to increase the chance of the model generating tool calls immediately.
+            outputParser->enableImmediateToolParsing();
+            inputText += outputParser->getToolParserStartTag();
+            SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Adding tool parser trigger: {} at the end of the input.", outputParser->getToolParserStartTag());
+        } else {
+            return absl::InvalidArgumentError("Tool parser is not available, but tool_choice is set to 'required'");
+        }
+    }
     executionContext->inputIds = getProperties()->tokenizer.encode(inputText, ov::genai::add_special_tokens(encodeAddSpecialTokens)).input_ids;
     if (getProperties()->maxModelLength.has_value()) {
         if (executionContext->inputIds.get_size() > getProperties()->maxModelLength.value()) {

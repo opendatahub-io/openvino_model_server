@@ -20,7 +20,12 @@
 #include <unordered_set>
 #include <vector>
 
-#include "src/port/rapidjson_document.hpp"
+#pragma warning(push)
+#pragma warning(disable : 6313)
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+#pragma warning(pop)
 
 #include "../base_output_parser.hpp"
 
@@ -38,12 +43,11 @@ public:
 
     void parse(ParsedOutput& parsedOutput, const std::vector<int64_t>& generatedTokens) override;
     std::optional<rapidjson::Document> parseChunk(const std::string& chunk, ov::genai::GenerationFinishReason finishReason) override;
-    const std::vector<std::string>& getParsingStartTags() const override {
-        static const std::vector<std::string> parsingStartTags{this->parsingStartTag};
-        return parsingStartTags;
+    const std::string& getParsingStartTag() const override {
+        return parsingStartTag;
     }
-    const std::vector<std::string>& getSpecialParsingStartTags() const override {
-        static const std::vector<std::string> specialParsingStartTags{};
+    const std::unordered_set<std::string>& getSpecialParsingStartTags() const override {
+        static const std::unordered_set<std::string> specialParsingStartTags = {};
         return specialParsingStartTags;
     }
     const std::string& getParsingEndTag() const override {

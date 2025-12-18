@@ -26,12 +26,12 @@
 namespace ovms {
 
 enum class StatusCode {
-    OK,                    /*!< Success */
-    PATH_INVALID,          /*!< The provided path is invalid or doesn't exists */
-    DIRECTORY_NOT_CREATED, /*!< Directory could not be created */
-    FILE_INVALID,          /*!< File not found or cannot open */
-    CONFIG_FILE_INVALID,   /*!< Config file not found or cannot open */
-    FILESYSTEM_ERROR,      /*!< Underlying filesystem error */
+    OK, /*!< Success */
+
+    PATH_INVALID,        /*!< The provided path is invalid or doesn't exists */
+    FILE_INVALID,        /*!< File not found or cannot open */
+    CONFIG_FILE_INVALID, /*!< Config file not found or cannot open */
+    FILESYSTEM_ERROR,    /*!< Underlying filesystem error */
     MODEL_NOT_LOADED,
     JSON_INVALID,             /*!< The file/content is not valid json */
     JSON_SERIALIZATION_ERROR, /*!< Data serialization to json format failed */
@@ -40,7 +40,6 @@ enum class StatusCode {
     LAYOUT_WRONG_FORMAT,                  /*!< The provided layout param is in wrong format */
     DIM_WRONG_FORMAT,                     /*!< The provided dimension param is in wrong format */
     PLUGIN_CONFIG_WRONG_FORMAT,           /*!< Plugin config is in wrong format */
-    PLUGIN_CONFIG_CONFLICTING_PARAMETERS, /*!< Tried to set the same key twice in plugin config */
     MODEL_VERSION_POLICY_WRONG_FORMAT,    /*!< Model version policy is in wrong format */
     MODEL_VERSION_POLICY_UNSUPPORTED_KEY, /*!< Model version policy contains invalid key */
     GRPC_CHANNEL_ARG_WRONG_FORMAT,
@@ -177,7 +176,6 @@ enum class StatusCode {
     UNKNOWN_REQUEST_COMPONENTS_TYPE,        /*!< Components type not recognized */
     FAILED_TO_PARSE_MULTIPART_CONTENT_TYPE, /*!< Request of multipart type but failed to parse */
     FAILED_TO_DEDUCE_MODEL_NAME_FROM_URI,   /*!< Failed to deduce model name from all possible ways */
-    UNAUTHORIZED,                           /*!< Unauthorized request due to invalid or missing api-key*/
 
     // REST Parse
     REST_BODY_IS_NOT_AN_OBJECT,                    /*!< REST body should be JSON object */
@@ -355,7 +353,6 @@ enum class StatusCode {
     HF_FAILED_TO_INIT_LIBGIT2,
     HF_FAILED_TO_INIT_OPTIMUM_CLI,
     HF_RUN_OPTIMUM_CLI_EXPORT_FAILED,
-    HF_RUN_CONVERT_TOKENIZER_EXPORT_FAILED,
     HF_GIT_CLONE_FAILED,
 
     PARTIAL_END,

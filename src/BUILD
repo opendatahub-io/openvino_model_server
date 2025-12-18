@@ -16,12 +16,16 @@
 load("@bazel_skylib//lib:selects.bzl", "selects")
 load("@mediapipe//mediapipe/framework:more_selects.bzl", "more_selects")
 load("//:common_settings.bzl",
-     "COMMON_STATIC_TEST_COPTS", "COMMON_STATIC_LIBS_COPTS", "COMMON_STATIC_LIBS_LINKOPTS", "COMMON_FUZZER_COPTS", "COMMON_FUZZER_LINKOPTS", "COMMON_LOCAL_DEFINES", "COPTS_PYTHON", "COPTS_MEDIAPIPE", "COPTS_DROGON",
+     "COMMON_STATIC_TEST_COPTS", "COMMON_STATIC_LIBS_COPTS_VISIBLE", "COMMON_STATIC_LIBS_COPTS", "COMMON_STATIC_LIBS_LINKOPTS", "COMMON_FUZZER_COPTS", "COMMON_FUZZER_LINKOPTS", "COMMON_LOCAL_DEFINES", "COPTS_PYTHON", "COPTS_MEDIAPIPE", "COPTS_DROGON",
      "create_config_settings", "ovms_cc_library")
 
 COPTS_OV_TRACE = select({
     "//conditions:default": ["-DOV_TRACE=0"],
     "//:not_disable_ov_trace" : ["-DOV_TRACE=1"],
+})
+COPTS_ADJUSTED = COMMON_STATIC_LIBS_COPTS + select({
+        "//conditions:default": [],
+        "//:fuzzer_build" : COMMON_FUZZER_COPTS,
 })
 LINKOPTS_ADJUSTED = COMMON_STATIC_LIBS_LINKOPTS + select({
     "//conditions:default": [],
@@ -49,7 +53,7 @@ cc_library(
         "custom_nodes/common/buffersqueue.cpp",
     ],
     deps = ["libovms_queue"],
-    copts = COMMON_STATIC_LIBS_COPTS,
+    copts = COMMON_STATIC_LIBS_COPTS_VISIBLE,
 )
 
 cc_shared_library(
@@ -177,7 +181,7 @@ ovms_cc_library(
     name = "libovms_server_settings",
     hdrs = ["capi_frontend/server_settings.hpp"],
     srcs = ["capi_frontend/server_settings.cpp"],
-    deps = ["libovmsstring_utils"],
+    deps = [],
     visibility = ["//visibility:public",],
 )
 ovms_cc_library(
@@ -305,8 +309,6 @@ ovms_cc_library(
         "//src/graph_export:graph_cli_parser",
         "//src/graph_export:rerank_graph_cli_parser",
         "//src/graph_export:embeddings_graph_cli_parser",
-        "//src/graph_export:t2s_graph_cli_parser",
-        "//src/graph_export:s2t_graph_cli_parser",
         "//src/graph_export:image_generation_graph_cli_parser",
     ],
     visibility = ["//visibility:public",],
@@ -477,7 +479,6 @@ ovms_cc_library(
         "capi_frontend/capi.cpp",
         "cleaner_utils.cpp",
         "cleaner_utils.hpp",
-        "copyable_object_wrapper.hpp",
         "customloaderconfig.hpp",
         "customloaders.hpp",
         "customloaders.cpp",
@@ -561,11 +562,9 @@ ovms_cc_library(
             "//conditions:default": [],
             "//:not_disable_mediapipe" : [
                 "//src/image_gen:image_gen_calculator",
-                "//src/audio/speech_to_text:s2t_calculator",
-                "//src/audio/text_to_speech:t2s_calculator",
-                "//src/audio:audio_utils",
                 "//src/image_gen:imagegen_init",
                 "//src/llm:openai_completions_api_handler",
+                "//src/embeddings:embeddingscalculator",
                 "//src/embeddings:embeddingscalculator_ov",
                 "//src/rerank:rerankcalculator",
                 "//src/rerank:rerankcalculator_ov",
@@ -827,7 +826,7 @@ ovms_cc_library(
     srcs = ["tensor_conversion.cpp",],
     deps = [
         "//third_party:openvino",
-        "opencv_dep",
+        "//third_party:opencv",
         "libovmsprecision",
         "libovmslogging",
         "libovmsstatus",
@@ -843,7 +842,7 @@ ovms_cc_library(
     srcs = ["tensor_conversion_common.cpp",],
     deps = [
         "//third_party:openvino",
-        "opencv_dep",
+        "//third_party:opencv",
         "libovmsprecision",
         "libovmslogging",
         "libovmsstatus",
@@ -859,7 +858,7 @@ ovms_cc_library(
     hdrs = ["tensor_conversion_after.hpp"],
     deps = [
         "//third_party:openvino",
-        "opencv_dep",
+        "//third_party:opencv",
         "libovmsprecision",
         "libovmslogging",
         "libovmsstatus",
@@ -944,10 +943,10 @@ cc_binary(
         "custom_node_interface.h",
     ],
     deps = [
-        "opencv_dep",
+        "//third_party:opencv",
     ],
     linkshared = 1,
-    copts = COMMON_STATIC_LIBS_COPTS,
+    copts = COMMON_STATIC_LIBS_COPTS_VISIBLE,
 )
 
 cc_binary(
@@ -959,10 +958,10 @@ cc_binary(
         "custom_node_interface.h",
     ],
     deps = [
-        "opencv_dep",
+        "//third_party:opencv",
     ],
     linkshared = 1,
-    copts =COMMON_STATIC_LIBS_COPTS,
+    copts =COMMON_STATIC_LIBS_COPTS_VISIBLE,
 )
 
 cc_binary(
@@ -980,18 +979,7 @@ cc_binary(
         "libovms_queue",
     ],
     linkshared = 1,
-    copts = COMMON_STATIC_LIBS_COPTS,
-)
-
-ovms_cc_library(
-    name = "opencv_dep",
-    srcs = [
-        "deps/opencv.hpp",
-    ],
-    deps = [
-        "//third_party:opencv",
-    ],
-    visibility = ["//visibility:public",],
+    copts = COMMON_STATIC_LIBS_COPTS_VISIBLE,
 )
 
 cc_binary(
@@ -1006,11 +994,11 @@ cc_binary(
     ],
     deps = [
         "custom_nodes_common_buffersqueue",
-        "opencv_dep",
+        "//third_party:opencv",
         "libovms_queue",
     ],
     linkshared = 1,
-    copts = COMMON_STATIC_LIBS_COPTS,
+    copts = COMMON_STATIC_LIBS_COPTS_VISIBLE,
 )
 
 cc_binary(
@@ -1022,10 +1010,10 @@ cc_binary(
         "custom_node_interface.h",
     ],
     deps = [
-        "opencv_dep",
+        "//third_party:opencv",
     ],
     linkshared = 1,
-    copts = COMMON_STATIC_LIBS_COPTS,
+    copts = COMMON_STATIC_LIBS_COPTS_VISIBLE,
 )
 
 cc_binary(
@@ -1037,10 +1025,10 @@ cc_binary(
         "custom_node_interface.h",
     ],
     deps = [
-        "opencv_dep",
+        "//third_party:opencv",
     ],
     linkshared = 1,
-    copts = COMMON_STATIC_LIBS_COPTS,
+    copts = COMMON_STATIC_LIBS_COPTS_VISIBLE,
 )
 
 # POC which can start OVMS with C-API built by bazel
@@ -1079,7 +1067,7 @@ ovms_cc_library(
         "libovmslogging",
         "libovmsprofiler",
         "libovmsstatus",
-        "opencv_dep",
+        "//third_party:opencv",
         "tensor_conversion_common",
         "inference_request_common",
         "predict_request_validation_utils_impl",
@@ -1130,7 +1118,6 @@ ovms_cc_library(
         "libovmsfilesystem",
         "libovmsstatus",
         "libovmslogging",
-        "//src/port:rapidjson_stringbuffer",
     ],
     visibility = ["//visibility:public"],
     additional_copts = COPTS_MEDIAPIPE + COPTS_DROGON,
@@ -1155,8 +1142,6 @@ ovms_cc_library(
     deps = [
         "@com_github_jupp0r_prometheus_cpp//core",
         "@com_github_tencent_rapidjson//:rapidjson",
-        "//src/port:rapidjson_stringbuffer",
-        "//src/port:rapidjson_writer",
         "cpp_headers",
         "libovms_module",
         "libovmslogging",
@@ -1612,8 +1597,6 @@ ovms_cc_library(
             "libovmsstring_utils",
             "libmodelconfigjsonparser",
             "anonymous_input_name",
-            "//src/port:rapidjson_stringbuffer",
-            "//src/port:rapidjson_writer",
     ],
     visibility = ["//visibility:public"],
 )
@@ -2286,8 +2269,7 @@ ovms_cc_library(
         "libovmslogging",
         "libovmsstatus",
         "libhttp_status_code",
-        "libovms_config",
-        "libovmsstring_utils",
+        "libovms_config"
     ],
     visibility = ["//visibility:public",],
 )
@@ -2341,7 +2323,7 @@ ovms_cc_library( # TODO split further
         "module_names.hpp",
         "module_names.cpp",
     ],
-    deps = ["libovmslogging", "libovmsstring_utils"],
+    deps = ["libovmslogging"],
     visibility = ["//visibility:public"],
 )
 
@@ -2383,9 +2365,7 @@ cc_binary(
     name = "ovms",
     srcs = [
         "main.cpp",
-    ] + select({
-        "//conditions:default": [],
-        "//src:windows" : ["main_windows.hpp", "main_windows.cpp",],}),
+    ],
     linkopts = LINKOPTS_ADJUSTED,
     copts = COMMON_STATIC_LIBS_COPTS,
     deps = [
@@ -2399,7 +2379,7 @@ cc_binary(
                 "//src:libcustom_node_model_zoo_intel_object_detection.so",
                 "//src:libcustom_node_image_transformation.so",
             ],
-            "//src:windows" : ["@winreg//:winreg"],
+            "//src:windows" : [],
         })
      + select({
             "//conditions:default": [
@@ -2527,6 +2507,14 @@ cc_test(
                 "test/pythonnode_test.cpp",
                 # LLM logic uses Python for processing Jinja templates when built with Python enabled
                 "test/llm/llmtemplate_test.cpp",
+                # Tools support is limited to configuration with Python enabled
+                "test/llm/output_parsers/base_output_parser_test.cpp",
+                "test/llm/output_parsers/llama3_output_parser_test.cpp",
+                "test/llm/output_parsers/qwen3_output_parser_test.cpp",
+                "test/llm/output_parsers/hermes3_output_parser_test.cpp",
+                "test/llm/output_parsers/phi4_output_parser_test.cpp",
+                "test/llm/output_parsers/mistral_output_parser_test.cpp",
+                "test/llm/output_parsers/partial_json_builder_test.cpp",
             ],
             "//:disable_python" : [],
         }) + select({
@@ -2669,11 +2657,8 @@ cc_test(
             "//src:libovmsfilesystemfactory",
             "@cpp_httplib//:cpp_httplib", # server_test.cpp
             ":test_utils",
-            ":test_test_with_temp_dir",
-            ":test_platform_utils",
             "//src/rerank:rerank_api_handler",
             ":embeddings_handler_tests",
-            ":tokenize_parser_tests",
             ":inferencerequest_test",
             ":libtest_environment",
             ":libtest_gpuenvironment",
@@ -2686,10 +2671,6 @@ cc_test(
             ":listdirectorymodels_test",
             ":graph_export_test",
             ":config_export_test",
-            ":config_export_full_test",
-            ":test_constructor_enabled_model_manager",
-            ":test_test_models",
-            ":test_test_models_configs",
             ] + select({
                 "//conditions:default": [
                     ":openvino_remote_tensors_tests",
@@ -2702,7 +2683,6 @@ cc_test(
             "//conditions:default": [
                 "//src/llm:genai_servables",
                 "//src/llm:output_parsers",
-                ":test_llm_output_parser_tests",
                 "//src/test/mediapipe/calculators:mediapipe_test_calculators",
                 "//src/test/mediapipe/calculators:dependency_free_http_test_calculators",
                 "@mediapipe//mediapipe/calculators/ovms:ovms_calculator",
@@ -2720,44 +2700,6 @@ cc_test(
 )
 
 cc_library(
-    name = "test_constructor_enabled_model_manager",
-    hdrs = ["test/constructor_enabled_model_manager.hpp",],
-    srcs = ["test/constructor_enabled_model_manager.cpp",],
-    deps = [
-        "libovmslogging",
-        "@com_google_googletest//:gtest",
-        ":ovms_lib",
-    ],
-    linkstatic = 1,
-    local_defines = COMMON_LOCAL_DEFINES,
-    copts = COPTS_TESTS,
-    linkopts = COMMON_STATIC_LIBS_LINKOPTS,
-)
-cc_library(
-    name = "test_test_models",
-    hdrs = ["test/test_models.hpp",],
-    deps = [
-        "@com_google_googletest//:gtest",
-    ],
-    linkstatic = 1,
-    local_defines = COMMON_LOCAL_DEFINES,
-    copts = COPTS_TESTS,
-    linkopts = COMMON_STATIC_LIBS_LINKOPTS,
-)
-cc_library(
-    name = "test_test_models_configs",
-    hdrs = ["test/test_models_configs.hpp",],
-    deps = [
-            ":test_test_models",
-            ":modelconfig",
-    ],
-    linkstatic = 1,
-    local_defines = COMMON_LOCAL_DEFINES,
-    copts = COPTS_TESTS,
-    linkopts = COMMON_STATIC_LIBS_LINKOPTS,
-)
-
-cc_library(
     name = "test_utils",
     linkstatic = 1,
     hdrs = [
@@ -2769,54 +2711,13 @@ cc_library(
         "test/c_api_test_utils.cpp",
         "test/test_utils.cpp",
         ],
+    data = [
+    ],
     deps = [
-        "test_test_models",
         "//src:ovms_lib",
         "//src:network_utils",
-        "//src:test_platform_utils",
-        "//src:test_light_test_utils",
         "@com_google_googletest//:gtest",
     ],
-    local_defines = COMMON_LOCAL_DEFINES,
-    copts = COPTS_TESTS,
-    linkopts = COMMON_STATIC_LIBS_LINKOPTS,
-)
-
-cc_library(
-    name = "test_test_with_temp_dir",
-    hdrs = ["test/test_with_temp_dir.hpp",],
-    srcs = ["test/test_with_temp_dir.cpp",],
-    deps = [
-        "//src:libovmslogging",
-        ":test_platform_utils",
-        "@com_google_googletest//:gtest",
-    ],
-    linkstatic = 1,
-    local_defines = COMMON_LOCAL_DEFINES,
-    copts = COPTS_TESTS,
-    linkopts = COMMON_STATIC_LIBS_LINKOPTS,
-)
-cc_library( # DO NOT ADD BIG DEPENDENCIES HERE
-    name = "test_light_test_utils",
-    hdrs = ["test/light_test_utils.hpp",],
-    srcs = ["test/light_test_utils.cpp",],
-    deps = [
-            "@com_github_gabime_spdlog//:spdlog",
-    ],
-    linkstatic = 1,
-    local_defines = COMMON_LOCAL_DEFINES,
-    copts = COPTS_TESTS,
-    linkopts = COMMON_STATIC_LIBS_LINKOPTS,
-)
-
-cc_library(
-    name = "test_platform_utils",
-    hdrs = ["test/platform_utils.hpp",],
-    srcs = ["test/platform_utils.cpp",],
-    deps = [
-        "@com_google_googletest//:gtest",
-    ],
-    linkstatic = 1,
     local_defines = COMMON_LOCAL_DEFINES,
     copts = COPTS_TESTS,
     linkopts = COMMON_STATIC_LIBS_LINKOPTS,
@@ -2895,10 +2796,7 @@ cc_library(
     linkopts = [],
     deps = [
         "//src/servables_config_manager_module:listmodels",
-        "//src/utils:env_guard",
         ":test_utils",
-        ":test_platform_utils",
-        ":test_test_with_temp_dir",
         "//src/pull_module:libgit2",
         "//src/pull_module:hf_pull_model_module",
         "//src:ovms_lib",
@@ -2917,11 +2815,8 @@ cc_library(
     deps = [
         "@libgit2_engine//:libgit2_engine",
         "//src/servables_config_manager_module:listmodels",
-        ":test_platform_utils",
         ":test_utils",
-        ":test_test_with_temp_dir",
         ":test_gguf_environment",
-        "//src/utils:env_guard",
         "//src/pull_module:gguf_downloader",
         "//src:ovms_lib",
         "libovmsstring_utils",
@@ -2938,7 +2833,7 @@ cc_library(
     deps = [
         "//src/servables_config_manager_module:listmodels",
         ":test_utils",
-        ":test_test_with_temp_dir",
+        #"//src:ovms_lib",
         "libovmsstring_utils",
         "@com_google_googletest//:gtest",
     ],
@@ -2953,8 +2848,7 @@ cc_library(
     srcs = ["test/graph_export_test.cpp"],
     linkopts = [],
     deps = [
-        ":test_light_test_utils",
-        ":test_test_with_temp_dir",
+        ":test_utils",
         "//src/graph_export:graph_export",
         "//src:libovms_server_settings",
         "@com_google_googletest//:gtest",
@@ -2969,28 +2863,7 @@ cc_library(
     srcs = ["test/config_export_test.cpp"],
     linkopts = [],
     deps = [
-        ":test_platform_utils",
-        ":test_test_with_temp_dir",
-        ":test_light_test_utils",
-        "//src/config_export_module:config_export",
-        "//src:libovms_server_settings",
-        "@com_google_googletest//:gtest",
-    ],
-    local_defines = COMMON_LOCAL_DEFINES,
-    copts = COPTS_TESTS,
-)
-cc_library(
-    name = "config_export_full_test",
-    linkstatic = 1,
-    alwayslink = True,
-    srcs = ["test/config_export_full_test.cpp"],
-    linkopts = [],
-    deps = [
-        ":test_constructor_enabled_model_manager",
         ":test_utils",
-        ":test_platform_utils",
-        ":test_test_with_temp_dir",
-        ":test_light_test_utils",
         "//src/config_export_module:config_export",
         "//src:libovms_server_settings",
         "@com_google_googletest//:gtest",
@@ -3025,7 +2898,6 @@ cc_library(
     deps = [
 	":libtest_gpuenvironment",
         ":test_utils",
-        ":test_test_with_temp_dir",
         "//src:ovms_lib",
 	":libovmsoclutils",
         "@com_google_googletest//:gtest",
@@ -3058,7 +2930,6 @@ cc_library(
     srcs = ["test/text2image_test.cpp"],
     deps = [
         "//src:test_utils",
-        "//src:test_platform_utils",
         "//src/image_gen:imagegenutils",
         "//src/image_gen:imagegen_init",
     ],
@@ -3109,36 +2980,6 @@ cc_library(
     copts = COPTS_TESTS,
     linkopts = [],
 )
-
-cc_library(
-    name = "tokenize_parser_tests",
-    linkstatic = 1,
-    alwayslink = True,
-    srcs = ["test/tokenize_parser_test.cpp"],
-    data = [],
-    deps = [
-        "//src/tokenize:tokenize_parser",
-        "@com_google_googletest//:gtest",
-    ],
-    copts = COPTS_TESTS,
-    linkopts = [],
-)
-
-
-cc_library(
-    name = "test_llm_output_parser_tests",
-    linkstatic = 1,
-    alwayslink = True,
-    srcs = glob(["test/llm/output_parsers/*_test.cpp"]),
-    deps = [
-        "@com_google_googletest//:gtest",
-        ":test_platform_utils",
-        "//src/llm:output_parsers",
-    ],
-    copts = COPTS_TESTS,
-    local_defines = COMMON_LOCAL_DEFINES,
-)
-
 ovms_cc_library(
     name = "capimodule",
     hdrs = ["capi_frontend/capimodule.hpp"],
@@ -3172,8 +3013,10 @@ ovms_cc_library(
             "//src:libovms_ovinferrequestsqueue",
             "@mediapipe//mediapipe/framework:calculator_framework",
             "//third_party:openvino",
-            "@com_github_tencent_rapidjson//:rapidjson", 
-            "//third_party:genai",],
+            "@com_github_tencent_rapidjson//:rapidjson",] + select({
+            "//conditions:default": ["//third_party:genai", "@llm_engine//:llm_engine"],
+            "//:not_genai_bin" : ["@llm_engine//:llm_engine"],
+    }),
     visibility = ["//visibility:public"],
     alwayslink = 1,
 )

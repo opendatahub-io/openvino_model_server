@@ -21,20 +21,7 @@ ovms_cc_library(
     name = "cmd_exec",
     srcs = ["cmd_exec.cpp"],
     hdrs = ["cmd_exec.hpp"],
-    deps =  ["@ovms//src/utils:env_guard"],
-    visibility = ["//visibility:public"],
-)
-
-ovms_cc_library(
-    name = "model_downloader",
-    srcs = ["model_downloader.cpp"],
-    hdrs = ["model_downloader.hpp"],
-    deps =  [
-        "@ovms//src:libovmsstatus",
-        "@ovms//src:libovmslogging",
-        "@ovms//src:libovmsfilesystem",
-        "@ovms//src:libovmslocalfilesystem",
-    ],
+    deps =  [],
     visibility = ["//visibility:public"],
 )
 
@@ -45,12 +32,11 @@ ovms_cc_library(
     deps =  [
         "@libgit2_engine//:libgit2_engine",
         "@ovms//src:libovmslogging",
-        "@ovms//src:libovmsfilesystem",
-        "@ovms//src:libovmslocalfilesystem",
         "@ovms//src:libovmsstatus",
         "@ovms//src:libovmsstring_utils",
+        "@ovms//src:libovmsfilesystem",
+        "@ovms//src:libovmslocalfilesystem",
         ":cmd_exec",
-        ":model_downloader",
     ],
     visibility = ["//visibility:public"],
 )
@@ -59,7 +45,6 @@ ovms_cc_library(
     srcs = ["gguf_downloader.cpp"],
     hdrs = ["gguf_downloader.hpp"],
     deps =  [
-        ":model_downloader",
         "//third_party:curl",
         "@nlohmann_json//:json",
         "@ovms//src:libovmslogging",
@@ -80,7 +65,7 @@ ovms_cc_library(
     hdrs = ["optimum_export.hpp"],
     deps =  [
         ":cmd_exec",
-        ":model_downloader",
+        ":libgit2",
         "@ovms//src:libovmslogging",
         "@ovms//src:libovmsstatus",
         "@ovms//src:libovmsstring_utils",

@@ -18,6 +18,14 @@ load("@mediapipe//mediapipe/framework/port:build_config.bzl", "mediapipe_cc_prot
 load("//:common_settings.bzl", "ovms_cc_library", "PYBIND_DEPS", "COPTS_PYTHON")
 
 ovms_cc_library(
+    name = "llm_engine",
+    srcs = [],
+    deps =  ["@llm_engine//:llm_engine"],
+    visibility = ["//visibility:public"],
+    additional_copts = COPTS_PYTHON
+)
+
+ovms_cc_library(
     name = "llmcalculator",
     srcs = ["http_llm_calculator.cc"],
     deps = [
@@ -27,8 +35,11 @@ ovms_cc_library(
         "//src/kfserving_api:kfserving_api_cpp",
         "//src:libovmsprofiler",
         ":genai_servables",
-        "//src:httppayload",
-        "//third_party:genai",],
+        "//src:httppayload"
+    ]+ select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
     visibility = ["//visibility:public"],
     additional_copts = COPTS_PYTHON,
     alwayslink = 1, # needed, so the calculator can be registered by MediaPipe
@@ -58,7 +69,10 @@ ovms_cc_library(
         "@stb//:image",
         ":openai_request",
         ":output_parsers",
-        "//third_party:genai",],
+    ] + select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
     visibility = ["//visibility:public"],
     additional_copts = COPTS_PYTHON
 )
@@ -67,106 +81,43 @@ ovms_cc_library(
     name = "openai_request",
     hdrs = ["apis/openai_request.hpp"],
     srcs = [],
-    deps = ["//third_party:genai",            
-            "//src/port:rapidjson_document",
-            ":apis_tool_schema_wrapper",],
+    deps = select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
     visibility = ["//visibility:public"],
     additional_copts = COPTS_PYTHON
 )
 
 ovms_cc_library(
-    name = "apis_tool_schema_wrapper",
-    hdrs = ["apis/tool_schema_wrapper.hpp"],
-    deps = [
-        "//src/port:rapidjson_document",
-    ],
-    visibility = ["//visibility:public"],
-)
-ovms_cc_library(
-    name = "partial_json_builder",
-    hdrs = ["io_processing/partial_json_builder.hpp"],
-    srcs = ["io_processing/partial_json_builder.cpp"],
-    deps = [
-        "@com_github_tencent_rapidjson//:rapidjson",
-        "//src/port:rapidjson_stringbuffer",
-        "//src/port:rapidjson_writer",
-        "//src/port:rapidjson_document",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-ovms_cc_library(
-    name = "io_processing_utils",
-    hdrs = ["io_processing/utils.hpp"],
-    srcs = ["io_processing/utils.cpp"],
-    visibility = ["//visibility:public"],
-)
-
-ovms_cc_library(
-    name = "io_processing_base_output_parser",
-    hdrs = ["io_processing/base_output_parser.hpp"],
-    srcs = ["io_processing/base_output_parser.cpp"],
-    deps = [
-        "@com_github_tencent_rapidjson//:rapidjson",
-        "//src/port:rapidjson_stringbuffer",
-        "//src/port:rapidjson_writer",
-        "//src/port:rapidjson_document",
-        ":io_processing_utils",
-        "//third_party:genai",
-    ],
-)
-ovms_cc_library(
-    name = "io_processing_qwen3coder_tool_parser",
-    hdrs = ["io_processing/qwen3coder/qwen3coder_tool_parser.hpp"],
-    srcs = ["io_processing/qwen3coder/qwen3coder_tool_parser.cpp"],
-    deps = [
-        "//src:libovmslogging",
-        "//src:libovmsstatus",
-        "//src/utils:rapidjson_utils",
-        ":io_processing_utils",
-        ":io_processing_base_output_parser",
-        ":apis_tool_schema_wrapper",
-        "//third_party:genai",
-    ],
-    visibility = ["//visibility:public"],
-)
-ovms_cc_library( # TODO split further so we don't have to recompile everything when changing one parser ...
     name = "output_parsers",
-    hdrs = [
+    hdrs = ["io_processing/base_output_parser.hpp",
             "io_processing/hermes3/tool_parser.hpp",
             "io_processing/llama3/tool_parser.hpp",
             "io_processing/phi4/tool_parser.hpp",
             "io_processing/mistral/tool_parser.hpp",
             "io_processing/qwen3/reasoning_parser.hpp",
-            "io_processing/gptoss/reasoning_parser.hpp",
-            "io_processing/gptoss/tool_parser.hpp",
-            "io_processing/gptoss/harmony.hpp",
             "io_processing/output_parser.hpp",
-    ],
-    srcs = [
+            "io_processing/partial_json_builder.hpp",
+            "io_processing/utils.hpp"],
+    srcs = ["io_processing/base_output_parser.cpp",
             "io_processing/hermes3/tool_parser.cpp",
             "io_processing/llama3/tool_parser.cpp",
             "io_processing/phi4/tool_parser.cpp",
             "io_processing/mistral/tool_parser.cpp",
             "io_processing/qwen3/reasoning_parser.cpp",
-            "io_processing/gptoss/reasoning_parser.cpp",
-            "io_processing/gptoss/tool_parser.cpp",
-            "io_processing/gptoss/harmony.cpp",
             "io_processing/output_parser.cpp",
-    ],
+            "io_processing/partial_json_builder.cpp",
+            "io_processing/utils.cpp"],
     deps = [
         "@com_github_tencent_rapidjson//:rapidjson",
-        "//src/port:rapidjson_document",
         "//src:libovmslogging",
-        "//src:libovmsstring_utils",
-        "//third_party:genai",
-        ":partial_json_builder",
-        ":io_processing_base_output_parser",
-        ":io_processing_qwen3coder_tool_parser",
-        ":io_processing_utils",
-        ":apis_tool_schema_wrapper",
-    ],
+    ] + select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
     visibility = ["//visibility:public"],
+    additional_copts = COPTS_PYTHON
 )
 
 ovms_cc_library(
@@ -183,7 +134,10 @@ ovms_cc_library(
     deps = [
         ":openai_request",
         "//src:libovmslogging",
-        "//third_party:genai",],
+    ] + select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }),
     visibility = ["//visibility:public"],
     additional_copts = COPTS_PYTHON
 )
@@ -230,7 +184,10 @@ ovms_cc_library(
         ":generation_config_builders",
         "//src:httppayload",
         "//src:libhttpclientconnection",
-        "//third_party:genai",] + select({
+    ] + select({
+        "//conditions:default": ["//third_party:genai", ":llm_engine"],
+        "//:not_genai_bin" : [":llm_engine"],
+    }) + select({
         "//:disable_python": [],
         "//:not_disable_python" : [":py_jinja_template_processor"],
     }),

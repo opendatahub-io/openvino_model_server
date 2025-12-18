@@ -20,15 +20,16 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "test_with_temp_dir.hpp"
-#include "src/filesystem.hpp"
+#include "test_utils.hpp"
+#include "../filesystem.hpp"
 #include "src/pull_module/hf_pull_model_module.hpp"
 #include "src/pull_module/libgit2.hpp"
 #include "src/servables_config_manager_module/listmodels.hpp"
 #include "src/modelextensions.hpp"
 
+#include "../server.hpp"
 #include "src/stringutils.hpp"
-#include "src/timer.hpp"
+#include "../timer.hpp"
 
 class ListModelsTest : public TestWithTempDir {
 };

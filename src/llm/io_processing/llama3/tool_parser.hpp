@@ -18,12 +18,17 @@
 #include <openvino/genai/tokenizer.hpp>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
-#include "src/port/rapidjson_document.hpp"
+#pragma warning(push)
+#pragma warning(disable : 6313)
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+#pragma warning(pop)
 
-#include "src/llm/io_processing/base_output_parser.hpp"
-#include "src/llm/io_processing/partial_json_builder.hpp"
+#include "../base_output_parser.hpp"
 
 namespace ovms {
 class Llama3ToolParser : public BaseOutputParser {
@@ -56,12 +61,11 @@ public:
 
     void parse(ParsedOutput& parsedOutput, const std::vector<int64_t>& generatedTokens) override;
     std::optional<rapidjson::Document> parseChunk(const std::string& chunk, ov::genai::GenerationFinishReason finishReason) override;
-    const std::vector<std::string>& getParsingStartTags() const override {
-        static const std::vector<std::string> parsingStartTags = {parsingStartTag};
-        return parsingStartTags;
+    const std::string& getParsingStartTag() const override {
+        return parsingStartTag;
     }
-    const std::vector<std::string>& getSpecialParsingStartTags() const override {
-        static const std::vector<std::string> specialParsingStartTags = {"{"};
+    const std::unordered_set<std::string>& getSpecialParsingStartTags() const override {
+        static const std::unordered_set<std::string> specialParsingStartTags = {"{"};
         return specialParsingStartTags;
     }
     // Tools calls are expected to be the last part of the content, so we do not specify an end tag.

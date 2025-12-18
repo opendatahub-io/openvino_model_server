@@ -51,7 +51,7 @@
 namespace ovms {
 
 static const std::string CHAT_TEMPLATE_WARNING_MESSAGE = "Warning: Chat template has not been loaded properly. Servable will not respond to /chat/completions endpoint.";
-static const std::string DEFAULT_CHAT_TEMPLATE = R"({% for message in messages %}{% if message['role'] == 'user' %}{{ 'User: ' + message['content'] }}{% elif message['role'] == 'system' %}{{ '<|system|>\n' + message['content'] + eos_token }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %})";
+static const std::string DEFAULT_CHAT_TEMPLATE = R"({% if messages|length != 1 %} {{ raise_exception('This servable accepts only single message requests') }}{% endif %}{{ messages[0]['content'] }})";
 
 void GenAiServableInitializer::loadChatTemplate(std::shared_ptr<GenAiServableProperties> properties, const std::string& chatTemplateDirectory) {
 #if (PYTHON_DISABLE == 0)
@@ -93,6 +93,27 @@ static bool checkIfGGUFModel(const std::string& modelDirectoryPath) {
     return false;
 }
 
+static std::pair<std::optional<std::string>, std::optional<std::string>> getBosAndEosTokenFromTokenizerVocab(const ov::genai::Tokenizer& tokenizer) {
+    auto vocab = tokenizer.get_vocab();
+    SPDLOG_TRACE("Tokenizer vocab size: {}", vocab.size());
+    auto bosTokenId = tokenizer.get_bos_token_id();
+    auto eosTokenId = tokenizer.get_eos_token_id();
+    std::optional<std::string> bosToken;
+    std::optional<std::string> eosToken;
+    // since tokenizer get_bos_token does not work for gguf we will search in map by value
+    for (const auto& [token, id] : vocab) {
+        if (id == bosTokenId) {
+            bosToken = token;
+        } else if (id == eosTokenId) {
+            eosToken = token;
+        }
+        if ((bosToken != std::nullopt) && (eosToken != std::nullopt)) {
+            break;
+        }
+    }
+    return std::make_pair(bosToken, eosToken);
+}
+
 ExtraGenerationInfo GenAiServableInitializer::readExtraGenerationInfo(std::shared_ptr<GenAiServableProperties> properties, const std::string& chatTemplateDirectory) {
     ExtraGenerationInfo extraGenInfo;
     bool isGgufModel = checkIfGGUFModel(chatTemplateDirectory);
@@ -106,9 +127,27 @@ ExtraGenerationInfo GenAiServableInitializer::readExtraGenerationInfo(std::share
         tokenizerBosToken = properties->tokenizer.get_bos_token();
         tokenizerEosToken = properties->tokenizer.get_eos_token();
 
-        SPDLOG_TRACE("Tokenizer bos token: {}, eos token: {}, bos token id: {}, eos token id: {} isGGUF:{} chat_template from tokenizer: \n{}",
-            tokenizerBosToken, tokenizerEosToken, properties->tokenizer.get_bos_token_id(), properties->tokenizer.get_eos_token_id(), isGgufModel, tokenizerTemplate);
+        // Workaround for CVS-172426
+        if (tokenizerBosToken.empty() || tokenizerEosToken.empty()) {
+            // time measure following if statement
+            std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+            // if tokenizer bos/eos tokens are empty, we will try to get them from tokenizer vocab
+            std::pair<std::optional<std::string>, std::optional<std::string>> tokens;
+            tokens = getBosAndEosTokenFromTokenizerVocab(properties->tokenizer);
+            if (tokens.first.has_value()) {
+                tokenizerBosToken = tokens.first.value();
+            }
+            if (tokens.second.has_value()) {
+                tokenizerEosToken = tokens.second.value();
+            }
+            SPDLOG_TRACE("Tokenizer bos token: {}, eos token: {}, bos token id: {}, eos token id: {} isGGUF:{} chat_template from tokenizer: \n{}",
+                tokenizerBosToken, tokenizerEosToken, properties->tokenizer.get_bos_token_id(), properties->tokenizer.get_eos_token_id(), isGgufModel, tokenizerTemplate);
 
+            std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+            SPDLOG_TRACE("Time to get bos/eos tokens from tokenizer: {} ms", std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0);
+        }
+
+        properties->ggufEosToken = tokenizerEosToken;
         extraGenInfo.bosTokenFromTokenizer = tokenizerBosToken;
         extraGenInfo.bosTokenIdFromTokenizer = properties->tokenizer.get_bos_token_id();
         extraGenInfo.eosTokenFromTokenizer = tokenizerEosToken;
@@ -164,12 +203,6 @@ void GenAiServableInitializer::loadPyTemplateProcessor(std::shared_ptr<GenAiServ
 
             def raise_exception(message):
                 raise jinja2.exceptions.TemplateError(message)
-
-            # Appears in some of mistral chat templates and gpt-oss chat templates
-            def strftime_now(format):
-                import datetime as _dt
-                return _dt.datetime.now().strftime(format)
-
             # Following the logic from:
             # https://github.com/huggingface/transformers/blob/7188e2e28c6d663284634732564143b820a03f8b/src/transformers/utils/chat_template_utils.py#L398
             class AssistantTracker(Extension):
@@ -217,7 +250,7 @@ void GenAiServableInitializer::loadPyTemplateProcessor(std::shared_ptr<GenAiServ
 
             # Default chat template accepts only single message and outputs only it's 'content'
             # effectively turning it into a regular prompt. 
-            default_chat_template = "{% for message in messages %}{% if message['role'] == 'user' %}{{ 'User: ' + message['content'] }}{% elif message['role'] == 'system' %}{{ '<|system|>\n' + message['content'] + eos_token }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token }}{% endif %}{% endfor %}"
+            default_chat_template = "{% if messages|length != 1 %} {{ raise_exception('This servable accepts only single message requests') }}{% endif %}{{ messages[0]['content'] }}"
 
             bos_token = ""
             eos_token = ""
@@ -234,8 +267,6 @@ void GenAiServableInitializer::loadPyTemplateProcessor(std::shared_ptr<GenAiServ
             jinja_env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True, extensions=[AssistantTracker, jinja2.ext.loopcontrols], loader=template_loader)
             jinja_env.policies["json.dumps_kwargs"]["ensure_ascii"] = False
             jinja_env.globals["raise_exception"] = raise_exception
-            jinja_env.globals["strftime_now"] = strftime_now
-            jinja_env.filters["from_json"] = json.loads
             if jinja_file.is_file():
                 template = jinja_env.get_template("chat_template.jinja")
             elif jinja_file_legacy.is_file():
@@ -472,7 +503,6 @@ Status initializeGenAiServable(std::shared_ptr<GenAiServable>& servable, const :
         SPDLOG_LOGGER_ERROR(modelmanager_logger, "LLM node requires models_path to be set.");
         return StatusCode::INTERNAL_ERROR;
     }
-    servable->determineDecodingMethod();
     return StatusCode::OK;
 }
 }  // namespace ovms

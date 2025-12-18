@@ -47,17 +47,15 @@
 #include "../shape.hpp"
 #include "../stringutils.hpp"
 #include "../tfs_frontend/tfs_utils.hpp"
+#include "c_api_test_utils.hpp"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "mediapipe/framework/calculator_graph.h"
 #include "mediapipe/framework/calculator_runner.h"
 #pragma GCC diagnostic pop
-#include "opencv2/opencv.hpp"
 
 #include "../python/python_backend.hpp"
-#include "c_api_test_utils.hpp"
-#include "constructor_enabled_model_manager.hpp"
-#include "platform_utils.hpp"
+#include "opencv2/opencv.hpp"
 #include "test_utils.hpp"
 
 namespace py = pybind11;
@@ -871,7 +869,7 @@ TEST_F(PythonFlowTest, PythonNodeLoopback_SyncSet_Missing) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -929,7 +927,7 @@ TEST_F(PythonFlowTest, PythonNodeLoopback_Correct) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1005,7 +1003,7 @@ public:
         const PythonNodeResourcesMap& pythonNodeResourcesMap,
         PythonBackend* pythonBackend,
         MediapipeServableMetricReporter* mediapipeServableMetricReporter) :
-        MediapipeGraphExecutor(name, version, config, inputTypes, outputTypes, inputNames, outputNames, pythonNodeResourcesMap, {}, {}, {}, {}, {}, pythonBackend, mediapipeServableMetricReporter) {}
+        MediapipeGraphExecutor(name, version, config, inputTypes, outputTypes, inputNames, outputNames, pythonNodeResourcesMap, {}, {}, {}, pythonBackend, mediapipeServableMetricReporter) {}
 };
 
 TEST_F(PythonFlowTest, SerializePyObjectWrapperToKServeResponse) {
@@ -1103,7 +1101,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleInSingleOut) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1149,7 +1147,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleThreeOut) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1202,7 +1200,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestReturnCustomDatatype) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1246,7 +1244,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestReturnNotListOrIteratorObject) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1286,7 +1284,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestReturnListWithNonTensorObject) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1338,7 +1336,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleInSingleOutMultiNodeNoTags) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1404,7 +1402,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleInSingleOutMultiNodeOnlyTags) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1470,7 +1468,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleInSingleOutMultiNodeTagsAndInde
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1532,7 +1530,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleInSingleOutTwoConvertersOnTheOu
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1594,7 +1592,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestConvertersUnsupportedTypeInPythonTens
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1666,7 +1664,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleInSingleOutTwoConvertersInTheMi
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1721,7 +1719,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleInTwoOutTwoParallelExecutors) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -1803,7 +1801,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleInTwoOutTwoParallelExecutorsWit
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -2027,7 +2025,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestMultiInMultiOut) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -2048,7 +2046,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestMultiInMultiOut) {
     checkDummyResponse("output3", data3, req, res, 1 /* expect +1 */, 1, "mediaDummy", 3);
 }
 
-static void setupTestPipeline(std::unique_ptr<MediapipeGraphExecutor>& pipeline, std::unique_ptr<DummyMediapipeGraphDefinition>& mediapipeDummy) {
+static void setupTestPipeline(std::shared_ptr<MediapipeGraphExecutor>& pipeline, std::unique_ptr<DummyMediapipeGraphDefinition>& mediapipeDummy) {
     ConstructorEnabledModelManager manager{"", getPythonBackend()};
     std::string testPbtxt = R"(
     input_stream: "OVMS_PY_TENSOR:input"
@@ -2086,7 +2084,7 @@ TEST_F(PythonFlowTest, PythonCalculatorScalarNoShape) {
     req.set_model_name("mediaDummy");
     prepareKFSInferInputTensor(req, "input", std::tuple<ovms::signed_shape_t, const ovms::Precision>{ovms::signed_shape_t{}, ovms::Precision::FP32}, data, false);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setupTestPipeline(pipeline, mediapipeDummy);
     ASSERT_EQ(pipeline->infer(&req, &res, this->defaultExecutionContext), StatusCode::OK);
@@ -2113,7 +2111,7 @@ TEST_F(PythonFlowTest, PythonCalculatorZeroDimension) {
     req.set_model_name("mediaDummy");
     prepareKFSInferInputTensor(req, "input", std::tuple<ovms::signed_shape_t, const ovms::Precision>{ovms::signed_shape_t{1, 32, 32, 0, 1}, ovms::Precision::FP32}, data, false);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setupTestPipeline(pipeline, mediapipeDummy);
     ASSERT_EQ(pipeline->infer(&req, &res, this->defaultExecutionContext), StatusCode::OK);
@@ -2341,7 +2339,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTestSingleInSingleOutMultiRunWithErrors) 
     mediapipeDummy.inputConfig = firstTestPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -2644,7 +2642,7 @@ TEST_F(PythonFlowTest, ReloadWithDifferentScriptName) {
     mediapipeDummy.inputConfig = firstTestPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -2741,7 +2739,7 @@ class PythonFlowSymmetricIncrementFixture {
 private:
     ConstructorEnabledModelManager manager;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
 
 public:
     PythonFlowSymmetricIncrementFixture(const std::string& scriptName = "symmetric_increment.py") {
@@ -2779,7 +2777,7 @@ public:
         ASSERT_EQ(mediapipeDummy->create(pipeline), StatusCode::OK);
         ASSERT_NE(pipeline, nullptr);
     }
-    std::unique_ptr<MediapipeGraphExecutor>& getPipeline() {
+    std::shared_ptr<MediapipeGraphExecutor> getPipeline() {
         return pipeline;
     }
 };
@@ -3008,7 +3006,7 @@ TEST_F(PythonFlowTest, Negative_NodeProducesUnexpectedTensor) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -3064,7 +3062,7 @@ TEST_F(PythonFlowTest, Negative_NodeFiresProcessWithoutAllInputs) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -3119,7 +3117,7 @@ TEST_F(PythonFlowTest, Positive_NodeFiresProcessWithoutAllInputs) {
     mediapipeDummy.inputConfig = testPbtxt;
     ASSERT_EQ(mediapipeDummy.validate(manager), StatusCode::OK);
 
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
@@ -3134,7 +3132,7 @@ TEST_F(PythonFlowTest, Positive_NodeFiresProcessWithoutAllInputs) {
     checkDummyResponse("output", data, req, res, 2 /* expect +2 */, 1, "mediaDummy");
 }
 
-void setUpConverterPrecisionTest(std::unique_ptr<MediapipeGraphExecutor>& pipeline, std::unique_ptr<DummyMediapipeGraphDefinition>& mediapipeDummy) {
+void setUpConverterPrecisionTest(std::shared_ptr<MediapipeGraphExecutor>& pipeline, std::unique_ptr<DummyMediapipeGraphDefinition>& mediapipeDummy) {
     ConstructorEnabledModelManager manager{"", getPythonBackend()};
     std::string testPbtxt = R"(
     input_stream: "OVTENSOR:in"
@@ -3185,7 +3183,7 @@ void setUpConverterPrecisionTest(std::unique_ptr<MediapipeGraphExecutor>& pipeli
 }
 
 TEST_F(PythonFlowTest, PythonCalculatorTest_INT8) {
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setUpConverterPrecisionTest(pipeline, mediapipeDummy);
 
@@ -3202,7 +3200,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTest_INT8) {
 }
 
 TEST_F(PythonFlowTest, PythonCalculatorTest_UINT8) {
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setUpConverterPrecisionTest(pipeline, mediapipeDummy);
 
@@ -3219,7 +3217,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTest_UINT8) {
 }
 
 TEST_F(PythonFlowTest, PythonCalculatorTest_INT16) {
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setUpConverterPrecisionTest(pipeline, mediapipeDummy);
 
@@ -3236,7 +3234,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTest_INT16) {
 }
 
 TEST_F(PythonFlowTest, PythonCalculatorTest_UINT16) {
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setUpConverterPrecisionTest(pipeline, mediapipeDummy);
 
@@ -3253,7 +3251,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTest_UINT16) {
 }
 
 TEST_F(PythonFlowTest, PythonCalculatorTest_INT32) {
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setUpConverterPrecisionTest(pipeline, mediapipeDummy);
 
@@ -3270,7 +3268,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTest_INT32) {
 }
 
 TEST_F(PythonFlowTest, PythonCalculatorTest_INT64) {
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setUpConverterPrecisionTest(pipeline, mediapipeDummy);
 
@@ -3287,7 +3285,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTest_INT64) {
 }
 
 TEST_F(PythonFlowTest, PythonCalculatorTest_FP32) {
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setUpConverterPrecisionTest(pipeline, mediapipeDummy);
 
@@ -3304,7 +3302,7 @@ TEST_F(PythonFlowTest, PythonCalculatorTest_FP32) {
 }
 
 TEST_F(PythonFlowTest, PythonCalculatorTest_FP64) {
-    std::unique_ptr<MediapipeGraphExecutor> pipeline;
+    std::shared_ptr<MediapipeGraphExecutor> pipeline;
     std::unique_ptr<DummyMediapipeGraphDefinition> mediapipeDummy;
     setUpConverterPrecisionTest(pipeline, mediapipeDummy);
 

@@ -19,14 +19,25 @@
 #include <optional>
 #include <vector>
 
-#include "src/port/rapidjson_document.hpp"
-#include "src/port/rapidjson_stringbuffer.hpp"
-#include "src/port/rapidjson_writer.hpp"
+#pragma warning(push)
+#pragma warning(disable : 6313)
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+#pragma warning(pop)
 
 #include "base_output_parser.hpp"
 #include "utils.hpp"
 
 namespace ovms {
+
+void BaseOutputParser::enableImmediateParsing() {
+    immediateParsingEnabled = true;
+}
+
+bool BaseOutputParser::isImmediateParsingEnabled() const {
+    return immediateParsingEnabled;
+}
 
 rapidjson::Document BaseOutputParser::wrapFirstDelta(const std::string& functionName, int toolCallIndex) {
     rapidjson::Document wrappedDelta;
@@ -68,5 +79,4 @@ rapidjson::Document BaseOutputParser::wrapDelta(const rapidjson::Document& delta
     wrappedDelta.AddMember("delta", deltaWrapper, wrappedDelta.GetAllocator());
     return wrappedDelta;
 }
-
 }  // namespace ovms

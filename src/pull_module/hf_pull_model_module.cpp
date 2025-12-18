@@ -112,46 +112,39 @@ Status HfPullModelModule::start(const ovms::Config& config) {
 
 Status HfPullModelModule::clone() const {
     std::string graphDirectory = "";
-    std::unique_ptr<IModelDownloader> downloader;
-    std::variant<ovms::Status, std::unique_ptr<Libgt2InitGuard>> guardOrError;
     if (this->hfSettings.downloadType == GIT_CLONE_DOWNLOAD) {
-        guardOrError = createGuard();
+        auto guardOrError = createGuard();
         if (std::holds_alternative<Status>(guardOrError)) {
             return std::get<Status>(guardOrError);
         }
 
-        downloader = std::make_unique<HfDownloader>(this->hfSettings.sourceModel, IModelDownloader::getGraphDirectory(this->hfSettings.downloadPath, this->hfSettings.sourceModel), this->GetHfEndpoint(), this->GetHfToken(), this->GetProxy(), this->hfSettings.overwriteModels);
+        HfDownloader hfDownloader(this->hfSettings.sourceModel, this->hfSettings.downloadPath, this->GetHfEndpoint(), this->GetHfToken(), this->GetProxy(), this->hfSettings.overwriteModels);
+        auto status = hfDownloader.cloneRepository();
+        if (!status.ok()) {
+            return status;
+        }
+        graphDirectory = hfDownloader.getGraphDirectory();
     } else if (this->hfSettings.downloadType == OPTIMUM_CLI_DOWNLOAD) {
-        downloader = std::make_unique<OptimumDownloader>(this->hfSettings.exportSettings, this->hfSettings.task, this->hfSettings.sourceModel, IModelDownloader::getGraphDirectory(this->hfSettings.downloadPath, this->hfSettings.sourceModel), this->hfSettings.overwriteModels);
+        OptimumDownloader optimumDownloader(this->hfSettings);
+        auto status = optimumDownloader.cloneRepository();
+        if (!status.ok()) {
+            return status;
+        }
+        graphDirectory = optimumDownloader.getGraphDirectory();
     } else if (this->hfSettings.downloadType == GGUF_DOWNLOAD) {
-        downloader = std::make_unique<GGUFDownloader>(this->hfSettings.sourceModel, IModelDownloader::getGraphDirectory(this->hfSettings.downloadPath, this->hfSettings.sourceModel), this->hfSettings.overwriteModels, this->hfSettings.ggufFilename, this->GetHfEndpoint());
+        GGUFDownloader ggufDownloader(this->GetHfEndpoint(), this->hfSettings);
+        auto status = ggufDownloader.downloadModel();
+        if (!status.ok()) {
+            return status;
+        }
+        graphDirectory = ggufDownloader.getGraphDirectory();
     } else {
         SPDLOG_ERROR("Unsupported download type");
         return StatusCode::INTERNAL_ERROR;
     }
-
-    auto status = downloader->downloadModel();
-    if (!status.ok()) {
-        return status;
-    }
-    graphDirectory = downloader->getGraphDirectory();
     std::cout << "Model: " << this->hfSettings.sourceModel << " downloaded to: " << graphDirectory << std::endl;
-
-    // Text gen with draft source model case - downloads second model
-    if (std::holds_alternative<TextGenGraphSettingsImpl>(this->hfSettings.graphSettings) && std::get<TextGenGraphSettingsImpl>(this->hfSettings.graphSettings).draftModelDirName.has_value()) {
-        auto& graphSettings = std::get<TextGenGraphSettingsImpl>(this->hfSettings.graphSettings);
-        std::unique_ptr<IModelDownloader> draftModelDownloader;
-        draftModelDownloader = std::make_unique<HfDownloader>(graphSettings.draftModelDirName.value(), GraphExport::getDraftModelDirectoryPath(graphDirectory, graphSettings.draftModelDirName.value()), this->GetHfEndpoint(), this->GetHfToken(), this->GetProxy(), this->hfSettings.overwriteModels);
-        status = draftModelDownloader->downloadModel();
-        if (!status.ok()) {
-            return status;
-        }
-
-        std::cout << "Draft model: " << GraphExport::getDraftModelDirectoryName(graphSettings.draftModelDirName.value()) << " downloaded to: " << GraphExport::getDraftModelDirectoryPath(graphDirectory, graphSettings.draftModelDirName.value()) << std::endl;
-    }
-
     GraphExport graphExporter;
-    status = graphExporter.createServableConfig(graphDirectory, this->hfSettings);
+    auto status = graphExporter.createServableConfig(graphDirectory, this->hfSettings);
     if (!status.ok()) {
         return status;
     }

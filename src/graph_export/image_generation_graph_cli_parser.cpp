@@ -24,6 +24,14 @@
 #include <utility>
 #include <vector>
 
+#pragma warning(push)
+#pragma warning(disable : 6313)
+#include <rapidjson/document.h>
+#include <rapidjson/istreamwrapper.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+#pragma warning(pop)
+
 #include "../capi_frontend/server_settings.hpp"
 #include "../ovms_exit_codes.hpp"
 #include "../status.hpp"
@@ -107,11 +115,12 @@ std::vector<std::string> ImageGenerationGraphCLIParser::parse(const std::vector<
 
 void ImageGenerationGraphCLIParser::prepare(ServerSettingsImpl& serverSettings, HFSettingsImpl& hfSettings, const std::string& modelName) {
     ImageGenerationGraphSettingsImpl imageGenerationGraphSettings = ImageGenerationGraphCLIParser::defaultGraphSettings();
+    imageGenerationGraphSettings.targetDevice = hfSettings.targetDevice;
     // Deduct model name
     if (modelName != "") {
-        hfSettings.exportSettings.modelName = modelName;
+        imageGenerationGraphSettings.modelName = modelName;
     } else {
-        hfSettings.exportSettings.modelName = hfSettings.sourceModel;
+        imageGenerationGraphSettings.modelName = hfSettings.sourceModel;
     }
     if (nullptr == result) {
         // Pull with default arguments - no arguments from user
@@ -150,17 +159,25 @@ void ImageGenerationGraphCLIParser::prepare(ServerSettingsImpl& serverSettings, 
         }
 
         if (result->count("num_streams") || serverSettings.cacheDir != "") {
+            rapidjson::Document pluginConfigDoc;
+            pluginConfigDoc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = pluginConfigDoc.GetAllocator();
             if (result->count("num_streams")) {
                 uint32_t numStreams = result->operator[]("num_streams").as<uint32_t>();
                 if (numStreams == 0) {
                     throw std::invalid_argument("num_streams must be greater than 0");
                 }
-                hfSettings.exportSettings.pluginConfig.numStreams = result->operator[]("num_streams").as<uint32_t>();
+                pluginConfigDoc.AddMember("NUM_STREAMS", numStreams, allocator);
             }
 
             if (!serverSettings.cacheDir.empty()) {
-                hfSettings.exportSettings.pluginConfig.cacheDir = serverSettings.cacheDir;
+                pluginConfigDoc.AddMember("CACHE_DIR", rapidjson::Value(serverSettings.cacheDir.c_str(), allocator), allocator);
             }
+
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            pluginConfigDoc.Accept(writer);
+            imageGenerationGraphSettings.pluginConfig = buffer.GetString();
         }
     }
 

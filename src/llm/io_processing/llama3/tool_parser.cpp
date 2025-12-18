@@ -19,37 +19,46 @@
 #include <vector>
 #include <utility>
 
-#include "src/port/rapidjson_document.hpp"
+#pragma warning(push)
+#pragma warning(disable : 6313)
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+#pragma warning(pop)
 
 #include "../../../logging.hpp"
 #include "tool_parser.hpp"
 #include "../utils.hpp"
-#include "src/stringutils.hpp"
 
 namespace ovms {
 void Llama3ToolParser::parse(ParsedOutput& parsedOutput, const std::vector<int64_t>& generatedTokens) {
     // TODO: check if we can rely on decoded <|python_tag|> token to be present in the content, so we can drop multiple detokenizations and copies
     // and just extract substrings from the content and modify content in-place
 
-    // We search for botTokenId in the generatedTokens to find tool calls start or check if the content starts with "{" (llama3 sometimes does not generate botTokenId)
+    // If immediate trigger parsing is enabled, we assume botTokenId has been injected into the prompt and whole output are tool calls,
+    // otherwise we search for botTokenId in the generatedTokens to find tool calls start or check if the content starts with "{" (llama3 sometimes does not generate botTokenId)
     auto toolCallsStartPosition = generatedTokens.begin();
-    toolCallsStartPosition = generatedTokens.end();
-    // Find botTokenId in generated_ids
-    auto botTokenIt = std::find(generatedTokens.begin(), generatedTokens.end(), botTokenId);
+    if (!immediateParsingEnabled) {
+        toolCallsStartPosition = generatedTokens.end();
+        // Find botTokenId in generated_ids
+        auto botTokenIt = std::find(generatedTokens.begin(), generatedTokens.end(), botTokenId);
 
-    if (botTokenIt != generatedTokens.end()) {
-        // Decode the content before botTokenId
-        std::vector<int64_t> contentTokens(generatedTokens.begin(), botTokenIt);
-        parsedOutput.content = tokenizer.decode(contentTokens);
-        // Tokens after botTokenId will be treated as tool calls
-        toolCallsStartPosition = botTokenIt + 1;
-    } else {
-        // If botTokenId is not found, check if model output starts with "{" and if so, assume it's a tool call"
-        if (!parsedOutput.content.empty() && parsedOutput.content[0] == '{') {
-            // If model output starts with "{", treat it as a tool call
-            toolCallsStartPosition = generatedTokens.begin();
-            parsedOutput.content.clear();
+        if (botTokenIt != generatedTokens.end()) {
+            // Decode the content before botTokenId
+            std::vector<int64_t> contentTokens(generatedTokens.begin(), botTokenIt);
+            parsedOutput.content = tokenizer.decode(contentTokens);
+            // Tokens after botTokenId will be treated as tool calls
+            toolCallsStartPosition = botTokenIt + 1;
+        } else {
+            // If botTokenId is not found, check if model output starts with "{" and if so, assume it's a tool call"
+            if (!parsedOutput.content.empty() && parsedOutput.content[0] == '{') {
+                // If model output starts with "{", treat it as a tool call
+                toolCallsStartPosition = generatedTokens.begin();
+                parsedOutput.content.clear();
+            }
         }
+    } else {
+        parsedOutput.content.clear();
     }
 
     if (toolCallsStartPosition != generatedTokens.end()) {
@@ -149,8 +158,10 @@ std::optional<rapidjson::Document> Llama3ToolParser::parseChunk(const std::strin
     // JSON already contains 'parameters'/'arguments' (they cannot be null at this point). Apply modifications to the input chunk if needed to keep the format valid.
     if (jsonHasArgumentsOrParameters(lastJson)) {
         std::string modifiedChunk = chunk;
-        // Since inside a string, we need to escape characters like quotes, new lines, tabs, etc.
-        escapeSpecialCharacters(modifiedChunk);
+        // Escaping all double quotes in the parameters/arguments string
+        for (size_t pos = 0; (pos = modifiedChunk.find("\"", pos)) != std::string::npos; pos += 2) {
+            modifiedChunk.insert(pos, "\\");
+        }
 
         // Handle the case when we are starting to collect parameters/arguments.
         // Force parameters/arguments string type and fill first element of the delay array.
@@ -174,13 +185,13 @@ std::optional<rapidjson::Document> Llama3ToolParser::parseChunk(const std::strin
 
         // If this is end of streaming, we need to manually add closing quote "
         // We need to place it right before last closing brace
-        if (finishReason != ov::genai::GenerationFinishReason::NONE) {
+        if (finishReason == ov::genai::GenerationFinishReason::STOP) {
             isCurrentToolCallParsingFinished = true;
             size_t lastClosingBrace = modifiedChunk.find_last_of('}');
             if (lastClosingBrace != std::string::npos) {
                 modifiedChunk.insert(lastClosingBrace, "\"");
+                argumentsDelayWindow[0] += modifiedChunk;
             }
-            argumentsDelayWindow[0] += modifiedChunk;
             // If this is end of one of the tool calls "in the middle" (; has been found), we need to manually add closing quote "
             // We need to place it right before last closing brace
         } else if (modifiedChunk.find(separator) != std::string::npos) {
