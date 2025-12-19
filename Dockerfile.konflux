@@ -433,3 +433,12 @@ RUN if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; \
 
 USER ovms
 ENTRYPOINT ["/ovms/bin/ovms"]
+
+LABEL name="rhoai/odh-openvino-model-server-rhel9" \
+      com.redhat.component="odh-openvino-model-server-rhel9" \
+      io.k8s.display-name="odh-openvino-model-server-rhel9" \
+      io.k8s.description="OpenVINO Model Server (OVMS) is a high-performance system for serving models." \
+      description="OpenVINO Model Server (OVMS) is a high-performance system for serving models." \
+      summary="OpenVINO Model Server (OVMS) is a high-performance system for serving models." \
+      com.redhat.license_terms="https://www.redhat.com/licenses/Red_Hat_Standard_EULA_20191108.pdf" \
+	  vendor="Red Hat, Inc."
