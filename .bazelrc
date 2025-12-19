@@ -17,7 +17,9 @@
 # Optimizations used for TF Serving release builds.
 build:release --copt=-mavx
 build:release --copt=-msse4.2
-build:linux --copt="-march=haswell"
+
+# architecture-specific optimizations
+build:haswell --copt=-march=haswell --cxxopt=-march=haswell --host_copt=-march=haswell --host_cxxopt=-march=haswell
 
 # Options used to build with CUDA.
 build:cuda --crosstool_top=@local_config_cuda//crosstool:toolchain

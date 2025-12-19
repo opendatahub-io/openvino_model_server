@@ -131,7 +131,7 @@ WORKDIR /
 
 RUN python3 --version && python3 -m pip install numpy==1.21.0 --no-cache-dir
 
-ARG INSTALL_DRIVER_VERSION="24.52.32224"
+INSTALL_DRIVER_VERSION="24.52.32224"
 # GPU testing in build img & remote tensors dependencies
 WORKDIR /usr/lib64/
 RUN ln -s libOpenCL.so.1 libOpenCL.so
