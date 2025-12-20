@@ -8,4 +8,4 @@ PyYAML
 pypng
 nvidia-pyindex
 tritonclient[all]==2.44.0
-numpy<2
+numpy<3
