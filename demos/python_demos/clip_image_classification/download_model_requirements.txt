@@ -2,7 +2,7 @@
 --extra-index-url "https://storage.openvinotoolkit.org/simple/wheels/nightly"
 --pre
 openvino==2025.1.*
-numpy<2.0
+numpy<2.5
 transformers==4.49 # 4.50 has a bug
 pillow==10.3.0
 torch==2.4.0+cpu
