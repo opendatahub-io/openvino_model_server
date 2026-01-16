@@ -16,53 +16,52 @@
 #pragma once
 
 #include <openvino/genai/tokenizer.hpp>
+#include <openvino/genai/generation_handle.hpp>
+#include <map>
 #include <string>
 #include <optional>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
-#pragma warning(push)
-#pragma warning(disable : 6313)
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-#pragma warning(pop)
-
-#include "partial_json_builder.hpp"
+#include "src/port/rapidjson_document.hpp"
+#include "src/port/rapidjson_stringbuffer.hpp"
+#include "src/port/rapidjson_writer.hpp"
 
 namespace ovms {
 struct ToolCall {
     std::string id;
     std::string name;
-    std::string arguments;
+    std::string arguments;  // JSON "{"a":1, "b":"SOME_STRING"}"
 };
 
-using ToolCalls = std::vector<ToolCall>;
+using ToolCalls_t = std::vector<ToolCall>;
 
 struct ParsedOutput {
     // Content without tool calls and reasoning
     std::string content;
     // Tool calls extracted from the response
-    ToolCalls toolCalls;
+    ToolCalls_t toolCalls;
     // Decoded reasoning from the response
     std::string reasoning;
-    // Number of reasoning tokens in the response
-    size_t reasoningTokenCount = 0;
 };
 
-// Enum used to track current processing phase, used in streaming mode
-enum ProcessingPhase {
-    CONTENT,
-    REASONING,
-    TOOL_CALLS
+enum class ParameterType {
+    STRING,
+    NUMBER,
+    BOOLEAN,
+    ARRAY,
+    OBJECT,
+    UNKNOWN
 };
+using ParametersTypeMap_t = std::unordered_map<std::string, ParameterType>;            // param name -> param type
+using ToolsParameterTypeMap_t = std::unordered_map<std::string, ParametersTypeMap_t>;  // tool name -> (param name -> param type)
 
 class BaseOutputParser {
 protected:
     ov::genai::Tokenizer tokenizer;
-    ProcessingPhase processingPhase = CONTENT;
-    rapidjson::Document lastJson;
-    PartialJsonBuilder jsonBuilder;
-    int toolCallIndex = -1;  // Index to track the current tool call being processed, -1 means we are not processing any tool call yet
+
 public:
     BaseOutputParser() = delete;
     explicit BaseOutputParser(ov::genai::Tokenizer& tokenizer) :
@@ -76,9 +75,38 @@ public:
     // {"tool_calls":[{"index":0,"function":<delta>}]}
     static rapidjson::Document wrapDelta(const rapidjson::Document& delta, int toolCallIndex);
 
-    virtual ParsedOutput parse(const std::vector<int64_t>& generatedTokens) = 0;
+    // --- Specialized output parsers interface ---
+
+    // Parse model output and extract relevant information to parsedOutput fields. Raw generated tokens are provided as an argument.
+    // Additionally parsedOutput.content is already filled with decoded content when this method is called, enabling chain or parsing.
+    // Parser is also responsible for removing extracted part from the parsedOutput.content if necessary.
+    virtual void parse(ParsedOutput& parsedOutput, const std::vector<int64_t>& generatedTokens) = 0;
+
     // Parse model output chunk in the streaming mode. If in result of processing the chunk we cannot produce meaningful response, we return std::nullopt.
     // Otherwise we return a JSON object containing the delta that conforms to OpenAI API.
-    virtual std::optional<rapidjson::Document> parseChunk(const std::string& chunkResponse) = 0;
+    virtual std::optional<rapidjson::Document> parseChunk(const std::string& chunkResponse, ov::genai::GenerationFinishReason finishReason) = 0;
+
+    // Get the tags that marks the beginning of the segment that should be processed by the parser.
+    // This method is used in streaming mode to determine if the parser should start processing the content.
+    // If empty string is returned, it means that the parser will never start processing the content.
+    virtual const std::vector<std::string>& getParsingStartTags() const = 0;
+
+    // Get a vector of additional tags that mark beginning of the segment that should be processed by the parser.
+    // These tags are considered only if they are the first output produced by the model.
+    // In streaming mode it means that they are considered only in UNKNOWN phase.
+    virtual const std::vector<std::string>& getSpecialParsingStartTags() const = 0;
+
+    // Get the tag that marks the end of the segment that should be processed by the parser.
+    // This method is used in streaming mode to determine if the parser should stop processing the content.
+    // If empty string is returned, it means that the parser will keep processing until the end of the content.
+    virtual const std::string& getParsingEndTag() const = 0;
+
+    // Indicates whether the parser requires special tokens to be present in the streaming output.
+    // If true, the tokenizer used in the TextStreamer should be configured to not skip special tokens.
+    // This is important for parsers that rely on special tokens to identify parsing boundaries or
+    // specific segments of the output.
+    virtual bool requiresStreamingWithSpecialTokens() const {
+        return false;
+    }
 };
 }  // namespace ovms

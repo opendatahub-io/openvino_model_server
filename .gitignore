@@ -20,7 +20,6 @@ __pycache__
 *.swp
 dist/
 lib/
-!client/python/ovmsclient/lib
 cppclean_src
 cppclean_test
 tags
@@ -37,3 +36,4 @@ out
 tmp/
 *.zip
 *.tar.gz
+models

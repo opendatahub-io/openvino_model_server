@@ -53,6 +53,9 @@
 #include "../tfs_frontend/tfs_utils.hpp"
 #include "c_api_test_utils.hpp"
 #include "test_utils.hpp"
+#include "light_test_utils.hpp"
+#include "platform_utils.hpp"
+#include "test_with_temp_dir.hpp"
 #if (MEDIAPIPE_DISABLE == 0)
 #include "../mediapipe_internal/mediapipegraphexecutor.hpp"
 #endif
@@ -1071,12 +1074,12 @@ static const std::string basicMediapipeConfigWithNewGraphPath = R"({
 
 #if (MEDIAPIPE_DISABLE == 0)
 template <typename Request, typename Response>
-static void mediaexec(std::shared_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, Request&, Response&, ovms::Status& status) {
+static void mediaexec(std::unique_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, Request&, Response&, ovms::Status& status) {
     throw std::string("Unsupported");
 }
 
 template <typename Request, typename Response>
-static void mediacreate(std::shared_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, Request&, Response&, ovms::Status& status) {
+static void mediacreate(std::unique_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, Request&, Response&, ovms::Status& status) {
     throw std::string("Unsupported");
 }
 #endif
@@ -1154,16 +1157,8 @@ public:
         ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
         randomizeAndEnsureFrees(port, restPort);
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-#if (USE_DROGON == 0)                                                                                  // when jusing drogon we cannot start rest server multiple times within the same process
-        ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetRestPort(serverSettings, std::stoi(restPort)));  // required for metrics  - but disabled because drogon http server cannot be restarted
-#endif
-        // ideally we would want to have emptyConfigWithMetrics
-#if (USE_DROGON == 0)
-        ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/emptyConfigWithMetrics.json").c_str()));  // the content of config json is irrelevant - we just need server to be ready for C-API use in mediapipe
-#else
         ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/emptyConfig.json").c_str()));  // the content of config json is irrelevant - we just need server to be ready for C-API use in mediapipe
-#endif
-        ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetFileSystemPollWaitSeconds(serverSettings, 0));  // set to 0 to reload only through test and avoid races
+        ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetFileSystemPollWaitSeconds(serverSettings, 0));                                                                 // set to 0 to reload only through test and avoid races
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
         OVMS_ModelsSettingsDelete(modelsSettings);
@@ -1178,7 +1173,8 @@ public:
         OVMS_Server* cserver;
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
         ovms::Server& server = ovms::Server::instance();
-        manager->join();
+        if (manager)
+            manager->join();
         server.setShutdownRequest(1);
         OVMS_ServerDelete(cserver);
         server.setShutdownRequest(0);
@@ -1408,7 +1404,7 @@ public:
         std::for_each(workerThreads.begin(), workerThreads.end(), [](auto& t) { t->join(); });
 
         for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
-            SPDLOG_TRACE("Create:[{}]={} -- {}", static_cast<uint32_t>(retCode), counter, ovms::Status(retCode).string());
+            SPDLOG_TRACE("Create:[{}]={} -- {}", static_cast<uint32_t>(retCode), counter.load(), retCode);
             if (requiredLoadResults.find(retCode) != requiredLoadResults.end()) {
                 EXPECT_GT(counter, 0) << static_cast<uint32_t>(retCode) << ":" << ovms::Status(retCode).string() << " did not occur. This may indicate fail or fail in test setup";
                 continue;
@@ -1721,7 +1717,7 @@ public:
             }
             std::unique_ptr<Pipeline> pipelinePtr;
 #if (MEDIAPIPE_DISABLE == 0)
-            std::shared_ptr<MediapipeGraphExecutor> executorPtr;
+            std::unique_ptr<MediapipeGraphExecutor> executorPtr;
 #endif
             ResponseType response;
             // little hack - we can't use noninitializad object to call function
@@ -1770,7 +1766,7 @@ public:
         }
         for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
             if (counter > 0) {
-                SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter);
+                SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter.load());
             }
         }
         std::stringstream ss;
@@ -1948,7 +1944,7 @@ public:
             }
             for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
                 if (counter > 0) {
-                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter);
+                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter.load());
                 }
             }
 
@@ -2036,7 +2032,7 @@ public:
             }
             for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
                 if (counter > 0) {
-                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter);
+                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter.load());
                 }
             }
 
@@ -2096,7 +2092,7 @@ public:
             }
             for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
                 if (counter > 0) {
-                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter);
+                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter.load());
                 }
             }
 

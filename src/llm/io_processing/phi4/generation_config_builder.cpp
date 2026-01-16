@@ -14,6 +14,7 @@
 // limitations under the License.
 //*****************************************************************************
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <openvino/genai/generation_config.hpp>
@@ -26,51 +27,66 @@ void Phi4GenerationConfigBuilder::parseConfigFromRequest(const OpenAIChatComplet
     // Call the base class method to fill in common configuration
     BaseGenerationConfigBuilder::parseConfigFromRequest(request);
 
-    // Set tool guided generation config specific to Phi-4 model as described in template from:
-    // https://github.com/vllm-project/vllm/blob/v0.9.2/examples/tool_chat_template_phi4_mini.jinja
-    ov::genai::StructuralTagsConfig structuralTagsConfig;
-    static const std::string beginOfToolsString = "functools";
-    structuralTagsConfig.triggers.push_back(beginOfToolsString);
-    ov::genai::StructuralTagItem tagItem;
-    tagItem.begin = beginOfToolsString;
-
-    // Build the "anyOf" array for each tool
-    std::string anyOfArray = "[";
-    bool first = true;
-    for (const auto& [toolName, toolSchema] : request.toolNameSchemaMap) {
-        if (!first) {
-            anyOfArray += ",";
-        }
-        first = false;
-        anyOfArray += R"({
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "enum": [")" +
-                      toolName + R"("]
-                },
-                "arguments": )" +
-                      toolSchema + R"(
-            },
-            "required": [
-                "name",
-                "arguments"
-            ]
-        })";
+    // For now the only specific part is related to tools, so if there are no tools provided in the request
+    // we can exit early
+    if (request.toolNameSchemaMap.empty()) {
+        return;
     }
-    anyOfArray += "]";
 
-    tagItem.schema = R"({
-        "type": "array",
-        "items": {
-            "anyOf": )" +
-                     anyOfArray + R"(
+    if (enableToolGuidedGeneration || request.toolChoice == "required") {
+        // Set tool guided generation config specific to Phi-4 model as described in template from:
+        // https://github.com/vllm-project/vllm/blob/v0.9.2/examples/tool_chat_template_phi4_mini.jinja
+
+        static const std::string beginOfToolsString = "functools";
+        auto triggeredTags = std::make_shared<ov::genai::StructuredOutputConfig::TriggeredTags>();
+        triggeredTags->triggers.push_back(beginOfToolsString);
+        ov::genai::StructuredOutputConfig::Tag tagItem;
+        tagItem.begin = beginOfToolsString;
+
+        // Build the "anyOf" array for each tool
+        std::string anyOfArray = "[";
+        bool first = true;
+        for (const auto& [toolName, toolSchemaWrapper] : request.toolNameSchemaMap) {
+            const auto& toolSchema = toolSchemaWrapper.stringRepr;
+            if (!first) {
+                anyOfArray += ",";
+            }
+            first = false;
+            anyOfArray += R"({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "enum": [")" +
+                          toolName + R"("]
+                    },
+                    "arguments": )" +
+                          toolSchema + R"(
+                },
+                "required": [
+                    "name",
+                    "arguments"
+                ]
+            })";
         }
-    })";
+        anyOfArray += "]";
 
-    structuralTagsConfig.structural_tags.push_back(tagItem);
-    setStructuralTagsConfig(structuralTagsConfig);
+        std::string schema = R"({
+            "type": "array",
+            "items": {
+                "anyOf": )" +
+                             anyOfArray + R"(
+            }
+        })";
+
+        tagItem.content = ov::genai::StructuredOutputConfig::JSONSchema(schema);
+        triggeredTags->tags.push_back(tagItem);
+        if (request.toolChoice == "required") {
+            triggeredTags->at_least_one = true;
+        }
+        ov::genai::StructuredOutputConfig::StructuralTag structuralTag = triggeredTags;
+        setStructuralTagsConfig(structuralTag);
+    }
 }
 
 }  // namespace ovms

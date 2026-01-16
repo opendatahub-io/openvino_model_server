@@ -21,7 +21,20 @@ ovms_cc_library(
     name = "cmd_exec",
     srcs = ["cmd_exec.cpp"],
     hdrs = ["cmd_exec.hpp"],
-    deps =  [],
+    deps =  ["@ovms//src/utils:env_guard"],
+    visibility = ["//visibility:public"],
+)
+
+ovms_cc_library(
+    name = "model_downloader",
+    srcs = ["model_downloader.cpp"],
+    hdrs = ["model_downloader.hpp"],
+    deps =  [
+        "@ovms//src:libovmsstatus",
+        "@ovms//src:libovmslogging",
+        "@ovms//src:libovmsfilesystem",
+        "@ovms//src:libovmslocalfilesystem",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -32,14 +45,34 @@ ovms_cc_library(
     deps =  [
         "@libgit2_engine//:libgit2_engine",
         "@ovms//src:libovmslogging",
-        "@ovms//src:libovmsstatus",
-        "@ovms//src:libovmsstring_utils",
         "@ovms//src:libovmsfilesystem",
         "@ovms//src:libovmslocalfilesystem",
+        "@ovms//src:libovmsstatus",
+        "@ovms//src:libovmsstring_utils",
         ":cmd_exec",
+        ":model_downloader",
     ],
     visibility = ["//visibility:public"],
 )
+ovms_cc_library(
+    name = "gguf_downloader",
+    srcs = ["gguf_downloader.cpp"],
+    hdrs = ["gguf_downloader.hpp"],
+    deps =  [
+        ":model_downloader",
+        "//third_party:curl",
+        "@nlohmann_json//:json",
+        "@ovms//src:libovmslogging",
+        "@ovms//src:libovmsstatus",
+        "@ovms//src:libovmsstring_utils",
+        "@ovms//src:libovms_server_settings",
+        "@ovms//src:libovmsfilesystem",
+        "@ovms//src:libovmslocalfilesystem",
+        "@ovms//src:libovms_version",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 
 ovms_cc_library(
     name = "optimum_export",
@@ -47,7 +80,7 @@ ovms_cc_library(
     hdrs = ["optimum_export.hpp"],
     deps =  [
         ":cmd_exec",
-        ":libgit2",
+        ":model_downloader",
         "@ovms//src:libovmslogging",
         "@ovms//src:libovmsstatus",
         "@ovms//src:libovmsstring_utils",
@@ -64,6 +97,7 @@ ovms_cc_library(
     hdrs = ["hf_pull_model_module.hpp"],
     deps =  [
         ":libgit2",
+        "gguf_downloader",
         ":optimum_export",
         "@ovms//src/graph_export:graph_export",
         "@ovms//src:cpp_headers",

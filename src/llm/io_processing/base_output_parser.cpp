@@ -19,12 +19,9 @@
 #include <optional>
 #include <vector>
 
-#pragma warning(push)
-#pragma warning(disable : 6313)
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-#pragma warning(pop)
+#include "src/port/rapidjson_document.hpp"
+#include "src/port/rapidjson_stringbuffer.hpp"
+#include "src/port/rapidjson_writer.hpp"
 
 #include "base_output_parser.hpp"
 #include "utils.hpp"
@@ -71,4 +68,5 @@ rapidjson::Document BaseOutputParser::wrapDelta(const rapidjson::Document& delta
     wrappedDelta.AddMember("delta", deltaWrapper, wrappedDelta.GetAllocator());
     return wrappedDelta;
 }
+
 }  // namespace ovms

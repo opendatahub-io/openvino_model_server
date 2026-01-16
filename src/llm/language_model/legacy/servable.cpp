@@ -72,7 +72,8 @@ absl::Status LegacyServable::parseRequest(std::shared_ptr<GenAiServableExecution
         legacyExecutionContext->endpoint,
         std::chrono::system_clock::now(),
         getProperties()->tokenizer,
-        getProperties()->responseParserName);
+        getProperties()->toolParserName,
+        getProperties()->reasoningParserName);
 
     auto status = executionContext->apiHandler->parseRequest(getProperties()->maxTokensLimit, getProperties()->bestOfLimit, getProperties()->maxModelLength);
     if (!status.ok()) {
@@ -91,10 +92,25 @@ absl::Status LegacyServable::parseRequest(std::shared_ptr<GenAiServableExecution
             }
             return ov::genai::StreamingStatus::RUNNING;
         };
-        legacyExecutionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback);
+        ov::AnyMap streamerConfig;
+        if (legacyExecutionContext->apiHandler->getOutputParser() != nullptr &&
+            (legacyExecutionContext->apiHandler->getOutputParser()->requiresStreamingWithSpecialTokens())) {
+            streamerConfig.insert(ov::genai::skip_special_tokens(false));
+        }
+        legacyExecutionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback, streamerConfig);
     }
-    legacyExecutionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig, getProperties()->responseParserName, getProperties()->enableToolGuidedGeneration);
+    legacyExecutionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig,
+        getProperties()->toolParserName,
+        getProperties()->enableToolGuidedGeneration,
+        getProperties()->decodingMethod);
     legacyExecutionContext->generationConfigBuilder->parseConfigFromRequest(legacyExecutionContext->apiHandler->getRequest());
+    legacyExecutionContext->generationConfigBuilder->adjustConfigForDecodingMethod();
+    try {
+        legacyExecutionContext->generationConfigBuilder->validateStructuredOutputConfig(getProperties()->tokenizer);
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Tool guided generation will not be applied due to JSON schema validation failure: {}", e.what());
+        legacyExecutionContext->generationConfigBuilder->unsetStructuredOutputConfig();
+    }
     return absl::OkStatus();
 }
 
@@ -159,11 +175,6 @@ absl::Status LegacyServable::preparePartialResponse(std::shared_ptr<GenAiServabl
             generationStatus = legacyExecutionContext->finished.wait_for(std::chrono::nanoseconds::zero());
         }
         lastTextChunk = executionContext->lastStreamerCallbackOutput;
-        if (!lastTextChunk.empty()) {
-            auto tokensTensor = properties->tokenizer.encode(lastTextChunk, ov::genai::add_special_tokens(false)).input_ids;
-            auto numTokens = tokensTensor.get_size();
-            executionContext->apiHandler->incrementProcessedTokens(numTokens);
-        }
         executionContext->lastStreamerCallbackOutput = "";
     }
     if (generationStatus != std::future_status::ready) {  // continue
@@ -189,10 +200,11 @@ absl::Status LegacyServable::preparePartialResponse(std::shared_ptr<GenAiServabl
         if (!serializedChunk.empty()) {
             executionContext->response = wrapTextInServerSideEventMessage(serializedChunk);
         }
-        // Disabling usage in streaming mode in legacy servable due to the issue with token counting.
+
+        // TODO: Usage is zero in streaming mode in legacy servable due to the issue with token counting.
+        // This enables Continue.dev streaming scenario, which always uses include_usage: true
         if (executionContext->apiHandler->getStreamOptions().includeUsage)
-            return absl::InvalidArgumentError("Usage is not supported in legacy servable in streaming mode.");
-        // executionContext->response += wrapTextInServerSideEventMessage(executionContext->apiHandler->serializeStreamingUsageChunk());
+            executionContext->response += wrapTextInServerSideEventMessage(executionContext->apiHandler->serializeStreamingUsageChunk());
 
         executionContext->response += wrapTextInServerSideEventMessage("[DONE]");
 

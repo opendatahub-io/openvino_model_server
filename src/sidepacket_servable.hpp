@@ -42,30 +42,32 @@ struct SidepacketServable {
     std::shared_ptr<ov::Model> model;
     ov::CompiledModel compiledModel;
     std::unique_ptr<OVInferRequestsQueue> inferRequestsQueue;
-    int64_t pad_token = 0;
-    int64_t eos_token = 0;
-    int64_t bos_token = 0;
-    int64_t sep_token = 0;
+    std::optional<int64_t> pad_token;
+    std::optional<int64_t> eos_token;
+    std::optional<int64_t> bos_token;
+    std::optional<int64_t> sep_token;
     std::optional<uint32_t> maxModelLength;
+    std::filesystem::path parsedModelsPath;
 
 public:
     SidepacketServable(const std::string& modelDir, const std::string& targetDevice, const std::string& pluginConfig, const std::string& graphPath);
+    void initialize(const std::string& modelDir, const std::string& targetDevice, const std::string& pluginConfig, const std::string& graphPath);
     OVInferRequestsQueue& getInferRequestsQueue() {
         return *inferRequestsQueue;
     }
     ov::genai::Tokenizer& getTokenizer() {
         return *tokenizer;
     }
-    const int64_t getPadToken() {
+    const std::optional<int64_t> getPadToken() {
         return pad_token;
     }
-    const int64_t getEosToken() {
+    const std::optional<int64_t> getEosToken() {
         return eos_token;
     }
-    const int64_t getBosToken() {
+    const std::optional<int64_t> getBosToken() {
         return bos_token;
     }
-    const int64_t getSepToken() {
+    const std::optional<int64_t> getSepToken() {
         return sep_token;
     }
     const std::optional<uint32_t> getMaxModelLength() {
@@ -74,8 +76,11 @@ public:
     const size_t getNumberOfModelInputs() {
         return compiledModel.inputs().size();
     }
-};
 
-using EmbeddingsServableMap = std::unordered_map<std::string, std::shared_ptr<SidepacketServable>>;
-using RerankServableMap = std::unordered_map<std::string, std::shared_ptr<SidepacketServable>>;
+protected:
+    virtual std::shared_ptr<ov::Model> applyPrePostProcessing(std::shared_ptr<ov::Model> model) {
+        // No custom postprocessing by default
+        return model;
+    }
+};
 }  // namespace ovms

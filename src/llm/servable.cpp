@@ -19,10 +19,12 @@
 #include <vector>
 
 #pragma warning(push)
-#pragma warning(disable : 4005 4309 6001 6385 6386 6326 6011 4005 4456 6246)
+#pragma warning(disable : 4005 4309 6001 6385 6386 6326 6011 4005 4456 6246 6313)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "mediapipe/framework/calculator_graph.h"
+#include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
 #pragma GCC diagnostic pop
 #pragma warning(pop)
 
@@ -36,9 +38,23 @@
 #include "text_utils.hpp"
 
 namespace ovms {
+
+void GenAiServable::determineDecodingMethod() {
+    getProperties()->decodingMethod = DecodingMethod::STANDARD;
+    auto& pluginConfig = getProperties()->pluginConfig;
+    if (pluginConfig.find("draft_model") != pluginConfig.end()) {
+        getProperties()->decodingMethod = DecodingMethod::SPECULATIVE_DECODING;
+    }
+    auto it = pluginConfig.find("prompt_lookup");
+    if (it != pluginConfig.end() && it->second.as<bool>() == true) {
+        getProperties()->decodingMethod = DecodingMethod::PROMPT_LOOKUP;
+    }
+}
+
 absl::Status GenAiServable::loadRequest(std::shared_ptr<GenAiServableExecutionContext>& executionContext, const ovms::HttpPayload& payload) {
-    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Request body: {}", payload.body);
-    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Request uri: {}", payload.uri);
+    if (spdlog::default_logger_raw()->level() <= spdlog::level::debug) {
+        logRequestDetails(payload);
+    }
     // Parsed JSON is not guaranteed to be valid, we may reach this point via multipart content type request with no valid JSON parser
     if (payload.parsedJson->HasParseError()) {
         return absl::InvalidArgumentError("Non-json request received in text generation calculator");
@@ -59,7 +75,8 @@ absl::Status GenAiServable::parseRequest(std::shared_ptr<GenAiServableExecutionC
         executionContext->endpoint,
         std::chrono::system_clock::now(),
         getProperties()->tokenizer,
-        getProperties()->responseParserName);
+        getProperties()->toolParserName,
+        getProperties()->reasoningParserName);
     auto& config = ovms::Config::instance();
 
     auto status = executionContext->apiHandler->parseRequest(getProperties()->maxTokensLimit, getProperties()->bestOfLimit, getProperties()->maxModelLength, config.getServerSettings().allowedLocalMediaPath);
@@ -75,11 +92,26 @@ absl::Status GenAiServable::parseRequest(std::shared_ptr<GenAiServableExecutionC
             lastStreamerCallbackOutput = text;
             return ov::genai::StreamingStatus::RUNNING;
         };
-
-        executionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback);
+        ov::AnyMap streamerConfig;
+        if (executionContext->apiHandler->getOutputParser() != nullptr &&
+            (executionContext->apiHandler->getOutputParser()->requiresStreamingWithSpecialTokens())) {
+            streamerConfig.insert(ov::genai::skip_special_tokens(false));
+        }
+        executionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback, streamerConfig);
     }
-    executionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig, getProperties()->responseParserName, getProperties()->enableToolGuidedGeneration);
+    executionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig,
+        getProperties()->toolParserName,
+        getProperties()->enableToolGuidedGeneration,
+        getProperties()->decodingMethod);
     executionContext->generationConfigBuilder->parseConfigFromRequest(executionContext->apiHandler->getRequest());
+    executionContext->generationConfigBuilder->adjustConfigForDecodingMethod();
+    try {
+        executionContext->generationConfigBuilder->validateStructuredOutputConfig(getProperties()->tokenizer);
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Tool guided generation will not be applied due to JSON schema validation failure: {}", e.what());
+        executionContext->generationConfigBuilder->unsetStructuredOutputConfig();
+    }
+
     return absl::OkStatus();
 }
 
@@ -205,6 +237,14 @@ std::string wrapTextInServerSideEventMessage(const std::string& text) {
     std::stringstream ss;
     ss << "data: " << text << "\n\n";
     return ss.str();
+}
+void logRequestDetails(const ovms::HttpPayload& payload) {
+    auto parsedJson = payload.parsedJson;
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    parsedJson->Accept(writer);
+    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Request body: {}", buffer.GetString());
+    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Request uri: {}", payload.uri);
 }
 #pragma GCC diagnostic pop
 #pragma warning(push)

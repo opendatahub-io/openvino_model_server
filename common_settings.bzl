@@ -64,17 +64,6 @@ def create_config_settings():
         negate = ":disable_mediapipe",
     )
     native.config_setting(
-        name = "genai_bin",
-        define_values = {
-            "GENAI_USE_BINARY": "1",
-        },
-        visibility = ["//visibility:public"],
-    )
-    more_selects.config_setting_negation(
-        name = "not_genai_bin",
-        negate = ":genai_bin",
-    )
-    native.config_setting(
         name = "enable_drogon",
         define_values = {
             "USE_DROGON": "1",
@@ -177,6 +166,7 @@ LINUX_COMMON_STATIC_LIBS_COPTS = [
 ]
 
 WINDOWS_COMMON_STATIC_LIBS_COPTS = [
+                        "/guard:cf",
                         "/W4",
                         "/WX",
                         "/external:anglebrackets",
@@ -187,6 +177,8 @@ WINDOWS_COMMON_STATIC_LIBS_COPTS = [
                         "/GS",
                         "/DYNAMICBASE",
                         "/Qspectre",
+                        "/wd4305",  # abseil after switch to build tools 22
+                        "/wd4324",  # genai after switch to build tools 22
                         "/wd4068",
                         "/wd4458",
                         "/wd4100",
@@ -199,7 +191,12 @@ WINDOWS_COMMON_STATIC_LIBS_COPTS = [
                         "/wd4702",
                         "/wd4267",
                         "/wd4996",
+                        "/wd6240", 
+                        "/wd6326",
+                        "/wd6385",
+                        "/wd6294",
                         "/guard:cf",
+                        "/utf-8",
 ]
 
 COMMON_STATIC_LIBS_COPTS = select({
@@ -222,22 +219,9 @@ COMMON_STATIC_TEST_COPTS = select({
                         "-W0",
                         "-Isrc",
                         "/wd4996",
+                        "/utf-8",
                     ],
                 })
-
-COMMON_STATIC_LIBS_COPTS_VISIBLE = select({
-                "//conditions:default": [
-                    "-Wall",
-                    # TODO: was in ovms bin "-Wconversion",
-                    "-Wno-unknown-pragmas", 
-                    "-Wno-sign-compare",
-                    "-Werror",
-                ],
-                "//src:windows" : [
-                        "-W0",
-                        "-Isrc",
-                    ],
-                }) 
 
 COMMON_STATIC_LIBS_LINKOPTS = select({
                 "//conditions:default": [

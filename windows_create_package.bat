@@ -33,6 +33,11 @@ IF "%~2"=="--with_python" (
     set "with_python=false"
 )
 
+:: Set default USE_OV_BINARY if not set
+if "%USE_OV_BINARY%"=="" (
+    set "USE_OV_BINARY=1"
+)
+
 if exist dist\windows\ovms (
     rmdir /s /q dist\windows\ovms
     if !errorlevel! neq 0 exit /b !errorlevel!
@@ -77,7 +82,7 @@ copy C:\%output_user_root%\openvino\runtime\3rdparty\tbb\bin\tbb12.dll dist\wind
 if !errorlevel! neq 0 exit /b !errorlevel!
 
 :: Copy from bazel-out if the genai is from sources
-copy %cd%\bazel-out\x64_windows-opt\bin\src\opencv_world4100.dll dist\windows\ovms
+copy %cd%\bazel-out\x64_windows-opt\bin\src\opencv_world4120.dll dist\windows\ovms
 if !errorlevel! neq 0 exit /b !errorlevel!
 copy /Y %cd%\bazel-out\x64_windows-opt\bin\src\icudt70.dll dist\windows\ovms
 if !errorlevel! neq 0 exit /b !errorlevel!
@@ -89,8 +94,6 @@ copy /Y %cd%\bazel-out\x64_windows-opt\bin\src\openvino_tokenizers.dll dist\wind
 if !errorlevel! neq 0 exit /b !errorlevel!
 copy /Y %cd%\bazel-out\x64_windows-opt\bin\src\git2.dll dist\windows\ovms
 if !errorlevel! neq 0 exit /b !errorlevel!
-copy /Y %dest_dir%\git-lfs.exe dist\windows\ovms
-if !errorlevel! neq 0 exit /b !errorlevel!
 copy /Y %cd%\bazel-out\x64_windows-opt\bin\src\libcurl-x64.dll dist\windows\ovms
 if !errorlevel! neq 0 exit /b !errorlevel!
 :: Old package had core_tokenizers
@@ -99,39 +102,26 @@ if exist %cd%\bazel-out\x64_windows-opt\bin\src\core_tokenizers.dll (
     if !errorlevel! neq 0 exit /b !errorlevel!
 )
 
-if exist "C:\Program Files\Git\mingw64\bin" (
-    copy /Y "C:\Program Files\Git\mingw64\bin\git.exe" dist\windows\ovms
-    if !errorlevel! neq 0 exit /b !errorlevel!
-    copy /Y "C:\Program Files\Git\mingw64\bin\libiconv-2.dll" dist\windows\ovms
-    if !errorlevel! neq 0 exit /b !errorlevel!
-    copy /Y "C:\Program Files\Git\mingw64\bin\libintl-8.dll" dist\windows\ovms
-    if !errorlevel! neq 0 exit /b !errorlevel!
-    copy /Y "C:\Program Files\Git\mingw64\bin\libpcre2-8-0.dll" dist\windows\ovms
-    if !errorlevel! neq 0 exit /b !errorlevel!
-    copy /Y "C:\Program Files\Git\mingw64\bin\libwinpthread-1.dll" dist\windows\ovms
-    if !errorlevel! neq 0 exit /b !errorlevel!
-    copy /Y "C:\Program Files\Git\mingw64\bin\zlib1.dll" dist\windows\ovms
-    if !errorlevel! neq 0 exit /b !errorlevel!
-) else (
-    echo "C:\Program Files\Git\mingw64\bin" does not exist
-    exit /b -1
-)
-
-
-
 copy %cd%\setupvars.* dist\windows\ovms
+if !errorlevel! neq 0 exit /b !errorlevel!
+copy %cd%\install_ovms_service.bat dist\windows\ovms
 if !errorlevel! neq 0 exit /b !errorlevel!
 
 :: Adding licenses
 set "license_dest=%cd%\dist\windows\ovms\thirdparty-licenses\"
 md %license_dest%
 if !errorlevel! neq 0 exit /b !errorlevel!
-copy C:\opt\opencv\etc\licenses\* %license_dest%
+copy C:\opt\opencv_4.12.0\etc\licenses\* %license_dest%
 if !errorlevel! neq 0 exit /b !errorlevel!
-copy C:\%output_user_root%\openvino\docs\licensing\LICENSE %license_dest%openvino.LICENSE.txt
-if !errorlevel! neq 0 exit /b !errorlevel!
-copy C:\%output_user_root%\openvino\docs\licensing\LICENSE-GENAI %license_dest%LICENSE-GENAI.txt
-if !errorlevel! neq 0 exit /b !errorlevel!
+IF "%USE_OV_BINARY%"=="1" (
+    copy C:\%output_user_root%\openvino\docs\licensing\LICENSE %license_dest%openvino.LICENSE.txt
+    if !errorlevel! neq 0 exit /b !errorlevel!
+    copy C:\%output_user_root%\openvino\docs\licensing\LICENSE-GENAI %license_dest%LICENSE-GENAI.txt
+    if !errorlevel! neq 0 exit /b !errorlevel!
+) ELSE (
+    copy C:\%output_user_root%\openvino\licenses %license_dest%
+    if !errorlevel! neq 0 exit /b !errorlevel!
+)
 
 copy %cd%\release_files\LICENSE %cd%\dist\windows\ovms\
 if !errorlevel! neq 0 exit /b !errorlevel!

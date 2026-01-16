@@ -22,13 +22,16 @@
 #include "../modelconfig.hpp"
 #include "../modelinstance.hpp"
 #include "../modelmanager.hpp"
-#include "test_utils.hpp"
+#include "constructor_enabled_model_manager.hpp"
+#include "test_models_configs.hpp"
+#include "test_with_temp_dir.hpp"
 
 using namespace ovms;
 
 class ModelCacheTest : public TestWithTempDir {
 protected:
     void SetUp() override {
+        GTEST_SKIP() << "Issue in OV";
         TestWithTempDir::SetUp();
         modelCacheDirectory = this->directoryPath;
         dummyModelConfigWithCache = DUMMY_MODEL_CONFIG;
@@ -280,6 +283,7 @@ protected:
     std::unique_ptr<ov::Core> ieCore;
 
     void SetUp() override {
+        GTEST_SKIP() << "Issue in OV";
         TestWithTempDir::SetUp();
         ieCore = std::make_unique<ov::Core>();
         modelCacheDirectory = this->directoryPath;

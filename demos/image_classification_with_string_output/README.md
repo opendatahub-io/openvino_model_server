@@ -7,6 +7,8 @@ This demo demonstrates example deployment of a model with output precision `ov::
 The script below is downloading a public MobileNet model trained on the ImageNet data. The original model accepts on input the image array in the range of 0-1 and returns probabilities for all the trained classes. We are adding to the model preprocessing function changing the input data range to 0-255 and also postprocessing function which is retrieving the most likely label name as a string. 
 This is a very handy functionality because it allows us to export the model with the included pre/post processing functions as the model layers. The client just receives the string data with the label name for the classified image.
 
+> **Note:** Preparing the model in this demo requires tensorflow2.13 or older. Because pip packages with such versions are not available in latest python editions, it is recommended to use Python3.10.
+
 ```console
 git clone https://github.com/openvinotoolkit/model_server.git
 cd model_server/demos/image_classification_with_string_output
@@ -29,7 +31,7 @@ model
 docker run -d -u $(id -u):$(id -g) -v $(pwd):/workspace -p 8000:8000 openvino/model_server:latest \
 --model_path /workspace/model --model_name mobile_net --rest_port 8000
 ```
-Alternatively see (instructions)[https://github.com/openvinotoolkit/model_server/blob/main/docs/deploying_server_baremetal.md] for deployment on bare metal.
+Alternatively see (instructions)[https://github.com/openvinotoolkit/model_server/blob/releases/2025/4/docs/deploying_server_baremetal.md] for deployment on bare metal.
 
 Make sure to:
 

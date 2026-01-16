@@ -192,7 +192,7 @@ http_archive(
 git_repository(
     name = "mediapipe",
     remote = "https://github.com/openvinotoolkit/mediapipe",
-    commit = "45c2fb897206348f78cd1e75eee4a499b9619d9b", # main as of 26 May 2025
+    commit = "b2dccf07dc3cd8ae23040d20a8ca68d35d6c75db", # main as of 06/11/2025
 )
 
 # DEV mediapipe 1 source - adjust local repository path for build
@@ -299,7 +299,7 @@ new_local_repository(
 new_local_repository(
     name = "windows_opencv",
     build_file = "@//third_party/opencv:opencv_windows.BUILD",
-    path = "C:\\opt\\opencv",
+    path = "C:\\opt\\opencv_4.12.0",
 )
 
 new_local_repository(
@@ -328,10 +328,10 @@ http_archive(
 load("@aspect_bazel_lib//lib:repositories.bzl", "register_coreutils_toolchains")
 register_coreutils_toolchains()
 
-load("@//third_party/python:python_repo.bzl", "python_repository")
+load("@ovms//third_party/python:python_repo.bzl", "python_repository")
 python_repository(name = "_python3-linux")
 
-load("@//third_party/python:python_repo_win.bzl", "python_repository")
+load("@ovms//third_party/python:python_repo_win.bzl", "python_repository")
 python_repository(name = "_python3-windows")
 
 new_local_repository(
@@ -424,6 +424,7 @@ http_archive(
         "@mediapipe//third_party:org_tensorflow_custom_ops.diff",
         "@mediapipe//third_party:org_tensorflow_objc_build_fixes.diff",
         "tf_2.18_logging.patch",
+        "tf_nsync_chrono.patch",
     ],
     patch_args = [
         "-p1",
@@ -486,18 +487,14 @@ cuda_configure(name = "local_config_cuda")
 load("@rules_pkg//:deps.bzl", "rules_pkg_dependencies")
 rules_pkg_dependencies()
 
-load("@//third_party/aws-sdk-cpp:aws-sdk-cpp.bzl", "aws_sdk_cpp")
+load("@ovms//third_party/aws-sdk-cpp:aws-sdk-cpp.bzl", "aws_sdk_cpp")
 aws_sdk_cpp()
 
-### OpenVINO GenAI
-load("@//third_party/llm_engine:llm_engine.bzl", "llm_engine")
-llm_engine()
-
 ### Libgit2
-load("@//third_party/libgit2:libgit2_engine.bzl", "libgit2_engine")
+load("@ovms//third_party/libgit2:libgit2_engine.bzl", "libgit2_engine")
 libgit2_engine()
 
-load("@//third_party/drogon:drogon.bzl", "drogon_cpp")
+load("@ovms//third_party/drogon:drogon.bzl", "drogon_cpp")
 drogon_cpp()
 
 # Azure Storage SDK
@@ -524,34 +521,43 @@ new_local_repository(
 
 # Google Cloud SDK
 http_archive(
-    name = "com_github_googleapis_google_cloud_cpp",
-    sha256 = "a370bcf2913717c674a7250c4a310250448ffeb751b930be559a6f1887155f3b",
-    strip_prefix = "google-cloud-cpp-0.21.0",
-    url = "https://github.com/googleapis/google-cloud-cpp/archive/v0.21.0.tar.gz",
+    name = "google_cloud_cpp",
+    sha256 = "629cbfcc5bd581d38277ba8fa94a5b6591af1e0f6af0dab6d1d9ed796bf48b61",
+    strip_prefix = "google-cloud-cpp-2.39.0",
+    url = "https://github.com/googleapis/google-cloud-cpp/archive/v2.39.0.tar.gz",
     repo_mapping = {"@com_github_curl_curl" : "@curl"}
 )
 
-load("@com_github_googleapis_google_cloud_cpp//bazel:google_cloud_cpp_deps.bzl", "google_cloud_cpp_deps")
-google_cloud_cpp_deps()
+load("@google_cloud_cpp//bazel:workspace0.bzl", "gl_cpp_workspace0")
 
-load("@com_google_googleapis//:repository_rules.bzl", "switched_rules_by_language")
-switched_rules_by_language(
-    name = "com_google_googleapis_imports",
-    cc = True,  # C++ support is only "Partially implemented", roll our own.
-    grpc = True,
-)
+gl_cpp_workspace0()
 
-load("@com_github_googleapis_google_cloud_cpp_common//bazel:google_cloud_cpp_common_deps.bzl", "google_cloud_cpp_common_deps")
-google_cloud_cpp_common_deps()
+load("@google_cloud_cpp//bazel:workspace1.bzl", "gl_cpp_workspace1")
+
+gl_cpp_workspace1()
+
+load("@google_cloud_cpp//bazel:workspace2.bzl", "gl_cpp_workspace2")
+
+gl_cpp_workspace2()
+
+load("@google_cloud_cpp//bazel:workspace4.bzl", "gl_cpp_workspace4")
+
+gl_cpp_workspace4()
+
+load("@google_cloud_cpp//bazel:workspace5.bzl", "gl_cpp_workspace5")
+
+gl_cpp_workspace5()
+
+# grpc
 
 load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
 grpc_deps()
-http_archive( # 1.60.0
+http_archive( # 1.74.1
     name = "com_github_grpc_grpc",
     urls = [
-        "https://github.com/grpc/grpc/archive/0ef13a7555dbaadd4633399242524129eef5e231.tar.gz",
+        "https://github.com/grpc/grpc/archive/893bdadd56dbb75fb156175afdaa2b0d47e1c15b.tar.gz",
     ],
-    strip_prefix = "grpc-0ef13a7555dbaadd4633399242524129eef5e231",
+    strip_prefix = "grpc-893bdadd56dbb75fb156175afdaa2b0d47e1c15b",
 )
 
 # cxxopts
@@ -566,18 +572,21 @@ http_archive(
 # spdlog
 http_archive(
     name = "com_github_gabime_spdlog",
-    url = "https://github.com/gabime/spdlog/archive/v1.4.0.tar.gz",
-    sha256 = "afd18f62d1bc466c60bef088e6b637b0284be88c515cedc59ad4554150af6043",
-    strip_prefix = "spdlog-1.4.0",
+    urls = [ 
+        "https://github.com/gabime/spdlog/archive/refs/tags/v1.15.3.tar.gz",
+        "https://mirror.bazel.build/github.com/gabime/spdlog/archive/refs/tags/v1.15.3.tar.gz",
+    ],
+    sha256 = "15a04e69c222eb6c01094b5c7ff8a249b36bb22788d72519646fb85feb267e67",
+    strip_prefix = "spdlog-1.15.3",
     build_file = "@//third_party/spdlog:BUILD"
 )
 
 # fmtlib
 http_archive(
     name = "fmtlib",
-    url = "https://github.com/fmtlib/fmt/archive/6.0.0.tar.gz",
-    sha256 = "f1907a58d5e86e6c382e51441d92ad9e23aea63827ba47fd647eacc0d3a16c78",
-    strip_prefix = "fmt-6.0.0",
+    url = "https://github.com/fmtlib/fmt/archive/refs/tags/11.2.0.tar.gz",
+    sha256 = "bc23066d87ab3168f27cef3e97d545fa63314f5c79df5ea444d41d56f962c6af",
+    strip_prefix = "fmt-11.2.0",
     build_file = "@//third_party/fmtlib:BUILD"
 )
 
@@ -627,3 +636,33 @@ cc_library(
 )
 """,
 )
+
+new_git_repository(
+    name = "dr_libs",
+    remote = "https://github.com/mackron/dr_libs",
+    commit = "24d738be2349fd4b6fe50eeaa81f5bd586267fd0",
+    build_file_content = """
+cc_library(
+    name = "dr",
+    hdrs = ["dr_flac.h", "dr_mp3.h", "dr_wav.h"],
+    visibility = ["//visibility:public"],
+    local_defines = [
+    ],
+)
+""",
+)
+
+new_git_repository(
+    name = "winreg",
+    remote = "https://github.com/GiovanniDicanio/WinReg.git",
+    commit = "4e1fab61959ca7a43c2627251ba306ebbbec7f7a", # master Aug 22 2025
+    build_file_content = """
+cc_library(
+    name = "winreg",
+    hdrs = glob(["WinReg/WinReg.hpp"]),
+    visibility = ["//visibility:public"],
+    local_defines = [],
+)
+""",
+)
+

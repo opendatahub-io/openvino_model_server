@@ -33,7 +33,7 @@ def drogon_cpp():
 cc_library(
     name = "jsoncpp",
     srcs = glob(["src/lib_json/*.cpp"]),
-    hdrs = glob(["include/json/*.h", "src/lib_json/*.h"]),
+    hdrs = glob(["include/json/*.h", "src/lib_json/*.h", "src/lib_json/*.inl"]),
     includes = [
         "include",  # Add the top-level include directory
         "src/lib_json",  # Add the source-level include directory
@@ -53,7 +53,7 @@ cc_library(
         patches = [
             # Contains submodule (trantor) patches generated using:
             # git --no-pager diff --no-color --submodule=diff
-            "@//third_party/drogon:ovms_drogon_trantor.patch",
+            "@ovms//third_party/drogon:ovms_drogon_trantor.patch",
         ],
         patch_args = ["-p1"],
     )
@@ -120,7 +120,7 @@ if __name__ == "__main__":
             "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
             "CMAKE_CXX_STANDARD": "17",
             "CXX_FILESYSTEM_HAVE_FS": "1",
-            "CMAKE_CXX_FLAGS": " -s -D_GLIBCXX_USE_CXX11_ABI=1"
+            "CMAKE_CXX_FLAGS": " /guard:cf /GS -s -D_GLIBCXX_USE_CXX11_ABI=1"
         """
         out_static_libs = [
             "drogon.lib",
@@ -167,7 +167,7 @@ build_debug = {{"CMAKE_BUILD_TYPE": "Debug"}}
 
 filegroup(
     name = "all_srcs",
-    srcs = glob(["**"], exclude = ["**/*.txt"]),
+    srcs = glob(["**"], exclude = ["lib/tests/**/*.txt"]),
     visibility = ["//visibility:public"],
 )
 

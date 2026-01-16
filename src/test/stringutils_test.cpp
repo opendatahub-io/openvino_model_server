@@ -152,6 +152,53 @@ TEST(StringUtils, startsWith) {
     EXPECT_EQ(startsWith("TENSO", "TENSOR"), false);
 }
 
+TEST(StringUtils, stof) {
+    auto result = ovms::stof("  -100 ");
+    EXPECT_FALSE(result);
+
+    result = ovms::stof("  -100.0 ");
+    EXPECT_FALSE(result);
+
+    result = ovms::stof("-100");
+    EXPECT_TRUE(result);
+    EXPECT_NEAR(result.value(), -100.0f, 0.0001f);
+
+    result = ovms::stof("-100.0");
+    EXPECT_TRUE(result);
+    EXPECT_NEAR(result.value(), -100.0f, 0.0001f);
+
+    result = ovms::stof("100.0");
+    EXPECT_TRUE(result);
+    EXPECT_NEAR(result.value(), 100.0f, 0.0001f);
+
+    result = ovms::stof("100.0000000000001");
+    EXPECT_TRUE(result);
+    EXPECT_NEAR(result.value(), 100.0f, 0.0001f);
+
+    result = ovms::stof("0.01");
+    EXPECT_TRUE(result);
+    EXPECT_NEAR(result.value(), 0.01f, 0.0001f);
+
+    result = ovms::stof("0.0000000000001");
+    EXPECT_TRUE(result);
+    EXPECT_NEAR(result.value(), 0.0f, 0.0001f);
+
+    // with e
+    result = ovms::stof("1e-10");
+    EXPECT_TRUE(result);
+    EXPECT_NEAR(result.value(), 1e-10f, 0.0001f);
+
+    // inf / nan
+    result = ovms::stof("inf");
+    EXPECT_FALSE(result) << result.value();
+    result = ovms::stof("nan");
+    EXPECT_FALSE(result) << result.value();
+    result = ovms::stof("1.0e+100");
+    EXPECT_FALSE(result) << result.value();
+    result = ovms::stof("1.0e-100");
+    EXPECT_FALSE(result);
+}
+
 TEST(StringUtils, stou32) {
     auto result = ovms::stou32("-100");
     EXPECT_FALSE(result);
@@ -162,6 +209,21 @@ TEST(StringUtils, stou32) {
     result = ovms::stou32("4294967295");
     EXPECT_TRUE(result);
     EXPECT_EQ(result.value(), 4294967295);
+}
+
+TEST(StringUtils, stou64) {
+    auto result = ovms::stou64("-100");
+    EXPECT_FALSE(result);
+
+    result = ovms::stou64("   100 ");
+    EXPECT_FALSE(result);
+
+    result = ovms::stou64("18446744073709551616");
+    EXPECT_FALSE(result);
+
+    result = ovms::stou64("18446744073709551615");
+    EXPECT_TRUE(result);
+    EXPECT_EQ(result.value(), 18446744073709551615ULL);
 }
 
 TEST(StringUtils, stoi32) {
@@ -272,4 +334,17 @@ TEST(StringUtils, isValidUtf8) {
 
     result = ovms::isValidUtf8("\xaa\xaa");  // iterations would decrease i below 0
     EXPECT_FALSE(result);
+}
+
+TEST(StringUtils, stringsOverlap) {
+    EXPECT_TRUE(ovms::stringsOverlap("hello", "lo world"));
+    EXPECT_TRUE(ovms::stringsOverlap("hello", "hello world"));
+    EXPECT_FALSE(ovms::stringsOverlap("hello", "world"));
+    EXPECT_TRUE(ovms::stringsOverlap("aaaaa", "aaab"));
+    EXPECT_FALSE(ovms::stringsOverlap("aaaaa", "baaa"));
+    EXPECT_TRUE(ovms::stringsOverlap("", ""));
+    EXPECT_FALSE(ovms::stringsOverlap("", "a"));
+    EXPECT_FALSE(ovms::stringsOverlap("a", ""));
+    EXPECT_FALSE(ovms::stringsOverlap("bac", "a"));
+    EXPECT_FALSE(ovms::stringsOverlap("bac", "b"));
 }

@@ -20,6 +20,7 @@ import jinja2
 import json
 import shutil
 import tempfile
+from pathlib import Path
 
 def add_common_arguments(parser):
     parser.add_argument('--model_repository_path', required=False, default='models', help='Where the model should be exported to', dest='model_repository_path')
@@ -51,31 +52,26 @@ parser_text.add_argument('--draft_model_name', required=False, default=None, hel
 parser_text.add_argument('--max_prompt_len', required=False, type=int, default=None, help='Sets NPU specific property for maximum number of tokens in the prompt. '
                          'Not effective if target device is not NPU', dest='max_prompt_len')
 parser_text.add_argument('--prompt_lookup_decoding', action='store_true', help='Set pipeline to use prompt lookup decoding', dest='prompt_lookup_decoding')
-parser_text.add_argument('--tools_model_type', choices=["llama3","phi4","hermes3","qwen3"], help='Set the type of model chat template and output parser', dest='tools_model_type')
-parser_text.add_argument('--enable_tool_guided_generation', action='store_true', help='Enables enforcing tool schema during generation. Requires setting tools_model_type', dest='enable_tool_guided_generation')
-
-parser_embeddings = subparsers.add_parser('embeddings', help='[deprecated] export model for embeddings endpoint with models split into separate, versioned directories')
-add_common_arguments(parser_embeddings)
-parser_embeddings.add_argument('--skip_normalize', default=True, action='store_false', help='Skip normalize the embeddings.', dest='normalize')
-parser_embeddings.add_argument('--truncate', default=False, action='store_true', help='Truncate the prompts to fit to the embeddings model', dest='truncate')
-parser_embeddings.add_argument('--num_streams', default=1,type=int, help='The number of parallel execution streams to use for the model. Use at least 2 on 2 socket CPU systems.', dest='num_streams')
-parser_embeddings.add_argument('--version', default=1, type=int, help='version of the model', dest='version')
+parser_text.add_argument('--reasoning_parser', choices=["qwen3", "gptoss"], help='Set the type of the reasoning parser for reasoning content extraction', dest='reasoning_parser')
+parser_text.add_argument('--tool_parser', choices=["llama3", "phi4", "hermes3", "mistral", "qwen3coder", "gptoss"], help='Set the type of the tool parser for tool calls extraction', dest='tool_parser')
+parser_text.add_argument('--enable_tool_guided_generation', action='store_true', help='Enables enforcing tool schema during generation. Requires setting tool_parser', dest='enable_tool_guided_generation')
 
 parser_embeddings_ov = subparsers.add_parser('embeddings_ov', help='export model for embeddings endpoint with directory structure aligned with OpenVINO tools')
 add_common_arguments(parser_embeddings_ov)
 parser_embeddings_ov.add_argument('--skip_normalize', default=True, action='store_false', help='Skip normalize the embeddings.', dest='normalize')
+parser_embeddings_ov.add_argument('--pooling', default="CLS", choices=["CLS", "LAST", "MEAN"], help='Embeddings pooling mode', dest='pooling')
 parser_embeddings_ov.add_argument('--truncate', default=False, action='store_true', help='Truncate the prompts to fit to the embeddings model', dest='truncate')
 parser_embeddings_ov.add_argument('--num_streams', default=1,type=int, help='The number of parallel execution streams to use for the model. Use at least 2 on 2 socket CPU systems.', dest='num_streams')
 
 parser_rerank = subparsers.add_parser('rerank', help='[deprecated] export model for rerank endpoint with models split into separate, versioned directories')
 add_common_arguments(parser_rerank)
-parser_rerank.add_argument('--num_streams', default="1", help='The number of parallel execution streams to use for the model. Use at least 2 on 2 socket CPU systems.', dest='num_streams')
+parser_rerank.add_argument('--num_streams', default=1, type=int, help='The number of parallel execution streams to use for the model. Use at least 2 on 2 socket CPU systems.', dest='num_streams')
 parser_rerank.add_argument('--max_doc_length', default=16000, type=int, help='Maximum length of input documents in tokens', dest='max_doc_length')
 parser_rerank.add_argument('--version', default="1", help='version of the model', dest='version')
 
 parser_rerank_ov = subparsers.add_parser('rerank_ov', help='export model for rerank endpoint with directory structure aligned with OpenVINO tools')
 add_common_arguments(parser_rerank_ov)
-parser_rerank_ov.add_argument('--num_streams', default="1", help='The number of parallel execution streams to use for the model. Use at least 2 on 2 socket CPU systems.', dest='num_streams')
+parser_rerank_ov.add_argument('--num_streams', default=1, type=int, help='The number of parallel execution streams to use for the model. Use at least 2 on 2 socket CPU systems.', dest='num_streams')
 parser_rerank_ov.add_argument('--max_doc_length', default=16000, type=int, help='Maximum length of input documents in tokens', dest='max_doc_length')
 
 parser_image_generation = subparsers.add_parser('image_generation', help='export model for image generation endpoint')
@@ -89,37 +85,50 @@ parser_image_generation.add_argument('--default_resolution', default="", help='D
 parser_image_generation.add_argument('--max_num_images_per_prompt', type=int, default=0, help='Max allowed number of images client is allowed to request for a given prompt', dest='max_num_images_per_prompt')
 parser_image_generation.add_argument('--default_num_inference_steps', type=int, default=0, help='Default number of inference steps when not specified by client', dest='default_num_inference_steps')
 parser_image_generation.add_argument('--max_num_inference_steps', type=int, default=0, help='Max allowed number of inference steps client is allowed to request for a given prompt', dest='max_num_inference_steps')
+
+parser_text2speech = subparsers.add_parser('text2speech', help='export model for text2speech endpoint')
+add_common_arguments(parser_text2speech)
+parser_text2speech.add_argument('--num_streams', default=0, type=int, help='The number of parallel execution streams to use for the models in the pipeline.', dest='num_streams')
+parser_text2speech.add_argument('--vocoder', type=str, help='The vocoder model to use for text2speech. For example microsoft/speecht5_hifigan', dest='vocoder')
+
+parser_speech2text = subparsers.add_parser('speech2text', help='export model for speech2text endpoint')
+add_common_arguments(parser_speech2text)
+parser_speech2text.add_argument('--num_streams', default=0, type=int, help='The number of parallel execution streams to use for the models in the pipeline.', dest='num_streams')
 args = vars(parser.parse_args())
 
-embedding_graph_template = """input_stream: "REQUEST_PAYLOAD:input"
-output_stream: "RESPONSE_PAYLOAD:output"
+t2s_graph_template = """
+input_stream: "HTTP_REQUEST_PAYLOAD:input"
+output_stream: "HTTP_RESPONSE_PAYLOAD:output"
 node {
-  calculator: "OpenVINOModelServerSessionCalculator"
-  output_side_packet: "SESSION:tokenizer"
+  name: "T2sExecutor"
+  input_side_packet: "TTS_NODE_RESOURCES:t2s_servable"
+  calculator: "T2sCalculator"
+  input_stream: "HTTP_REQUEST_PAYLOAD:input"
+  output_stream: "HTTP_RESPONSE_PAYLOAD:output"
   node_options: {
-    [type.googleapis.com / mediapipe.OpenVINOModelServerSessionCalculatorOptions]: {
-      servable_name: "{{model_name}}_tokenizer_model"
+    [type.googleapis.com / mediapipe.T2sCalculatorOptions]: {
+      models_path: "{{model_path}}",
+      plugin_config: '{ "NUM_STREAMS": "{{num_streams|default(1, true)}}" }',
+      target_device: "{{target_device|default("CPU", true)}}"
     }
   }
 }
+"""
+
+s2t_graph_template = """
+input_stream: "HTTP_REQUEST_PAYLOAD:input"
+output_stream: "HTTP_RESPONSE_PAYLOAD:output"
 node {
-  calculator: "OpenVINOModelServerSessionCalculator"
-  output_side_packet: "SESSION:embeddings"
+  name: "S2tExecutor"
+  input_side_packet: "STT_NODE_RESOURCES:s2t_servable"
+  calculator: "S2tCalculator"
+  input_stream: "HTTP_REQUEST_PAYLOAD:input"
+  output_stream: "HTTP_RESPONSE_PAYLOAD:output"
   node_options: {
-    [type.googleapis.com / mediapipe.OpenVINOModelServerSessionCalculatorOptions]: {
-      servable_name: "{{model_name}}_embeddings_model"
-    }
-  }
-}
-node {
-  input_side_packet: "TOKENIZER_SESSION:tokenizer"
-  input_side_packet: "EMBEDDINGS_SESSION:embeddings"
-  calculator: "EmbeddingsCalculator"
-  input_stream: "REQUEST_PAYLOAD:input"
-  output_stream: "RESPONSE_PAYLOAD:output"
-  node_options: {
-    [type.googleapis.com / mediapipe.EmbeddingsCalculatorOptions]: {
-      normalize_embeddings: {% if not normalize %}false{% else %}true{% endif%},
+    [type.googleapis.com / mediapipe.S2tCalculatorOptions]: {
+      models_path: "{{model_path}}",
+      plugin_config: '{ "NUM_STREAMS": "{{num_streams|default(1, true)}}" }',
+      target_device: "{{target_device|default("CPU", true)}}"
     }
   }
 }
@@ -137,7 +146,12 @@ node {
   node_options: {
     [type.googleapis.com / mediapipe.EmbeddingsCalculatorOVOptions]: {
       models_path: "{{model_path}}",
+      plugin_config: '{"NUM_STREAMS": "{{num_streams}}" }',
       normalize_embeddings: {% if not normalize %}false{% else %}true{% endif%},
+      {%- if pooling %}
+      pooling: {{pooling}},{% endif %}
+      {%- if truncate %}
+      truncate: true,{% endif %}
       target_device: "{{target_device|default("CPU", true)}}"
     }
   }
@@ -156,6 +170,7 @@ node {
   node_options: {
     [type.googleapis.com / mediapipe.RerankCalculatorOVOptions]: {
       models_path: "{{model_path}}",
+      plugin_config: '{"NUM_STREAMS": "{{num_streams}}" }',
       target_device: "{{target_device|default("CPU", true)}}"
     }
   }
@@ -223,9 +238,12 @@ node: {
           {%- if draft_model_dir_name %}
           # Speculative decoding configuration
           draft_models_path: "./{{draft_model_dir_name}}",{% endif %}
-          {%- if tools_model_type %}
-          response_parser: "{{tools_model_type}}",{% endif %}
-          enable_tool_guided_generation: {% if not enable_tool_guided_generation %}false{% else %} true{% endif%},
+          {%- if reasoning_parser %}
+          reasoning_parser: "{{reasoning_parser}}",{% endif %}
+          {%- if tool_parser %}
+          tool_parser: "{{tool_parser}}",{% endif %}
+          {%- if enable_tool_guided_generation %}
+          enable_tool_guided_generation: {% if not enable_tool_guided_generation %}false{% else %} true{% endif%},{% endif %}
       }
   }
   input_stream_handler {
@@ -238,25 +256,6 @@ node: {
       }
     }
   }
-}"""
-
-embeddings_subconfig_template = """{
-    "model_config_list": [
-    { "config": 
-	    {
-                "name": "{{model_name}}_tokenizer_model",
-                "base_path": "tokenizer"
-            }
-	},
-    { "config": 
-	    {
-                "name": "{{model_name}}_embeddings_model",
-                "base_path": "embeddings",
-                "target_device": "{{target_device|default("CPU", true)}}",
-                "plugin_config": { "NUM_STREAMS": "{{num_streams|default(1, true)}}" }
-            }
-	}
-   ]
 }"""
 
 rerank_subconfig_template = """{
@@ -348,30 +347,42 @@ def get_models_max_context(tmpdirname, config_filename):
             return config_data['n_positions']
         return None
 
-def add_servable_to_config(config_path, mediapipe_name, base_path):
-    print(config_path, mediapipe_name, base_path)
+def add_servable_to_config(config_path, model_name, base_path):
+    base_path = Path(base_path).as_posix()
+    print(config_path, model_name, base_path)
     if not os.path.isfile(config_path):
         print("Creating new config file")
         with open(config_path, 'w') as config_file:
             json.dump({'mediapipe_config_list': [], "model_config_list": []}, config_file, indent=4)
     with open(config_path, 'r') as config_file:
         config_data = json.load(config_file)
-        if 'mediapipe_config_list' not in config_data:
-            config_data['mediapipe_config_list'] = []
-        mp_list = config_data['mediapipe_config_list']
+        if 'model_config_list' not in config_data:
+            config_data['model_config_list'] = []
+        ## read legacy mediapipe_config_list to model_config_list
+        if 'mediapipe_config_list' in config_data:
+            for mp_config in config_data['mediapipe_config_list']:
+                if 'name' in mp_config and 'base_path' in mp_config:
+                    if not any(d['config']['name'] == mp_config['name'] + "_model" for d in config_data['model_config_list']):
+                        config_data['model_config_list'].append({'config': {'name': mp_config['name'] + "_model", 'base_path': mp_config['base_path']}})
+            del config_data['mediapipe_config_list']
+        model_list = config_data['model_config_list']
         updated = False
-        for mp_config in mp_list:
-            if mp_config['name'] == mediapipe_name:
-                mp_config['base_path'] = base_path
+        for model_config in model_list:
+            if model_config['config']['name'] == model_name:
+                model_config['config']['base_path'] = base_path
                 updated = True
         if not updated:
-            mp_list.append({'name': mediapipe_name, 'base_path': base_path})
+            model_list.append({'config': {'name': model_name, 'base_path': base_path}})
     with open(config_path, 'w') as config_file:
         json.dump(config_data, config_file, indent=4)
     print("Added servable to config file", config_path)
 
 def export_text_generation_model(model_repository_path, source_model, model_name, precision, task_parameters, config_file_path):
     model_path = "./"
+    # validation for tool parsing
+    if (task_parameters.get('tool_parser', None) == 'gptoss' or task_parameters.get('reasoning_parser', None) == 'gptoss'):
+        if (task_parameters.get('tool_parser', None) != task_parameters.get('reasoning_parser', None)):
+            raise ValueError("Both tool_parser and reasoning_parser need to be set to gptoss when one of them is set to gptoss")
     ### Export model
     if os.path.isfile(os.path.join(source_model, 'openvino_model.xml')) or os.path.isfile(os.path.join(source_model, 'openvino_language_model.xml')):
         print("OV model is source folder. Skipping conversion.")
@@ -387,15 +398,20 @@ def export_text_generation_model(model_repository_path, source_model, model_name
         print("Exporting LLM model to ", llm_model_path)
         if not os.path.isdir(llm_model_path) or args['overwrite_models']:
             if task_parameters['target_device'] == 'NPU':
-                if precision != 'int4':
-                    print("NPU target device requires int4 precision. Changing to int4")
+                if precision != 'int4' and precision != 'nf4':
+                    print("NPU target device requires int4 or nf4 precision. Changing to int4")
                     precision = 'int4'
                 if task_parameters['extra_quantization_params'] == "":
                     print("Using default quantization parameters for NPU: --sym --ratio 1.0 --group-size -1")
                     task_parameters['extra_quantization_params'] = "--sym --ratio 1.0 --group-size -1"
             optimum_command = "optimum-cli export openvino --model {} --weight-format {} {} --trust-remote-code {}".format(source_model, precision, task_parameters['extra_quantization_params'], llm_model_path)
             if os.system(optimum_command):
-                raise ValueError("Failed to export llm model", source_model)    
+                raise ValueError("Failed to export llm model", source_model)
+            if not (os.path.isfile(os.path.join(llm_model_path, 'openvino_detokenizer.xml'))):
+                print("Tokenizer and detokenizer not found in the exported model. Exporting tokenizer and detokenizer from HF model")
+                convert_tokenizer_command = "convert_tokenizer --with-detokenizer -o {} {}".format(llm_model_path, source_model)
+                if os.system(convert_tokenizer_command):
+                    raise ValueError("Failed to export tokenizer and detokenizer", source_model)
     ### Export draft model for speculative decoding 
     draft_source_model = task_parameters.get("draft_source_model", None)
     draft_model_dir_name = None   
@@ -407,7 +423,7 @@ def export_text_generation_model(model_repository_path, source_model, model_name
         elif source_model.startswith("OpenVINO/"):
             if precision:
                 print("Precision change is not supported for OpenVINO models. Parameter --weight-format {} will be ignored.".format(precision))
-            hugging_face_cmd = "huggingface-cli download {} --local-dir {} ".format(source_model, os.path.join(model_repository_path, model_name))
+            hugging_face_cmd = "huggingface-cli download {} --local-dir {} ".format(source_model, os.path.join(draft_llm_model_path, draft_source_model))
             if os.system(hugging_face_cmd):
                 raise ValueError("Failed to download llm model", source_model)    
         else: # assume HF model name or local pytorch model folder
@@ -435,10 +451,6 @@ def export_text_generation_model(model_repository_path, source_model, model_name
     
     # Additional plugin properties for HETERO
     if "HETERO" in task_parameters['target_device']:
-        if task_parameters['pipeline_type'] is None:
-            raise ValueError("pipeline_type should be specified for HETERO target device. It should be set to either LM or VLM")
-        if task_parameters['pipeline_type'] not in ["LM", "VLM"]:
-            raise ValueError("pipeline_type should be either LM or VLM for HETERO target device")
         plugin_config['MODEL_DISTRIBUTION_POLICY'] = 'PIPELINE_PARALLEL'
 
     plugin_config_str = json.dumps(plugin_config)
@@ -452,89 +464,20 @@ def export_text_generation_model(model_repository_path, source_model, model_name
         f.write(graph_content)
     print("Created graph {}".format(os.path.join(model_repository_path, model_name, 'graph.pbtxt')))
 
-    if template_parameters.get("tools_model_type") is not None:
-        print("Adding tuned chat template")
-        template_mapping = {
-            "phi4": "tool_chat_template_phi4_mini.jinja",
-            "llama3": "tool_chat_template_llama3.1_json.jinja",
-            "hermes3": "tool_chat_template_hermes.jinja",
-            "qwen3": None
-            }
-        template_name = template_mapping[task_parameters.get("tools_model_type")]
-        if template_name is not None:
-            template_path = os.path.join(model_repository_path, model_name, "template.jinja")
-            import requests
-            response = requests.get("https://raw.githubusercontent.com/vllm-project/vllm/refs/tags/v0.9.0/examples/" + template_name)
-            print(response.raise_for_status())
-            with open(template_path, "wb") as f:
-                f.write(response.content)
-            print(f"Downloaded tuned chat template to {template_path}")
-
     add_servable_to_config(config_file_path, model_name, os.path.relpath( os.path.join(model_repository_path, model_name), os.path.dirname(config_file_path)))
-
-def export_embeddings_model(model_repository_path, source_model, model_name, precision, task_parameters, version, config_file_path, truncate=True):
-    if os.path.isfile(os.path.join(model_name, 'openvino_model.xml')):
-        print("OV model is source folder. Skipping conversion.")
-        os.makedirs(os.path.join(model_repository_path, model_name, 'embeddings', version), exist_ok=True)
-        os.makedirs(os.path.join(model_repository_path, model_name, 'tokenizer', version), exist_ok=True)
-        shutil.move(os.path.join(model_repository_path, model_name, 'openvino_tokenizer.xml'), os.path.join(model_repository_path, model_name, 'tokenizer', version, 'model.xml'))
-        shutil.move(os.path.join(model_repository_path, model_name, 'openvino_tokenizer.bin'), os.path.join(model_repository_path, model_name, 'tokenizer', version, 'model.bin'))
-        shutil.move(os.path.join(model_repository_path, model_name, 'openvino_model.xml'), os.path.join(model_repository_path, model_name, 'embeddings', version, 'model.xml'))
-        shutil.move(os.path.join(model_repository_path, model_name, 'openvino_model.bin'), os.path.join(model_repository_path, model_name, 'embeddings', version, 'model.bin'))
-    else: # assume HF model 
-        set_max_context_length = ""
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            embeddings_path = os.path.join(model_repository_path, model_name,'embeddings', version)
-            print("Exporting embeddings model to ",embeddings_path)
-            if not os.path.isdir(embeddings_path) or args['overwrite_models']:
-                optimum_command = "optimum-cli export openvino --disable-convert-tokenizer --model {} --task feature-extraction --weight-format {} {} --trust-remote-code --library sentence_transformers {}".format(source_model, precision, task_parameters['extra_quantization_params'], tmpdirname)
-                if os.system(optimum_command):
-                    raise ValueError("Failed to export embeddings model", source_model)
-                set_rt_info(tmpdirname, 'openvino_model.xml', 'config.json')
-                if truncate:
-                    max_context_length = get_models_max_context(tmpdirname, 'config.json')
-                    if max_context_length is not None:
-                        set_max_context_length = "--max_length " + str(get_models_max_context(tmpdirname, 'config.json'))
-                os.makedirs(embeddings_path, exist_ok=True)
-                shutil.move(os.path.join(tmpdirname, 'openvino_model.xml'), os.path.join(embeddings_path, 'model.xml'))
-                shutil.move(os.path.join(tmpdirname, 'openvino_model.bin'), os.path.join(embeddings_path, 'model.bin'))
-            tokenizer_path = os.path.join(model_repository_path, model_name,'tokenizer', version)
-            print("Exporting tokenizer to ", tokenizer_path)
-            if not os.path.isdir(tokenizer_path) or args['overwrite_models']:
-                from openvino_tokenizers import convert_tokenizer
-                convert_tokenizer_command = "convert_tokenizer -o {} {} {}".format(tmpdirname, source_model, set_max_context_length) 
-                if (os.system(convert_tokenizer_command)):
-                    raise ValueError("Failed to export tokenizer model", source_model)
-                set_rt_info(tmpdirname, 'openvino_tokenizer.xml', 'tokenizer_config.json')
-                os.makedirs(tokenizer_path, exist_ok=True)
-                shutil.move(os.path.join(tmpdirname, 'openvino_tokenizer.xml'), os.path.join(tokenizer_path, 'model.xml'))
-                shutil.move(os.path.join(tmpdirname, 'openvino_tokenizer.bin'), os.path.join(tokenizer_path, 'model.bin'))
-    gtemplate = jinja2.Environment(loader=jinja2.BaseLoader).from_string(embedding_graph_template)
-    graph_content = gtemplate.render(model_name=model_name, **task_parameters)
-    with open(os.path.join(model_repository_path, model_name, 'graph.pbtxt'), 'w') as f:
-        f.write(graph_content)
-    print("Created graph {}".format(os.path.join(model_repository_path, model_name, 'graph.pbtxt')))
-    stemplate = jinja2.Environment(loader=jinja2.BaseLoader).from_string(embeddings_subconfig_template)
-    subconfig_content = stemplate.render(model_name=model_name, **task_parameters)
-    with open(os.path.join(model_repository_path, model_name, 'subconfig.json'), 'w') as f:
-        f.write(subconfig_content)
-    print("Created subconfig {}".format(os.path.join(model_repository_path, model_name, 'subconfig.json')))
-    add_servable_to_config(config_file_path, model_name, os.path.relpath(os.path.join(model_repository_path, model_name), os.path.dirname(config_file_path)))
 
 def export_embeddings_model_ov(model_repository_path, source_model, model_name, precision, task_parameters, config_file_path, truncate=True):
     set_max_context_length = ""
     destination_path = os.path.join(model_repository_path, model_name)
     print("Exporting embeddings model to ",destination_path)
     if not os.path.isdir(destination_path) or args['overwrite_models']:
-        optimum_command = "optimum-cli export openvino --model {} --disable-convert-tokenizer --task feature-extraction --weight-format {} {} --trust-remote-code --library sentence_transformers {}".format(source_model, precision, task_parameters['extra_quantization_params'], destination_path)
+        optimum_command = "optimum-cli export openvino --model {} --disable-convert-tokenizer --task feature-extraction --weight-format {} {} --trust-remote-code {}".format(source_model, precision, task_parameters['extra_quantization_params'], destination_path)
+        print('Running command:', optimum_command)  # for debug purposes
         if os.system(optimum_command):
             raise ValueError("Failed to export embeddings model", source_model)
-        if truncate:
-            max_context_length = get_models_max_context(destination_path, 'config.json')
-            if max_context_length is not None:
-                set_max_context_length = "--max_length " + str(get_models_max_context(destination_path, 'config.json'))
         print("Exporting tokenizer to ", destination_path)
         convert_tokenizer_command = "convert_tokenizer -o {} {} {}".format(destination_path, source_model, set_max_context_length) 
+        print('Running command:', convert_tokenizer_command)  # for debug purposes
         if (os.system(convert_tokenizer_command)):
             raise ValueError("Failed to export tokenizer model", source_model)
     gtemplate = jinja2.Environment(loader=jinja2.BaseLoader).from_string(embedding_graph_ov_template)
@@ -542,7 +485,34 @@ def export_embeddings_model_ov(model_repository_path, source_model, model_name, 
     with open(os.path.join(model_repository_path, model_name, 'graph.pbtxt'), 'w') as f:
         f.write(graph_content)
     print("Created graph {}".format(os.path.join(model_repository_path, model_name, 'graph.pbtxt')))
-    add_servable_to_config(config_file_path, model_name, os.path.relpath(os.path.join(model_repository_path, model_name), os.path.dirname(config_file_path)))
+
+def export_text2speech_model(model_repository_path, source_model, model_name, precision, task_parameters, config_file_path):
+    destination_path = os.path.join(model_repository_path, model_name)
+    print("Exporting text2speech model to ",destination_path)
+    if not os.path.isdir(destination_path) or args['overwrite_models']:
+        optimum_command = "optimum-cli export openvino --model {} --weight-format {} --trust-remote-code --model-kwargs \"{{\\\"vocoder\\\": \\\"{}\\\"}}\" {}".format(source_model, precision, task_parameters['vocoder'], destination_path)
+        if os.system(optimum_command):
+            raise ValueError("Failed to export text2speech model", source_model)
+    gtemplate = jinja2.Environment(loader=jinja2.BaseLoader).from_string(t2s_graph_template)
+    graph_content = gtemplate.render(model_path="./", **task_parameters)
+    with open(os.path.join(model_repository_path, model_name, 'graph.pbtxt'), 'w') as f:
+        f.write(graph_content)
+    print("Created graph {}".format(os.path.join(model_repository_path, model_name, 'graph.pbtxt')))
+    add_servable_to_config(config_file_path, model_name, os.path.relpath( os.path.join(model_repository_path, model_name), os.path.dirname(config_file_path)))
+
+def export_speech2text_model(model_repository_path, source_model, model_name, precision, task_parameters, config_file_path):
+    destination_path = os.path.join(model_repository_path, model_name)
+    print("Exporting speech2text model to ",destination_path)
+    if not os.path.isdir(destination_path) or args['overwrite_models']:
+        optimum_command = "optimum-cli export openvino --model {} --weight-format {} --trust-remote-code {}".format(source_model, precision, destination_path)
+        if os.system(optimum_command):
+            raise ValueError("Failed to export speech2text model", source_model)
+    gtemplate = jinja2.Environment(loader=jinja2.BaseLoader).from_string(s2t_graph_template)
+    graph_content = gtemplate.render(model_path="./", **task_parameters)
+    with open(os.path.join(model_repository_path, model_name, 'graph.pbtxt'), 'w') as f:
+        f.write(graph_content)
+    print("Created graph {}".format(os.path.join(model_repository_path, model_name, 'graph.pbtxt')))
+    add_servable_to_config(config_file_path, model_name, os.path.relpath( os.path.join(model_repository_path, model_name), os.path.dirname(config_file_path)))
 
 def export_rerank_model_ov(model_repository_path, source_model, model_name, precision, task_parameters, config_file_path, max_doc_length):
     destination_path = os.path.join(model_repository_path, model_name)
@@ -660,16 +630,14 @@ if args['task'] == 'text_generation':
         args['draft_model_name'] = args['draft_source_model']
 ###
 
+if args['extra_quantization_params'] is None:
+    args['extra_quantization_params'] = ""
+
 template_parameters = {k: v for k, v in args.items() if k not in ['model_repository_path', 'source_model', 'model_name', 'precision', 'version', 'config_file_path', 'overwrite_models']}
 print("template params:", template_parameters)
 
-if template_parameters['extra_quantization_params'] is None:
-    template_parameters['extra_quantization_params'] = ""
 if args['task'] == 'text_generation':
     export_text_generation_model(args['model_repository_path'], args['source_model'], args['model_name'], args['precision'], template_parameters, args['config_file_path'])
-
-elif args['task'] == 'embeddings':
-    export_embeddings_model(args['model_repository_path'], args['source_model'], args['model_name'],  args['precision'], template_parameters, str(args['version']), args['config_file_path'], args['truncate'])
 
 elif args['task'] == 'embeddings_ov':
     export_embeddings_model_ov(args['model_repository_path'], args['source_model'], args['model_name'],  args['precision'], template_parameters, args['config_file_path'], args['truncate'])
@@ -680,6 +648,11 @@ elif args['task'] == 'rerank':
 elif args['task'] == 'rerank_ov':
     export_rerank_model_ov(args['model_repository_path'], args['source_model'], args['model_name'] ,args['precision'], template_parameters, args['config_file_path'], args['max_doc_length'])
 
+elif args['task'] == 'text2speech':
+    export_text2speech_model(args['model_repository_path'], args['source_model'], args['model_name'], args['precision'], template_parameters, args['config_file_path'])
+
+elif args['task'] == 'speech2text':
+    export_speech2text_model(args['model_repository_path'], args['source_model'], args['model_name'] ,args['precision'], template_parameters, args['config_file_path'])
 elif args['task'] == 'image_generation':
     template_parameters = {k: v for k, v in args.items() if k in [
         'ov_cache_dir',

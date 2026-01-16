@@ -19,8 +19,8 @@
 #pragma warning(push)
 #pragma warning(disable : 6313)
 #include <rapidjson/istreamwrapper.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
+#include "src/port/rapidjson_stringbuffer.hpp"
+#include "src/port/rapidjson_writer.hpp"
 #pragma warning(pop)
 #include <spdlog/spdlog.h>
 
@@ -115,7 +115,6 @@ Status MediapipeGraphConfig::parseNode(const rapidjson::Value& v) {
             this->setModelMeshSubconfigPath(DEFAULT_MODELMESH_SUBCONFIG_FILENAME);
         } else {
             std::string defaultSubconfigPath = getBasePath() + "subconfig.json";
-            SPDLOG_DEBUG("No subconfig path was provided for graph: {} so default subconfig file: {} will be loaded.", getGraphName(), defaultSubconfigPath);
             this->setSubconfigPath(DEFAULT_SUBCONFIG_FILENAME);
             this->setModelMeshSubconfigPath(DEFAULT_MODELMESH_SUBCONFIG_FILENAME);
         }
@@ -127,5 +126,17 @@ Status MediapipeGraphConfig::parseNode(const rapidjson::Value& v) {
         return StatusCode::JSON_INVALID;
     }
     return StatusCode::OK;
+}
+
+void MediapipeGraphConfig::logGraphConfigContent() const {
+    std::ifstream fileStream(this->graphPath);
+    if (!fileStream.is_open()) {
+        SPDLOG_ERROR("Failed to open file: {}", this->graphPath);
+        return;
+    }
+    std::stringstream buffer;
+    buffer << fileStream.rdbuf();
+    SPDLOG_DEBUG("Content of file {}:\n{}", this->graphPath, buffer.str());
+    fileStream.close();
 }
 }  // namespace ovms
