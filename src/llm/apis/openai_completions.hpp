@@ -29,8 +29,11 @@
 #include <openvino/genai/llm_pipeline.hpp>
 #include <openvino/genai/tokenizer.hpp>
 #include <openvino/genai/visual_language/pipeline.hpp>
-#include "src/port/rapidjson_document.hpp"
-#include "src/port/rapidjson_writer.hpp"
+#pragma warning(push)
+#pragma warning(disable : 6313)
+#include <rapidjson/document.h>
+#include <rapidjson/writer.h>
+#pragma warning(pop)
 #pragma warning(push)
 #pragma warning(disable : 6001 4324 6385 6386)
 #include "absl/status/status.h"
@@ -66,28 +69,24 @@ class OpenAIChatCompletionsHandler {
     std::chrono::time_point<std::chrono::system_clock> created;
     ov::genai::Tokenizer tokenizer;
     size_t processedTokens = 0;  // tracks overall number of tokens processed by the pipeline
-
-    // Output parser is used to parse chat completions response to extract specific fields like tool calls and reasoning.
-    std::unique_ptr<OutputParser> outputParser = nullptr;
+    // Response parser is used to parse chat completions response for specific models
+    std::unique_ptr<OutputParser> responseParser = nullptr;
 
     absl::Status parseCompletionsPart();
     absl::Status parseChatCompletionsPart(std::optional<uint32_t> maxTokensLimit, std::optional<std::string> allowedLocalMediaPath);
     absl::Status parseCommonPart(std::optional<uint32_t> maxTokensLimit, uint32_t bestOfLimit, std::optional<uint32_t> maxModelLength);
 
     ParsedOutput parseOutputIfNeeded(const std::vector<int64_t>& generatedIds);
-    absl::Status ensureArgumentsInToolCalls(Value& messageObj, bool& jsonChanged);
 
 public:
     OpenAIChatCompletionsHandler(Document& doc, Endpoint endpoint, std::chrono::time_point<std::chrono::system_clock> creationTime,
-        ov::genai::Tokenizer tokenizer, const std::string& toolParserName = "", const std::string& reasoningParserName = "") :
+        ov::genai::Tokenizer tokenizer, const std::string& responseParserName = "") :
         doc(doc),
         endpoint(endpoint),
         created(creationTime),
         tokenizer(tokenizer) {
-        // TODO we should delay creating output parser until we have request with toolNameSchemaMap parsed
-        // now we pass it now but it has to be populated first before first use
-        if (!toolParserName.empty() || !reasoningParserName.empty()) {
-            outputParser = std::make_unique<OutputParser>(tokenizer, toolParserName, reasoningParserName, this->request.toolNameSchemaMap);
+        if (!responseParserName.empty()) {
+            responseParser = std::make_unique<OutputParser>(tokenizer, responseParserName);
         }
     }
 
@@ -100,12 +99,10 @@ public:
     // User input might be modified by the servable logic, so it is not const
     ov::genai::ChatHistory& getChatHistory();
     std::optional<int> getMaxTokens() const;
-    std::optional<std::string> getResponseFormat() const;
+    std::optional<std::string> getResponseSchema() const;
 
     bool isStream() const;
     std::string getModel() const;
-    std::string getToolChoice() const;
-    const std::unique_ptr<OutputParser>& getOutputParser() const;
 
     void setPromptTokensUsage(size_t promptTokens);
 
@@ -114,7 +111,6 @@ public:
     absl::Status parseRequest(std::optional<uint32_t> maxTokensLimit, uint32_t bestOfLimit, std::optional<uint32_t> maxModelLength, std::optional<std::string> allowedLocalMediaPath = std::nullopt);
     absl::Status parseMessages(std::optional<std::string> allowedLocalMediaPath = std::nullopt);
     absl::Status parseTools();
-    const bool areToolsAvailable() const;
 
     std::string serializeUnaryResponse(const std::vector<ov::genai::GenerationOutput>& generationOutputs);
     std::string serializeUnaryResponse(const ov::genai::EncodedResults& results);

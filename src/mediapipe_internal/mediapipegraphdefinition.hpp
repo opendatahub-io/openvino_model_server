@@ -44,10 +44,6 @@
 #include "packettypes.hpp"
 
 #include "../sidepacket_servable.hpp"
-#include "../embeddings/embeddings_servable.hpp"
-#include "../rerank/rerank_servable.hpp"
-#include "../audio/speech_to_text/s2t_servable.hpp"
-#include "../audio/text_to_speech/t2s_servable.hpp"
 
 namespace ovms {
 class MediapipeGraphDefinitionUnloadGuard;
@@ -63,10 +59,8 @@ class GenAiServable;
 struct ImageGenerationPipelines;
 using PythonNodeResourcesMap = std::unordered_map<std::string, std::shared_ptr<PythonNodeResources>>;
 using GenAiServableMap = std::unordered_map<std::string, std::shared_ptr<GenAiServable>>;
-using RerankServableMap = std::unordered_map<std::string, std::shared_ptr<RerankServable>>;
-using SttServableMap = std::unordered_map<std::string, std::shared_ptr<SttServable>>;
-using TtsServableMap = std::unordered_map<std::string, std::shared_ptr<TtsServable>>;
-using EmbeddingsServableMap = std::unordered_map<std::string, std::shared_ptr<EmbeddingsServable>>;
+using EmbeddingsServableMap = std::unordered_map<std::string, std::shared_ptr<SidepacketServable>>;
+using RerankServableMap = std::unordered_map<std::string, std::shared_ptr<SidepacketServable>>;
 using ImageGenerationPipelinesMap = std::unordered_map<std::string, std::shared_ptr<ImageGenerationPipelines>>;
 
 struct GraphSidePackets {
@@ -75,25 +69,19 @@ struct GraphSidePackets {
     ImageGenerationPipelinesMap imageGenPipelinesMap;
     EmbeddingsServableMap embeddingsServableMap;
     RerankServableMap rerankServableMap;
-    SttServableMap sttServableMap;
-    TtsServableMap ttsServableMap;
     void clear() {
         pythonNodeResourcesMap.clear();
         genAiServableMap.clear();
         imageGenPipelinesMap.clear();
         embeddingsServableMap.clear();
         rerankServableMap.clear();
-        sttServableMap.clear();
-        ttsServableMap.clear();
     }
     bool empty() {
         return (pythonNodeResourcesMap.empty() &&
                 genAiServableMap.empty() &&
                 imageGenPipelinesMap.empty() &&
                 embeddingsServableMap.empty() &&
-                rerankServableMap.empty() &&
-                sttServableMap.empty() &&
-                ttsServableMap.empty());
+                rerankServableMap.empty());
     }
 };
 
@@ -119,7 +107,7 @@ public:
     const tensor_map_t getOutputsInfo() const;
     const MediapipeGraphConfig& getMediapipeGraphConfig() const { return this->mgconfig; }
     MediapipeServableMetricReporter& getMetricReporter() const { return *this->reporter; }
-    Status create(std::unique_ptr<MediapipeGraphExecutor>& pipeline);
+    Status create(std::shared_ptr<MediapipeGraphExecutor>& pipeline);
 
     Status reload(ModelManager& manager, const MediapipeGraphConfig& config);
     Status validate(ModelManager& manager);
@@ -134,8 +122,6 @@ public:
     static const std::string IMAGE_GEN_CALCULATOR_NAME;
     static const std::string EMBEDDINGS_NODE_CALCULATOR_NAME;
     static const std::string RERANK_NODE_CALCULATOR_NAME;
-    static const std::string STT_NODE_CALCULATOR_NAME;
-    static const std::string TTS_NODE_CALCULATOR_NAME;
     Status waitForLoaded(std::unique_ptr<MediapipeGraphDefinitionUnloadGuard>& unloadGuard, const uint32_t waitForLoadedTimeoutMicroseconds = WAIT_FOR_LOADED_DEFAULT_TIMEOUT_MICROSECONDS);
 
     // Pipelines are not versioned and any available definition has constant version equal 1.

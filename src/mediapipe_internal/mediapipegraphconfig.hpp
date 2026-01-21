@@ -214,10 +214,5 @@ public:
     * @return Status
     */
     Status parseNode(const rapidjson::Value& v);
-
-    /**
-    * @brief  Logs the content of the graph configuration
-    */
-    void logGraphConfigContent() const;
 };
 }  // namespace ovms

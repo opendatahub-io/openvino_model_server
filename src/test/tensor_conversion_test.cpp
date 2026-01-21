@@ -28,7 +28,6 @@
 #include "../tensor_conversion.hpp"
 #include "opencv2/opencv.hpp"
 #include "test_utils.hpp"
-#include "platform_utils.hpp"
 
 using namespace ovms;
 

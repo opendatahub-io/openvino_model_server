@@ -25,22 +25,21 @@
 #include "../stringutils.hpp"
 #include "../status.hpp"
 #include "cmd_exec.hpp"
-#include "model_downloader.hpp"
 
 namespace ovms {
 
 std::string OptimumDownloader::getExportCmdText() {
     std::ostringstream oss;
     // NPU specific settings
-    if (this->exportSettings.targetDevice == "NPU" && !this->exportSettings.extraQuantizationParams.has_value()) {
-        this->exportSettings.extraQuantizationParams.value() = "--sym --ratio 1.0 --group-size -1";
+    if (this->hfSettings.targetDevice == "NPU" && !this->hfSettings.extraQuantizationParams.has_value()) {
+        this->hfSettings.extraQuantizationParams.value() = "--sym --ratio 1.0 --group-size -1";
     }
     // clang-format off
     oss << this->OPTIMUM_CLI_EXPORT_COMMAND;
-    oss << "--model " << this->sourceModel << " --trust-remote-code ";
-    oss << " --weight-format " << this->exportSettings.precision << " ";
-    if (this->exportSettings.extraQuantizationParams.has_value()) {
-        oss << this->exportSettings.extraQuantizationParams.value() << " ";
+    oss << "--model " << this->hfSettings.sourceModel << " --trust-remote-code ";
+    oss << " --weight-format " << this->hfSettings.precision << " ";
+    if (this->hfSettings.extraQuantizationParams.has_value()) {
+        oss << this->hfSettings.extraQuantizationParams.value() << " ";
     }
     oss << this->downloadPath;
     // clang-format on
@@ -52,35 +51,8 @@ std::string OptimumDownloader::getExportCmdEmbeddings() {
     // clang-format off
     oss << this->OPTIMUM_CLI_EXPORT_COMMAND;
     oss << "--disable-convert-tokenizer --task feature-extraction --library sentence_transformers";
-    oss << " --model " << this->sourceModel << " --trust-remote-code ";
-    oss << " --weight-format " << this->exportSettings.precision;
-    oss << " " << this->downloadPath;
-    // clang-format on
-
-    return oss.str();
-}
-
-std::string OptimumDownloader::getExportCmdTextToSpeech() {
-    std::ostringstream oss;
-    // clang-format off
-    oss << this->OPTIMUM_CLI_EXPORT_COMMAND;
-    if (this->exportSettings.vocoder.has_value()){
-        oss << "--model-kwargs \"{\"vocoder\": \"" << this->exportSettings.vocoder.value() << "\"}\" ";
-    }
-    oss << "--model " << this->sourceModel << " --trust-remote-code ";
-    oss << " --weight-format " << this->exportSettings.precision;
-    oss << " " << this->downloadPath;
-    // clang-format on
-
-    return oss.str();
-}
-
-std::string OptimumDownloader::getExportCmdSpeechToText() {
-    std::ostringstream oss;
-    // clang-format off
-    oss << this->OPTIMUM_CLI_EXPORT_COMMAND;
-    oss << "--model " << this->sourceModel << " --trust-remote-code ";
-    oss << " --weight-format " << this->exportSettings.precision;
+    oss << " --model " << this->hfSettings.sourceModel << " --trust-remote-code ";
+    oss << " --weight-format " << this->hfSettings.precision;
     oss << " " << this->downloadPath;
     // clang-format on
 
@@ -91,9 +63,9 @@ std::string OptimumDownloader::getExportCmdRerank() {
     std::ostringstream oss;
     // clang-format off
     oss << this->OPTIMUM_CLI_EXPORT_COMMAND;
-    oss << "--disable-convert-tokenizer --model " << this->sourceModel;
+    oss << "--disable-convert-tokenizer --model " << this->hfSettings.sourceModel;
     oss << " --trust-remote-code ";
-    oss << " --weight-format " << this->exportSettings.precision;
+    oss << " --weight-format " << this->hfSettings.precision;
     oss << " --task text-classification ";
     oss << " " << this->downloadPath;
     // clang-format on
@@ -105,8 +77,8 @@ std::string OptimumDownloader::getExportCmdImageGeneration() {
     std::ostringstream oss;
     // clang-format off
     oss << this->OPTIMUM_CLI_EXPORT_COMMAND;
-    oss << "--model " << this->sourceModel;
-    oss << " --weight-format " << this->exportSettings.precision;
+    oss << "--model " << this->hfSettings.sourceModel;
+    oss << " --weight-format " << this->hfSettings.precision;
     oss << " " << this->downloadPath;
     // clang-format on
 
@@ -115,7 +87,7 @@ std::string OptimumDownloader::getExportCmdImageGeneration() {
 
 std::string OptimumDownloader::getExportCmd() {
     std::string cmd = "";
-    switch (this->task) {
+    switch (this->hfSettings.task) {
     case TEXT_GENERATION_GRAPH: {
         cmd = getExportCmdText();
         break;
@@ -132,14 +104,6 @@ std::string OptimumDownloader::getExportCmd() {
         cmd = getExportCmdImageGeneration();
         break;
     }
-    case TEXT_TO_SPEECH_GRAPH: {
-        cmd = getExportCmdTextToSpeech();
-        break;
-    }
-    case SPEECH_TO_TEXT_GRAPH: {
-        cmd = getExportCmdSpeechToText();
-        break;
-    }
     case UNKNOWN_GRAPH: {
         SPDLOG_ERROR("Optimum cli task options not initialised.");
         break;
@@ -148,109 +112,44 @@ std::string OptimumDownloader::getExportCmd() {
 
     return cmd;
 }
-
-std::string OptimumDownloader::getConvertCmd() {
-    std::string cmd = "";
-    switch (this->task) {
-    case TEXT_GENERATION_GRAPH: {
-        cmd = getConvertCmdWithDetokenizer();
-        break;
-    }
-    case EMBEDDINGS_GRAPH: {
-        cmd = getConvertCmdOnlyTokenizer();
-        break;
-    }
-    case RERANK_GRAPH: {
-        cmd = getConvertCmdOnlyTokenizer();
-        break;
-    }
-    case TEXT_TO_SPEECH_GRAPH: {
-        cmd = getConvertCmdOnlyTokenizer();
-        break;
-    }
-    case SPEECH_TO_TEXT_GRAPH: {
-        cmd = getConvertCmdOnlyTokenizer();
-        break;
-    }
-    case IMAGE_GENERATION_GRAPH: {
-        cmd = "";
-        break;
-    }
-    case UNKNOWN_GRAPH: {
-        SPDLOG_ERROR("Optimum cli task options not initialised.");
-        break;
-    }
-    }
-
-    return cmd;
+OptimumDownloader::OptimumDownloader() {
+    this->sourceModel = "";
+    this->downloadPath = "";
+    this->hfSettings = {};
+    this->overwriteModels = false;
 }
 
-std::string OptimumDownloader::getConvertCmdWithDetokenizer() {
-    std::ostringstream oss;
-    // clang-format off
-    oss << this->CONVERT_TOKENIZER_EXPORT_COMMAND;
-    oss << this->sourceModel;
-    oss << " --with-detokenizer -o ";
-    oss << this->downloadPath;
-    // clang-format on
-
-    return oss.str();
+std::string OptimumDownloader::getGraphDirectory() {
+    return this->downloadPath;
 }
 
-std::string OptimumDownloader::getConvertCmdOnlyTokenizer() {
-    std::ostringstream oss;
-    // clang-format off
-    oss << this->CONVERT_TOKENIZER_EXPORT_COMMAND;
-    oss << this->sourceModel;
-    oss << " -o ";
-    oss << this->downloadPath;
-    // clang-format on
-
-    return oss.str();
+OptimumDownloader::OptimumDownloader(const HFSettingsImpl& inHfSettings, const std::string& cliExportCmd, const std::string& cliCheckCmd) {
+    this->sourceModel = inHfSettings.sourceModel;
+    this->downloadPath = HfDownloader::getGraphDirectory(inHfSettings.downloadPath, inHfSettings.sourceModel);
+    this->hfSettings = inHfSettings;
+    this->overwriteModels = inHfSettings.overwriteModels;
+    this->OPTIMUM_CLI_CHECK_COMMAND = cliCheckCmd;
+    this->OPTIMUM_CLI_EXPORT_COMMAND = cliExportCmd;
 }
-
-bool OptimumDownloader::checkIfDetokenizerFileIsExported() {
-    return std::filesystem::exists(FileSystem::joinPath({this->downloadPath, "openvino_detokenizer.xml"}));
-}
-
-bool OptimumDownloader::checkIfTokenizerFileIsExported() {
-    return std::filesystem::exists(FileSystem::joinPath({this->downloadPath, "openvino_tokenizer.xml"}));
-}
-
-OptimumDownloader::OptimumDownloader(const ExportSettings& inExportSettings, const GraphExportType& inTask,
-    const std::string& inSourceModel, const std::string& inDownloadPath, bool inOverwrite, const std::string& cliExportCmd,
-    const std::string& cliCheckCmd, const std::string& convertExportCmd, const std::string& convertCheckCmd) :
-    IModelDownloader(inSourceModel, inDownloadPath, inOverwrite),
-    exportSettings(inExportSettings),
-    task(inTask),
-    OPTIMUM_CLI_CHECK_COMMAND(cliCheckCmd),
-    OPTIMUM_CLI_EXPORT_COMMAND(cliExportCmd),
-    CONVERT_TOKENIZER_CHECK_COMMAND(convertCheckCmd),
-    CONVERT_TOKENIZER_EXPORT_COMMAND(convertExportCmd) {}
 
 Status OptimumDownloader::checkRequiredToolsArePresent() {
     int retCode = -1;
     std::string output = exec_cmd(this->OPTIMUM_CLI_CHECK_COMMAND, retCode);
     if (retCode != 0) {
         SPDLOG_DEBUG("Command output {}", output);
-        SPDLOG_ERROR("Trying to pull {} from HuggingFace but missing optimum-intel. Use the ovms package with optimum-intel installed.", this->sourceModel);
+        SPDLOG_ERROR("optimum-cli executable is not present. Please install python and demos/common/export_models/requirements.txt");
         return StatusCode::HF_FAILED_TO_INIT_OPTIMUM_CLI;
     }
 
     SPDLOG_DEBUG("Optimum-cli executable is present");
-
-    output = exec_cmd_utf8(this->CONVERT_TOKENIZER_CHECK_COMMAND, retCode);
-    if (retCode != 0) {
-        SPDLOG_DEBUG("Command output {}", output);
-        SPDLOG_ERROR("Trying to pull {} from HuggingFace but missing convert_tokenizer. This is likely because you are using OVMS without Python support which is required for pulling with conversion.", this->sourceModel);
-        return StatusCode::HF_FAILED_TO_INIT_OPTIMUM_CLI;
-    }
-
-    SPDLOG_DEBUG("Convert_tokenizer executable is present");
     return StatusCode::OK;
 }
 
-Status OptimumDownloader::downloadModel() {
+Status OptimumDownloader::cloneRepository() {
+    if (this->hfSettings.downloadType != OPTIMUM_CLI_DOWNLOAD) {
+        SPDLOG_ERROR("Wrong download type selected. Expected optiumum-cli type.");
+        return StatusCode::INTERNAL_ERROR;
+    }
     if (FileSystem::isPathEscaped(this->downloadPath)) {
         SPDLOG_ERROR("Path {} escape with .. is forbidden.", this->downloadPath);
         return StatusCode::PATH_INVALID;
@@ -268,7 +167,7 @@ Status OptimumDownloader::downloadModel() {
         return status;
     }
 
-    status = IModelDownloader::checkIfOverwriteAndRemove();
+    status = checkIfOverwriteAndRemove(this->downloadPath);
     if (!status.ok()) {
         return status;
     }
@@ -285,23 +184,6 @@ Status OptimumDownloader::downloadModel() {
         SPDLOG_DEBUG("Command output {}", output);
         SPDLOG_ERROR("optimum-cli command failed.");
         return StatusCode::HF_RUN_OPTIMUM_CLI_EXPORT_FAILED;
-    }
-
-    if (!this->checkIfTokenizerFileIsExported()) {
-        cmd = getConvertCmd();
-        retCode = -1;
-        // Tokenizer, detokenizer not required for image generation
-        if (cmd != "") {
-            SPDLOG_DEBUG("Tokenizer not found in the exported model. Exporting tokenizer and detokenizer from HF model.");
-            output = exec_cmd(cmd, retCode);
-            if (retCode != 0) {
-                SPDLOG_DEBUG("Command output {}", output);
-                SPDLOG_ERROR("convert_tokenizer command failed.");
-                return StatusCode::HF_RUN_CONVERT_TOKENIZER_EXPORT_FAILED;
-            }
-        }
-    } else {
-        SPDLOG_DEBUG("Tokenizer is found in the exported model directory. Convert_tokenizer command not required.");
     }
 
     return StatusCode::OK;

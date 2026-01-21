@@ -23,7 +23,6 @@
 #include "rapidjson/document.h"
 #include "test_http_utils.hpp"
 #include "test_utils.hpp"
-#include "platform_utils.hpp"
 
 using namespace ovms;
 
@@ -124,10 +123,13 @@ TEST_F(ListModelsEndpointTest, simplePositiveRetrieveModel) {
     rapidjson::Document d;
     rapidjson::ParseResult ok = d.Parse(response.c_str());
     ASSERT_EQ(ok.Code(), 0);
-    ASSERT_EQ(d["object"], "model");
-    ASSERT_EQ(d["id"], "add");
-    ASSERT_TRUE(d["created"].IsInt());
-    ASSERT_EQ(d["owned_by"], "OVMS");
+    ASSERT_EQ(d["object"], "list");
+    ASSERT_TRUE(d["data"].IsArray());
+    ASSERT_EQ(d["data"].Size(), 1);
+    ASSERT_EQ(d["data"][0]["object"], "model");
+    ASSERT_EQ(d["data"][0]["id"], "add");
+    ASSERT_TRUE(d["data"][0]["created"].IsInt());
+    ASSERT_EQ(d["data"][0]["owned_by"], "OVMS");
 }
 
 TEST_F(ListModelsEndpointTest, retrieveNonExisitingModel) {
@@ -156,10 +158,13 @@ TEST_F(ListModelsEndpointTest, simplePositiveRetrieveGraph) {
     rapidjson::Document d;
     rapidjson::ParseResult ok = d.Parse(response.c_str());
     ASSERT_EQ(ok.Code(), 0);
-    ASSERT_EQ(d["object"], "model");
-    ASSERT_EQ(d["id"], "my/graph");
-    ASSERT_TRUE(d["created"].IsInt());
-    ASSERT_EQ(d["owned_by"], "OVMS");
+    ASSERT_EQ(d["object"], "list");
+    ASSERT_TRUE(d["data"].IsArray());
+    ASSERT_EQ(d["data"].Size(), 1);
+    ASSERT_EQ(d["data"][0]["object"], "model");
+    ASSERT_EQ(d["data"][0]["id"], "my/graph");
+    ASSERT_TRUE(d["data"][0]["created"].IsInt());
+    ASSERT_EQ(d["data"][0]["owned_by"], "OVMS");
 }
 
 TEST_F(ListModelsEndpointTest, simplePositiveRetrieveModelv1v3) {
@@ -172,8 +177,11 @@ TEST_F(ListModelsEndpointTest, simplePositiveRetrieveModelv1v3) {
     rapidjson::Document d;
     rapidjson::ParseResult ok = d.Parse(response.c_str());
     ASSERT_EQ(ok.Code(), 0);
-    ASSERT_EQ(d["object"], "model");
-    ASSERT_EQ(d["id"], "add");
-    ASSERT_TRUE(d["created"].IsInt());
-    ASSERT_EQ(d["owned_by"], "OVMS");
+    ASSERT_EQ(d["object"], "list");
+    ASSERT_TRUE(d["data"].IsArray());
+    ASSERT_EQ(d["data"].Size(), 1);
+    ASSERT_EQ(d["data"][0]["object"], "model");
+    ASSERT_EQ(d["data"][0]["id"], "add");
+    ASSERT_TRUE(d["data"][0]["created"].IsInt());
+    ASSERT_EQ(d["data"][0]["owned_by"], "OVMS");
 }

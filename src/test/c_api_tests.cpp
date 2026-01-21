@@ -43,11 +43,7 @@
 #include "../version.hpp"
 #include "c_api_test_utils.hpp"
 #include "mockmodelinstancechangingstates.hpp"
-#include "test_models_configs.hpp"
 #include "test_utils.hpp"
-#include "light_test_utils.hpp"
-#include "platform_utils.hpp"
-#include "test_with_temp_dir.hpp"
 
 using namespace ovms;
 using testing::ElementsAreArray;
@@ -103,7 +99,7 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     EXPECT_EQ(serverSettings->grpcMemoryQuota, std::nullopt);
     EXPECT_EQ(serverSettings->filesystemPollWaitMilliseconds, 1000);
     EXPECT_EQ(serverSettings->sequenceCleanerPollWaitMinutes, 5);
-    EXPECT_EQ(serverSettings->resourcesCleanerPollWaitSeconds, 300);
+    EXPECT_EQ(serverSettings->resourcesCleanerPollWaitSeconds, 1);
     EXPECT_EQ(serverSettings->cacheDir, "");
 
     testDefaultSingleModelOptions(modelsSettings);

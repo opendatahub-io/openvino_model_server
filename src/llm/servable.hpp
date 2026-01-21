@@ -20,11 +20,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "openvino/genai/text_streamer.hpp"
+
 #pragma warning(push)
-#pragma warning(disable : 4251 4005 4309 6001 6385 6386 6326 6011 4005 4456 6246)
+#pragma warning(disable : 4005 4309 6001 6385 6386 6326 6011 4005 4456 6246)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#include "openvino/genai/text_streamer.hpp"
 #include "mediapipe/framework/calculator_graph.h"
 #pragma GCC diagnostic pop
 #pragma warning(pop)
@@ -76,28 +77,16 @@ struct GenAiServableExecutionContext {
     std::string lastStreamerCallbackOutput;
 };
 
-struct ExtraGenerationInfo {
-    std::string bosTokenFromTokenizer;
-    std::string bosTokenIdFromTokenizer;
-    std::string eosTokenFromTokenizer;
-    std::string eosTokenIdFromTokenizer;
-    std::string chatTemplateFromTokenizer;
-    std::string chatTemplateDirectory;
-    bool isGgufModel;
-};
-
 struct GenAiServableProperties {
     // General configuration
     std::string modelsPath;
     ov::genai::GenerationConfig baseGenerationConfig;
-    std::string toolParserName;
-    std::string reasoningParserName;
+    std::string responseParserName;
     std::string device;
     ov::AnyMap pluginConfig;
     ov::AnyMap tokenizerPluginConfig;
     bool enableToolGuidedGeneration = false;
-    // Sampling
-    DecodingMethod decodingMethod;
+    // Sampling limits
     std::optional<uint32_t> maxTokensLimit;
     std::optional<uint32_t> maxModelLength;
     uint32_t bestOfLimit;
@@ -116,8 +105,6 @@ public:
     GenAiServable(const GenAiServable&) = delete;
     GenAiServable& operator=(const GenAiServable&) = delete;
     virtual ~GenAiServable() = default;
-
-    void determineDecodingMethod();
 
     // ----- Interface for derived classes -----
 
@@ -193,5 +180,4 @@ public:
 };
 std::string wrapTextInServerSideEventMessage(const std::string& text);
 using GenAiServableMap = std::unordered_map<std::string, std::shared_ptr<GenAiServable>>;
-void logRequestDetails(const ovms::HttpPayload& payload);
 }  // namespace ovms

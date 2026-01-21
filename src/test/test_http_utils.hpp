@@ -15,7 +15,6 @@
 //*****************************************************************************
 #pragma once
 #include <memory>
-#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -45,5 +44,4 @@ public:
     MOCK_METHOD(bool, hasParseError, (), (const override));
     MOCK_METHOD(std::string, getFieldByName, (const std::string&), (const override));
     MOCK_METHOD(std::string_view, getFileContentByFieldName, (const std::string&), (const override));
-    MOCK_METHOD(std::set<std::string>, getAllFieldNames, (), (const, override));
 };

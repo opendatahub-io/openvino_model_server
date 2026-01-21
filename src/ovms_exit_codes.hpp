@@ -18,7 +18,7 @@
 #ifdef __linux__
 #include <sysexits.h>
 #elif _WIN32
-#include <windows.h>
+#include <ntstatus.h>
 #endif
 
 namespace ovms {

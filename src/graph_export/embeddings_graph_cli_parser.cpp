@@ -48,14 +48,10 @@ void EmbeddingsGraphCLIParser::createOptions() {
             "Normalize the embeddings.",
             cxxopts::value<std::string>()->default_value("true"),
             "NORMALIZE")
-        ("truncate",
-            "Truncate input when it exceeds model context length.",
-            cxxopts::value<std::string>()->default_value("false"),
-            "truncate")
-        ("pooling",
+        ("mean_pooling",
             "Mean pooling option.",
-            cxxopts::value<std::string>()->default_value("CLS"),
-            "POOLING");
+            cxxopts::value<std::string>()->default_value("false"),
+            "MEAN_POOLING");
 }
 
 void EmbeddingsGraphCLIParser::printHelp() {
@@ -81,11 +77,11 @@ std::vector<std::string> EmbeddingsGraphCLIParser::parse(const std::vector<std::
 
 void EmbeddingsGraphCLIParser::prepare(OvmsServerMode serverMode, HFSettingsImpl& hfSettings, const std::string& modelName) {
     EmbeddingsGraphSettingsImpl embeddingsGraphSettings = EmbeddingsGraphCLIParser::defaultGraphSettings();
-    hfSettings.exportSettings.targetDevice = hfSettings.exportSettings.targetDevice;
+    embeddingsGraphSettings.targetDevice = hfSettings.targetDevice;
     if (modelName != "") {
-        hfSettings.exportSettings.modelName = modelName;
+        embeddingsGraphSettings.modelName = modelName;
     } else {
-        hfSettings.exportSettings.modelName = hfSettings.sourceModel;
+        embeddingsGraphSettings.modelName = hfSettings.sourceModel;
     }
     if (nullptr == result) {
         // Pull with default arguments - no arguments from user
@@ -93,13 +89,9 @@ void EmbeddingsGraphCLIParser::prepare(OvmsServerMode serverMode, HFSettingsImpl
             throw std::logic_error("Tried to prepare server and model settings without graph parse result");
         }
     } else {
-        hfSettings.exportSettings.pluginConfig.numStreams = result->operator[]("num_streams").as<uint32_t>();
+        embeddingsGraphSettings.numStreams = result->operator[]("num_streams").as<uint32_t>();
         embeddingsGraphSettings.normalize = result->operator[]("normalize").as<std::string>();
-        embeddingsGraphSettings.truncate = result->operator[]("truncate").as<std::string>();
-        embeddingsGraphSettings.pooling = result->operator[]("pooling").as<std::string>();
-    }
-    if (!(embeddingsGraphSettings.pooling == "CLS" || embeddingsGraphSettings.pooling == "LAST")){
-        throw std::invalid_argument("Only CLS and LAST pooling modes are supported");
+        embeddingsGraphSettings.meanPooling = result->operator[]("mean_pooling").as<std::string>();
     }
     hfSettings.graphSettings = std::move(embeddingsGraphSettings);
 }

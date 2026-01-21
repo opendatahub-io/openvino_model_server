@@ -27,8 +27,8 @@ LLM engine parameters will be defined inside the `graph.pbtxt` file.
 
 Download export script, install it's dependencies and create directory for the models:
 ```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/2/demos/common/export_models/export_model.py -o export_model.py
+pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/2/demos/common/export_models/requirements.txt
 mkdir models
 ```
 
@@ -43,7 +43,7 @@ python export_model.py text_generation --source_model microsoft/Phi-3.5-vision-i
 
 Note that by default, NPU sets limitation on the prompt length (which in VLM also include image tokens) to 1024 tokens. You can modify that limit by using `--max_prompt_len` parameter.
 
-> **Note:** You can change the model used in the demo out of any topology [tested](https://openvinotoolkit.github.io/openvino.genai/docs/supported-models/#visual-language-models-vlms) with OpenVINO.
+> **Note:** You can change the model used in the demo out of any topology [tested](https://github.com/openvinotoolkit/openvino.genai/blob/master/SUPPORTED_MODELS.md#visual-language-models) with OpenVINO.
 
 You should have a model folder like below:
 ```
@@ -123,13 +123,13 @@ curl http://localhost:8000/v1/config
 
 ```console
 pip3 install requests
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/static/images/zebra.jpeg -o zebra.jpeg
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/common/static/images/zebra.jpeg -o zebra.jpeg
 ```
-![zebra](https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/static/images/zebra.jpeg)
+![zebra](https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/common/static/images/zebra.jpeg)
 
 :::{dropdown} **Unary call with curl using image from local filesystem**
 
-Referring to local filesystem images in requests requires passing additional parameter `--allowed_local_media_path` (described in [Model Server Parameters](../../docs/parameters.md) section) when starting docker container: 
+Referring to local filesystem images in requests requires passing additional parameter `--allowed_local_media_path` (described in [Model Server Parameters](parameters.md) section) when starting docker container: 
 ```bash
 docker run -d --rm --device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -u $(id -u):$(id -g) \
 -p 8000:8000 -v $(pwd)/models:/workspace:ro -v $(pwd):/images:ro openvino/model_server:latest-gpu --rest_port 8000 --config_path /workspace/config.json --allowed_local_media_path /images
@@ -168,7 +168,7 @@ curl http://localhost:8000/v3/chat/completions  -H "Content-Type: application/js
 ```python
 import requests
 import base64
-base_url='http://127.0.0.1:8000/v3'
+base_url='http://localhost:8000/v3'
 model_name = "microsoft/Phi-3.5-vision-instruct"
 
 def convert_image(Image):
@@ -285,7 +285,7 @@ python benchmark_serving.py --backend openai-chat --dataset-name hf --dataset-pa
 
 ## Testing the model accuracy over serving API
 
-Check the [guide of using lm-evaluation-harness](https://github.com/openvinotoolkit/model_server/blob/releases/2025/4/demos/continuous_batching/accuracy/README.md)
+Check the [guide of using lm-evaluation-harness](https://github.com/openvinotoolkit/model_server/blob/main/demos/continuous_batching/accuracy/README.md)
 
 ## Limitations
 

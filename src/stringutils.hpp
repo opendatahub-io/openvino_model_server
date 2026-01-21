@@ -18,8 +18,6 @@
 #include <optional>
 #include <string>
 #include <vector>
-#include <cstdint>
-
 namespace ovms {
 
 std::string joins(const std::vector<std::string>& listOfStrings, const std::string delimiter);
@@ -90,8 +88,6 @@ bool startsWith(const std::string& str, const std::string& prefix);
  */
 std::optional<uint32_t> stou32(const std::string& input);
 
-std::optional<uint64_t> stou64(const std::string& input);
-
 /**
  * @brief Converts string to int32, returns 0 or specified default value if conversion failed
  *
@@ -103,14 +99,8 @@ std::optional<int32_t> stoi32(const std::string& str);
 
 std::optional<int64_t> stoi64(const std::string& str);
 
-std::optional<float> stof(const std::string& str);
-
 bool isValidUtf8(const std::string& text);
 
 std::string toLower(const std::string& input);
-
-bool stringsOverlap(const std::string& lhs, const std::string& rhs);
-
-void escapeSpecialCharacters(std::string& text);
 
 }  // namespace ovms

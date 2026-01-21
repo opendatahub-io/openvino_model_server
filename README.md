@@ -23,13 +23,11 @@ Start using OpenVINO Model Server with a fast-forward serving example from the [
 Read [release notes](https://github.com/openvinotoolkit/model_server/releases) to find out what’s new.
 
 ### Key features:
-- **[NEW]** [Speech Generation and Speech Recognition with OpenAI API](https://docs.openvino.ai/2025/model-server/ovms_demos_audio.html)
-- **[NEW]** [Support for AI agents](https://docs.openvino.ai/2025/model-server/ovms_demos_continuous_batching_agent.html)
 - **[NEW]** [Image generation compatible with OpenAI API](https://docs.openvino.ai/2025/model-server/ovms_demos_image_generation.html)
-- Native Windows support. Check updated [deployment guide](https://docs.openvino.ai/2025/model-server/ovms_docs_deploying_server_baremetal.html)
-- [Text Embeddings compatible with OpenAI API](https://docs.openvino.ai/2025/model-server/ovms_demos_embeddings.html)
-- [Reranking compatible with Cohere API](https://docs.openvino.ai/2025/model-server/ovms_demos_rerank.html)
-- [Efficient Text Generation via OpenAI API](https://docs.openvino.ai/2025/model-server/ovms_demos_continuous_batching.html)
+- **[NEW]** Native Windows support. Check updated [deployment guide](https://docs.openvino.ai/2025/model-server/ovms_docs_deploying_server_baremetal.html)
+- **[NEW]** [Text Embeddings compatible with OpenAI API](https://docs.openvino.ai/2025/model-server/ovms_demos_embeddings.html)
+- **[NEW]** [Reranking compatible with Cohere API](https://docs.openvino.ai/2025/model-server/ovms_demos_rerank.html)
+- **[NEW]** [Efficient Text Generation via OpenAI API](https://docs.openvino.ai/2025/model-server/ovms_demos_continuous_batching.html)
 - [Python code execution](docs/python_support/reference.md)
 - [gRPC streaming](docs/streaming_endpoints.md)
 - [MediaPipe graphs serving](docs/mediapipe.md)
@@ -54,13 +52,13 @@ A demonstration on how to use OpenVINO Model Server can be found in our [quick-s
 
 Check also other instructions:
 
-[Preparing model repository](https://docs.openvino.ai/2025/model-server/ovms_docs_models_repository.html)
+[Preparing model repository](https://docs.openvino.ai/nightly/model-server/ovms_docs_models_repository.html)
 
-[Deployment](https://docs.openvino.ai/2025/model-server/ovms_docs_deploying_server.html)
+[Deployment](https://docs.openvino.ai/nightly/model-server/ovms_docs_deploying_server.html)
 
-[Writing client code](https://docs.openvino.ai/2025/model-server/ovms_docs_server_app.html)
+[Writing client code](https://docs.openvino.ai/nightly/model-server/ovms_docs_server_app.html)
 
-[Demos](https://docs.openvino.ai/2025/model-server/ovms_docs_demos.html)
+[Demos](https://docs.openvino.ai/nightly/model-server/ovms_docs_demos.html)
 
 
 
@@ -68,15 +66,15 @@ Check also other instructions:
 
 * [OpenVINO&trade;](https://software.intel.com/en-us/openvino-toolkit)
 
-* [ADVANCING GENAI WITH CPU OPTIMIZATION](https://cdrdv2-public.intel.com/864404/vFINAL_Intel%20SLM%20Whitepaper.pdf)
-
-* [Manage deep learning models with OpenVINO Model Server](https://developers.redhat.com/articles/2024/07/03/manage-deep-learning-models-openvino-model-server#)
-
 * [RAG building blocks made easy and affordable with OpenVINO Model Server](https://medium.com/openvino-toolkit/rag-building-blocks-made-easy-and-affordable-with-openvino-model-server-e7b03da5012b)
+
+* [Simplified Deployments with OpenVINO™ Model Server and TensorFlow Serving](https://community.intel.com/t5/Blogs/Tech-Innovation/Artificial-Intelligence-AI/Simplified-Deployments-with-OpenVINO-Model-Server-and-TensorFlow/post/1353218)
 
 * [Simple deployment with KServe API](https://blog.openvino.ai/blog-posts/kserve-api)
 
-* [Benchmarking results](https://docs.openvino.ai/2025/about-openvino/performance-benchmarks.html)
+* [Inference Scaling with OpenVINO™ Model Server in Kubernetes and OpenShift Clusters](https://www.intel.com/content/www/us/en/developer/articles/technical/deploy-openvino-in-openshift-and-kubernetes.html)
+
+* [Benchmarking results](https://docs.openvino.ai/nightly/about-openvino/performance-benchmarks.html)
 
 
 ## Contact

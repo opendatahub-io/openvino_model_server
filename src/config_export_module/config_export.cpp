@@ -50,27 +50,13 @@ Status loadJsonConfig(const std::string& jsonFilename, rapidjson::Document& conf
 
 Status createModelConfig(const std::string& fullPath, const ModelsSettingsImpl& modelSettings) {
     std::ostringstream oss;
-
-    auto escapeBackslashes = [](const std::string& path) -> std::string {
-        std::string result;
-        result.reserve(path.size());
-        for (char c : path) {
-            if (c == '\\') {
-                result += "\\\\";
-            } else {
-                result += c;
-            }
-        }
-        return result;
-    };
-
     // clang-format off
     oss << R"({
     "model_config_list": [
         { 
             "config": {
                 "name": ")" << modelSettings.modelName << R"(",
-                "base_path": ")" << escapeBackslashes(modelSettings.modelPath) << R"("
+                "base_path": ")" << modelSettings.modelPath << R"("
             }
         }
     ]
@@ -88,7 +74,7 @@ Status removeModelFromConfig(const std::string& fullPath, const ModelsSettingsIm
 
     auto modelsItr = configJson.FindMember("model_config_list");
     if (modelsItr == configJson.MemberEnd() || !modelsItr->value.IsArray()) {
-        SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Configuration file doesn't have models property.");
+        SPDLOG_ERROR("Configuration file doesn't have models property.");
         return StatusCode::JSON_INVALID;
     }
 
@@ -129,7 +115,7 @@ Status updateConfigAddModel(const std::string& fullPath, const ModelsSettingsImp
 
     const auto modelsItr = configJson.FindMember("model_config_list");
     if (modelsItr == configJson.MemberEnd() || !modelsItr->value.IsArray()) {
-        SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Configuration file doesn't have models property.");
+        SPDLOG_ERROR("Configuration file doesn't have models property.");
         return StatusCode::JSON_INVALID;
     }
 
@@ -204,11 +190,28 @@ Status DisableModel(const std::string& configFilePath, const ModelsSettingsImpl&
     }
 }
 
+static Status validateAndPrepareConfigFilePath(std::string& configDirOrFilePath) {
+    if (configDirOrFilePath.empty()) {
+        SPDLOG_ERROR("Config path empty: {}", configDirOrFilePath);
+        return StatusCode::PATH_INVALID;
+    }
+    // check if the config path is a directory and if it is, append config.json
+    bool isDir = false;
+    auto status = LocalFileSystem::isDir(configDirOrFilePath, &isDir);
+    if (!status.ok()) {
+        return status;
+    }
+    if (isDir) {
+        configDirOrFilePath = FileSystem::joinPath({configDirOrFilePath, "config.json"});
+    }
+    return StatusCode::OK;
+}
+
 Status updateConfig(const ModelsSettingsImpl& modelSettings, const ConfigExportType& exportType) {
     std::string configFilePath = modelSettings.configPath;
-    if (configFilePath.empty()) {
-        SPDLOG_ERROR("Config path is empty.");
-        return StatusCode::PATH_INVALID;
+    auto status = validateAndPrepareConfigFilePath(configFilePath);
+    if (!status.ok()) {
+        return status;
     }
     if (exportType == ENABLE_MODEL) {
         return EnableModel(configFilePath, modelSettings);

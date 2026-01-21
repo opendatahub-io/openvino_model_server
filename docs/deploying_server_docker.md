@@ -5,7 +5,7 @@ This is a step-by-step guide on how to deploy OpenVINO&trade; Model Server on Li
 **Before you start, make sure you have:**
 
 - [Docker Engine](https://docs.docker.com/engine/) installed
-- Intel® Core™ processor or Intel® Xeon® processor
+- Intel® Core™ processor (6-13th gen.) or Intel® Xeon® processor (1st to 4th gen.)
 - Linux, macOS or Windows via [WSL](https://docs.microsoft.com/en-us/windows/wsl/)
 - (optional) AI accelerators [supported by OpenVINO](https://docs.openvino.ai/2025/openvino-workflow/running-inference/inference-devices-and-modes.html). Accelerators are tested only on bare-metal Linux hosts.
 
@@ -27,8 +27,6 @@ or [RedHat Ecosystem Catalog](https://catalog.redhat.com/software/containers/int
 docker pull registry.connect.redhat.com/intel/openvino-model-server:latest
 ```
 
-> **NOTE**: You can also pull public image `openvino/model_server:weekly` with development version of the model server, which is built from the main branch. It allow you to evaluate the latest features ahead of official releases.
-
 #### Step 2. Prepare Data for Serving
 
 ##### 2.1 Start the container with the model
@@ -43,8 +41,8 @@ docker run -u $(id -u) -v $(pwd)/models:/models -p 9000:9000 openvino/model_serv
 ##### 2.2 Download input files: an image and a label mapping file
 
 ```bash
-wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2025/4/demos/common/static/images/zebra.jpeg
-wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2025/4/demos/common/python/classes.py
+wget https://raw.githubusercontent.com/openvinotoolkit/model_server/main/demos/common/static/images/zebra.jpeg
+wget https://raw.githubusercontent.com/openvinotoolkit/model_server/main/demos/common/python/classes.py
 ```
 
 ##### 2.3 Install the Python-based ovmsclient package

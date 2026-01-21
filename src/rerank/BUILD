@@ -27,14 +27,6 @@ mediapipe_proto_library(
     ],
 )
 
-ovms_cc_library(
-    name = "rerank_servable",
-    hdrs = ["rerank_servable.hpp"],
-    deps = ["//src:sidepacket_servable",],
-    visibility = ["//visibility:public"],
-    alwayslink = 1,
-)
-
 mediapipe_proto_library(
     name = "rerank_calculator_ov_proto", # rerank_calculator_cc_proto - just mediapipe stuff with mediapipe_proto_library adding nonvisible target
     srcs = ["rerank_calculator_ov.proto"],
@@ -76,7 +68,7 @@ ovms_cc_library(
         "//src:libovmsprofiler",
         "rerank_calculator_ov_cc_proto",
         ":rerank_api_handler",
-        ":rerank_servable",
+        "//src:sidepacket_servable",
         "//src:model_metric_reporter",
         "//src:executingstreamidguard",
         "//src:libovms_execution_context",
@@ -94,9 +86,6 @@ ovms_cc_library(
         "@mediapipe//mediapipe/framework:calculator_framework", # required for absl status
         "//src:libovmsprofiler",
         "//third_party:openvino",
-        "//src/port:rapidjson_stringbuffer",
-        "//src/port:rapidjson_writer",
-        "//src/port:rapidjson_document",
     ],
     visibility = ["//visibility:public"],
     alwayslink = 1,
