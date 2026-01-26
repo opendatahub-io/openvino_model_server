@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.6
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.7-1769417801
 ARG BUILD_IMAGE=build
 ARG PKG_IMAGE=pkg
 ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9-minimal:9.6
