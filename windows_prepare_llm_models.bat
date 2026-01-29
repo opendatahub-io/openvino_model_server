@@ -32,26 +32,20 @@ set "EMBEDDING_MODEL=thenlper/gte-small"
 set "RERANK_MODEL=BAAI/bge-reranker-base"
 set "TEXT_GENERATION_MODEL=facebook/opt-125m"
 set "VLM_MODEL=OpenGVLab/InternVL2-1B"
-set "TOKENIZER_FILE=openvino_tokenizer.bin"
-set "LEGACY_MODEL_FILE=1\model.bin"
 
 :: Models for tools testing. Only tokenizers are downloaded.
 set "QWEN3_MODEL=Qwen/Qwen3-8B"
-set "LLAMA3_MODEL=unsloth/Llama-3.1-8B-Instruct"
+set "LLAMA3_MODEL=meta-llama/Llama-3.1-8B-Instruct"
 set "HERMES3_MODEL=NousResearch/Hermes-3-Llama-3.1-8B"
 set "PHI4_MODEL=microsoft/Phi-4-mini-instruct"
-set "MISTRAL_MODEL=mistralai/Mistral-7B-Instruct-v0.3"
-set "GPTOSS_MODEL=openai/gpt-oss-20b"
 
-set MODELS_LIST=%TEXT_GENERATION_MODEL%\%TOKENIZER_FILE% %EMBEDDING_MODEL%\ov\%TOKENIZER_FILE% %RERANK_MODEL%\rerank\%LEGACY_MODEL_FILE% %VLM_MODEL%\%TOKENIZER_FILE% %QWEN3_MODEL%\%TOKENIZER_FILE% %LLAMA3_MODEL%\%TOKENIZER_FILE% %HERMES3_MODEL%\%TOKENIZER_FILE% %PHI4_MODEL%\%TOKENIZER_FILE% %MISTRAL_MODEL%\%TOKENIZER_FILE% %GPTOSS_MODEL%\%TOKENIZER_FILE%
+set MODELS_LIST=%TEXT_GENERATION_MODEL% %EMBEDDING_MODEL% %EMBEDDING_MODEL%\ov %RERANK_MODEL% %VLM_MODEL% %QWEN3_MODEL% %LLAMA3_MODEL% %HERMES3_MODEL% %PHI4_MODEL%
 
 set "ALL_EXIST=1"
-for %%M in (%MODELS_LIST%) do (
+for %%M in ("%MODELS_LIST%") do (
   if not exist "%~1\%%~M" (
-    echo "%~1\%%~M" does not exist
     set "ALL_EXIST=0"
   )
-  echo "%~1\%%~M" exists
 )
 
 if "!ALL_EXIST!"=="1" (
@@ -74,142 +68,88 @@ if !errorlevel! neq 0 exit /b !errorlevel!
 
 if not exist "%~1" mkdir "%~1"
 
-if exist "%~1\%TEXT_GENERATION_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%TEXT_GENERATION_MODEL%\%TOKENIZER_FILE% exists. Skipping downloading models.
+if exist "%~1\%TEXT_GENERATION_MODEL%" (
+  echo Models directory %~1\%TEXT_GENERATION_MODEL% exists. Skipping downloading models.
 ) else (
   echo Downloading text generation model to %~1\%TEXT_GENERATION_MODEL% directory.
   python demos\common\export_models\export_model.py text_generation --source_model "%TEXT_GENERATION_MODEL%" --weight-format int8 --model_repository_path %~1
   if !errorlevel! neq 0 exit /b !errorlevel!
 )
-if not exist "%~1\%TEXT_GENERATION_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%TEXT_GENERATION_MODEL%\%TOKENIZER_FILE% does not exists.
-  exit /b 1
-) 
 
-if exist "%~1\%EMBEDDING_MODEL%\ov\%TOKENIZER_FILE%" (
-  echo Models file %~1\%EMBEDDING_MODEL%\ov\%TOKENIZER_FILE% exists. Skipping downloading models.
+if exist "%~1\%EMBEDDING_MODEL%" (
+  echo Models directory %~1\%EMBEDDING_MODEL% exists. Skipping downloading models.
+) else (
+  echo Downloading embeddings model to %~1\%EMBEDDING_MODEL% directory.
+  python demos\common\export_models\export_model.py embeddings --source_model "%EMBEDDING_MODEL%" --weight-format int8 --model_repository_path %~1
+  if !errorlevel! neq 0 exit /b !errorlevel!
+)
+
+if exist "%~1\%EMBEDDING_MODEL%\ov" (
+  echo Models directory %~1\%EMBEDDING_MODEL%\ov exists. Skipping downloading models.
 ) else (
   echo Downloading embeddings model to %~1\%EMBEDDING_MODEL%\ov directory.
   python demos\common\export_models\export_model.py embeddings_ov --source_model "%EMBEDDING_MODEL%" --weight-format int8 --model_repository_path %~1 --model_name "%EMBEDDING_MODEL%\ov"
   if !errorlevel! neq 0 exit /b !errorlevel!
 )
-if not exist "%~1\%EMBEDDING_MODEL%\ov\%TOKENIZER_FILE%" (
-  echo Models file %~1\%EMBEDDING_MODEL%\ov\%TOKENIZER_FILE% does not exists.
-  exit /b 1
-) 
 
-if exist "%~1\%RERANK_MODEL%\rerank\%LEGACY_MODEL_FILE%" (
-  echo Models file %~1\%RERANK_MODEL%\rerank\%LEGACY_MODEL_FILE% exists. Skipping downloading models.
+if exist "%~1\%RERANK_MODEL%" (
+  echo Models directory %~1\%RERANK_MODEL% exists. Skipping downloading models.
 ) else (
   echo Downloading rerank model to %~1\%RERANK_MODEL% directory.
   python demos\common\export_models\export_model.py rerank --source_model "%RERANK_MODEL%" --weight-format int8 --model_repository_path %~1
   if !errorlevel! neq 0 exit /b !errorlevel!
 )
-if not exist "%~1\%RERANK_MODEL%\rerank\%LEGACY_MODEL_FILE%" (
-  echo Models file %~1\%RERANK_MODEL%\rerank\%LEGACY_MODEL_FILE% does not exists.
-  exit /b 1
-) 
 
-if exist "%~1\%RERANK_MODEL%\ov\%TOKENIZER_FILE%" (
-  echo Models file %~1\%RERANK_MODEL%\ov\%TOKENIZER_FILE% exists. Skipping downloading models.
+if exist "%~1\%RERANK_MODEL%\ov" (
+  echo Models directory %~1\%RERANK_MODEL%\ov exists. Skipping downloading models.
 ) else (
   echo Downloading rerank model to %~1\%RERANK_MODEL%\ov directory.
   python demos\common\export_models\export_model.py rerank_ov --source_model "%RERANK_MODEL%" --weight-format int8 --model_repository_path %~1 --model_name "%RERANK_MODEL%\ov"
   if !errorlevel! neq 0 exit /b !errorlevel!
 )
-if not exist "%~1\%RERANK_MODEL%\ov\%TOKENIZER_FILE%" (
-  echo Models file %~1\%RERANK_MODEL%\ov\%TOKENIZER_FILE% does not exists.
-  exit /b 1
-) 
 
-if exist "%~1\%VLM_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%VLM_MODEL%\%TOKENIZER_FILE% exists. Skipping downloading models.
+if exist "%~1\%VLM_MODEL%" (
+  echo Models directory %~1\%VLM_MODEL% exists. Skipping downloading models.
 ) else (
   echo Downloading visual language model to %~1\%VLM_MODEL% directory.
   python demos\common\export_models\export_model.py text_generation --source_model "%VLM_MODEL%" --weight-format int4 --kv_cache_precision u8 --model_repository_path %~1
   if !errorlevel! neq 0 exit /b !errorlevel!
 )
-if not exist "%~1\%VLM_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%VLM_MODEL%\%TOKENIZER_FILE% does not exists.
-  exit /b 1
-) 
 
-if exist "%~1\%QWEN3_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%QWEN3_MODEL%\%TOKENIZER_FILE% exists. Skipping downloading models.
+if exist "%~1\%QWEN3_MODEL%" (
+  echo Models directory %~1\%QWEN3_MODEL% exists. Skipping downloading models.
 ) else (
   echo Downloading tokenizer and detokenizer for Qwen3 model to %~1\%QWEN3_MODEL% directory.
   mkdir "%~1\%QWEN3_MODEL%"
   convert_tokenizer "%QWEN3_MODEL%" --with_detokenizer -o "%~1\%QWEN3_MODEL%"
   if !errorlevel! neq 0 exit /b !errorlevel!
 )
-if not exist "%~1\%QWEN3_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%QWEN3_MODEL%\%TOKENIZER_FILE% does not exists.
-  exit /b 1
-) 
 
-if exist "%~1\%LLAMA3_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%LLAMA3_MODEL%\%TOKENIZER_FILE% exists. Skipping downloading models.
+if exist "%~1\%LLAMA3_MODEL%" (
+  echo Models directory %~1\%LLAMA3_MODEL% exists. Skipping downloading models.
 ) else (
   echo Downloading tokenizer and detokenizer for Llama3.1 model to %~1\%LLAMA3_MODEL% directory.
   mkdir "%~1\%LLAMA3_MODEL%"
   convert_tokenizer "%LLAMA3_MODEL%" --with_detokenizer -o "%~1\%LLAMA3_MODEL%"
   if !errorlevel! neq 0 exit /b !errorlevel!
 )
-if not exist "%~1\%LLAMA3_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%LLAMA3_MODEL%\%TOKENIZER_FILE% does not exists.
-  exit /b 1
-)
 
-if exist "%~1\%HERMES3_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%HERMES3_MODEL%\%TOKENIZER_FILE% exists. Skipping downloading models.
+if exist "%~1\%HERMES3_MODEL%" (
+  echo Models directory %~1\%HERMES3_MODEL% exists. Skipping downloading models.
 ) else (
   echo Downloading tokenizer and detokenizer for Hermes3 model to %~1\%HERMES3_MODEL% directory.
   mkdir "%~1\%HERMES3_MODEL%"
   convert_tokenizer "%HERMES3_MODEL%" --with_detokenizer -o "%~1\%HERMES3_MODEL%"
   if !errorlevel! neq 0 exit /b !errorlevel!
 )
-if not exist "%~1\%HERMES3_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%HERMES3_MODEL%\%TOKENIZER_FILE% does not exists.
-  exit /b 1
-) 
 
-if exist "%~1\%PHI4_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%PHI4_MODEL%\%TOKENIZER_FILE% exists. Skipping downloading models.
+if exist "%~1\%PHI4_MODEL%" (
+  echo Models directory %~1\%PHI4_MODEL% exists. Skipping downloading models.
 ) else (
   echo Downloading tokenizer and detokenizer for Phi-4 model to %~1\%PHI4_MODEL% directory.
   mkdir "%~1\%PHI4_MODEL%"
   convert_tokenizer "%PHI4_MODEL%" --with_detokenizer -o "%~1\%PHI4_MODEL%"
   if !errorlevel! neq 0 exit /b !errorlevel!
-)
-if not exist "%~1\%PHI4_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%PHI4_MODEL%\%TOKENIZER_FILE% does not exists.
-  exit /b 1
-) 
-
-if exist "%~1\%MISTRAL_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%MISTRAL_MODEL%\%TOKENIZER_FILE% exists. Skipping downloading models.
-) else (
-  echo Downloading tokenizer and detokenizer for Mistral model to %~1\%MISTRAL_MODEL% directory.
-  mkdir "%~1\%MISTRAL_MODEL%"
-  convert_tokenizer "%MISTRAL_MODEL%" --with_detokenizer -o "%~1\%MISTRAL_MODEL%"
-  if !errorlevel! neq 0 exit /b !errorlevel!
-)
-if not exist "%~1\%MISTRAL_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%MISTRAL_MODEL%\%TOKENIZER_FILE% does not exists.
-  exit /b 1
-)
-
-if exist "%~1\%GPTOSS_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%GPTOSS_MODEL%\%TOKENIZER_FILE% exists. Skipping downloading models.
-) else (
-  echo Downloading tokenizer and detokenizer for GPT-OSS model to %~1\%GPTOSS_MODEL% directory.
-  mkdir "%~1\%GPTOSS_MODEL%"
-  convert_tokenizer "%GPTOSS_MODEL%" --with_detokenizer -o "%~1\%GPTOSS_MODEL%"
-  if !errorlevel! neq 0 exit /b !errorlevel!
-)
-if not exist "%~1\%GPTOSS_MODEL%\%TOKENIZER_FILE%" (
-  echo Models file %~1\%GPTOSS_MODEL%\%TOKENIZER_FILE% does not exists.
-  exit /b 1
 )
 
 endlocal

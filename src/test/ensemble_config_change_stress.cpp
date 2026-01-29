@@ -40,7 +40,6 @@
 #include "../tfs_frontend/tfs_utils.hpp"
 #include "c_api_test_utils.hpp"
 #include "stress_test_utils.hpp"
-#include "test_models.hpp"
 #include "test_utils.hpp"
 
 static const char* stressPipelineCustomNodeDifferentOperationsThenDummyThenChooseMaximumConfig = R"(
@@ -129,7 +128,7 @@ static const char* stressPipelineCustomNodeDifferentOperationsThenDummyThenChoos
 
 #if (MEDIAPIPE_DISABLE == 0)
 template <>
-void mediaexec<KFSRequest, KFSResponse>(std::unique_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, KFSRequest& request, KFSResponse& response, ovms::Status& status) {
+void mediaexec<KFSRequest, KFSResponse>(std::shared_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, KFSRequest& request, KFSResponse& response, ovms::Status& status) {
     status = executorPtr->infer(&request,
         &response,
         ovms::ExecutionContext(
@@ -138,19 +137,12 @@ void mediaexec<KFSRequest, KFSResponse>(std::unique_ptr<MediapipeGraphExecutor>&
 }
 
 template <>
-void mediacreate<KFSRequest, KFSResponse>(std::unique_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, KFSRequest& request, KFSResponse& response, ovms::Status& status) {
+void mediacreate<KFSRequest, KFSResponse>(std::shared_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, KFSRequest& request, KFSResponse& response, ovms::Status& status) {
     status = manager.createPipeline(executorPtr, request.model_name());
 }
 #endif
 
-class StressPipelineConfigChanges : public ConfigChangeStressTest {
-public:
-    static void SetUpTestSuite() {
-#ifdef _WIN32
-        GTEST_SKIP() << "Skipping test on Windows, sporadic";  // CVS-176244
-#endif
-    }
-};
+class StressPipelineConfigChanges : public ConfigChangeStressTest {};
 
 class StressModelConfigChanges : public StressPipelineConfigChanges {
     const std::string modelName = "dummy";
@@ -190,8 +182,11 @@ TEST_F(StressPipelineConfigChanges, KFSAddNewVersionDuringPredictLoad) {
         allowedLoadResults);
 }
 // Disabled because we cannot start http server multiple times https://github.com/drogonframework/drogon/issues/2210
-
+#if (USE_DROGON == 0)
+TEST_F(ConfigChangeStressTest, GetMetricsDuringLoad) {
+#else
 TEST_F(ConfigChangeStressTest, DISABLED_GetMetricsDuringLoad) {
+#endif
     bool performWholeConfigReload = false;                        // we just need to have all model versions rechecked
     std::set<StatusCode> requiredLoadResults = {StatusCode::OK};  // we expect full continuity of operation
     std::set<StatusCode> allowedLoadResults = {};

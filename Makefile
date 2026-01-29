@@ -45,12 +45,12 @@ JOBS ?= $(CORES_TOTAL)
 
 # Image on which OVMS is compiled. If DIST_OS is not set, it's also used for a release image.
 # Currently supported BASE_OS values are: ubuntu24 ubuntu22 redhat
-BASE_OS ?= ubuntu24
+BASE_OS ?= ubuntu22
 
 # do not change this; change versions per OS a few lines below (BASE_OS_TAG_*)!
 BASE_OS_TAG ?= latest
 
-BASE_OS_TAG_UBUNTU ?= 24.04
+BASE_OS_TAG_UBUNTU ?= 22.04
 BASE_OS_TAG_REDHAT ?= 9.6
 
 INSTALL_RPMS_FROM_URL ?=
@@ -74,18 +74,17 @@ FUZZER_BUILD ?= 0
 # NOTE: when changing any value below, you'll need to adjust WORKSPACE file by hand:
 #         - uncomment source build section, comment binary section
 #         - adjust binary version path - version variable is not passed to WORKSPACE file!
-
-OV_SOURCE_BRANCH ?= 82bbf0292c5bd490bc25a383e63d6461d3ee05c5 # releases/2025/4
-OV_TOKENIZERS_BRANCH ?= e79796a77f3212bc69466be54d05ed04f0a6ffd8 # releases/2025/4
-OV_GENAI_BRANCH ?= fc593653d7781f6bd722e62a8f6801fdba423262 # releases/2025/4
+OV_SOURCE_BRANCH ?= cc73719a2c667106c454f3abe663e312832365f1 # master 2025-07-29
+OV_CONTRIB_BRANCH ?= c39462ca8d7c550266dc70cdbfbe4fc8c5be0677  # master / 2024-10-31
+OV_TOKENIZERS_BRANCH ?= d9a2bb05e750f1c628ada5ed81457f880719fd73 # master 2025-07-25
 
 OV_SOURCE_ORG ?= openvinotoolkit
-OV_GENAI_ORG ?= openvinotoolkit
-OV_TOKENIZERS_ORG ?= openvinotoolkit
+OV_CONTRIB_ORG ?= openvinotoolkit
 
 TEST_LLM_PATH ?= "src/test/llm_testing"
 GPU_MODEL_PATH ?= "/tmp/face_detection_adas"
 
+OV_USE_BINARY ?= 1
 APT_OV_PACKAGE ?= openvino-2022.1.0
 # opt, dbg:
 BAZEL_BUILD_TYPE ?= opt
@@ -135,18 +134,8 @@ endif
 
 ifeq ($(findstring ubuntu,$(BASE_OS)),ubuntu)
   TARGET_DISTRO_PARAMS = " --//:distro=ubuntu"
-  OV_USE_BINARY ?= 1
-  ifeq ($(findstring ubuntu22,$(BASE_OS)),ubuntu22)
-	ifeq ($(OV_USE_BINARY),0)
-  		$(error OV_USE_BINARY = 0 not supported on Ubuntu22 OS)
-  	endif
-  endif
 else ifeq ($(findstring redhat,$(BASE_OS)),redhat)
   TARGET_DISTRO_PARAMS = " --//:distro=redhat"
-  OV_USE_BINARY ?= 0
-  ifeq ($(OV_USE_BINARY),1)
-  	$(error OV_USE_BINARY = 1 not supported on RHEL OS)
-  endif
 else
   $(error BASE_OS must be either ubuntu or redhat)
 endif
@@ -171,12 +160,12 @@ ifeq ($(findstring ubuntu,$(BASE_OS)),ubuntu)
   BASE_IMAGE_RELEASE=$(BASE_IMAGE)
   ifeq ($(BASE_OS_TAG),24.04)
         OS=ubuntu24
-	INSTALL_DRIVER_VERSION ?= "25.35.35096"
-	DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/pre-release/2025.4.1.0rc1/openvino_genai_ubuntu24_2025.4.1.0rc1_x86_64.tar.gz
+	INSTALL_DRIVER_VERSION ?= "24.52.32224"
+	DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19616-cc73719a2c6/openvino_toolkit_ubuntu24_2025.3.0.dev20250729_x86_64.tgz
   else ifeq  ($(BASE_OS_TAG),22.04)
         OS=ubuntu22
 	INSTALL_DRIVER_VERSION ?= "24.39.31294"
-	DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/pre-release/2025.4.1.0rc1/openvino_genai_ubuntu22_2025.4.1.0rc1_x86_64.tar.gz
+	DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19616-cc73719a2c6/openvino_toolkit_ubuntu22_2025.3.0.dev20250729_x86_64.tgz
   endif
 endif
 ifeq ($(BASE_OS),redhat)
@@ -185,7 +174,7 @@ ifeq ($(BASE_OS),redhat)
   BASE_IMAGE ?= registry.access.redhat.com/ubi9/ubi:$(BASE_OS_TAG_REDHAT)
   BASE_IMAGE_RELEASE=registry.access.redhat.com/ubi9/ubi-minimal:$(BASE_OS_TAG_REDHAT)
   DIST_OS=redhat
-  DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/pre-release/2025.4.1.0rc1/openvino_genai_rhel8_2025.4.1.0rc1_x86_64.tar.gz # not used
+  DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19616-cc73719a2c6/openvino_toolkit_rhel8_2025.3.0.dev20250729_x86_64.tgz
   INSTALL_DRIVER_VERSION ?= "24.52.32224"
 endif
 
@@ -198,7 +187,7 @@ OVMS_CPP_IMAGE_TAG ?= latest
 
 OVMS_PYTHON_IMAGE_TAG ?= py
 
-PRODUCT_VERSION ?= "2025.4.1"
+PRODUCT_VERSION ?= "2025.3.0"
 PROJECT_VER_PATCH =
 
 $(eval PROJECT_VER_PATCH:=`git rev-parse --short HEAD`)
@@ -222,10 +211,7 @@ BUILD_ARGS = --build-arg http_proxy=$(HTTP_PROXY)\
 	--build-arg no_proxy=$(NO_PROXY)\
 	--build-arg ov_source_branch=$(OV_SOURCE_BRANCH)\
 	--build-arg ov_source_org=$(OV_SOURCE_ORG)\
-	--build-arg ov_genai_org=$(OV_GENAI_ORG)\
-	--build-arg ov_tokenizers_org=$(OV_TOKENIZERS_ORG)\
-	--build-arg ov_tokenizers_branch=$(OV_TOKENIZERS_BRANCH)\
-	--build-arg ov_genai_branch=$(OV_GENAI_BRANCH)\
+	--build-arg ov_contrib_org=$(OV_CONTRIB_ORG)\
 	--build-arg ov_use_binary=$(OV_USE_BINARY)\
 	--build-arg DLDT_PACKAGE_URL=$(DLDT_PACKAGE_URL)\
 	--build-arg CHECK_COVERAGE=$(CHECK_COVERAGE)\
@@ -239,6 +225,8 @@ BUILD_ARGS = --build-arg http_proxy=$(HTTP_PROXY)\
 	--build-arg PROJECT_VERSION=$(PROJECT_VERSION)\
 	--build-arg BASE_IMAGE=$(BASE_IMAGE)\
 	--build-arg BASE_OS=$(BASE_OS)\
+	--build-arg ov_contrib_branch=$(OV_CONTRIB_BRANCH)\
+	--build-arg ov_tokenizers_branch=$(OV_TOKENIZERS_BRANCH)\
 	--build-arg INSTALL_RPMS_FROM_URL=$(INSTALL_RPMS_FROM_URL)\
 	--build-arg INSTALL_DRIVER_VERSION=$(INSTALL_DRIVER_VERSION)\
 	--build-arg RELEASE_BASE_IMAGE=$(BASE_IMAGE_RELEASE)\
@@ -607,6 +595,15 @@ test_throughput_dummy_model: venv
 
 test_functional: venv
 	@. $(ACTIVATE); pytest --json=report.json -v -s $(TEST_PATH)
+
+# Client library make style target, by default uses Python 3 env in .venv path
+# This fact is used in test_client_lib, where make build runs in .venv Python 3 environment
+test_client_lib:
+	@cd client/python/ovmsclient/lib && \
+		make style || exit 1 && \
+		. .venv-ovmsclient/bin/activate; make build || exit 1 && \
+		make test TEST_TYPE=FULL || exit 1 && \
+		make clean
 
 test_python_clients:
 	@echo "Prepare docker image"

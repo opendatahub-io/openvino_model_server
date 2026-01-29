@@ -20,10 +20,7 @@
 #include "../../custom_node_interface.h"
 #include "../common/opencv_utils.hpp"
 #include "../common/utils.hpp"
-#pragma warning(push)
-#pragma warning(disable : 6269 6294 6201)
 #include "opencv2/opencv.hpp"
-#pragma warning(pop)
 
 static constexpr const char* TENSOR_NAME = "image";
 
@@ -82,8 +79,8 @@ DLL_PUBLIC int execute(const struct CustomNodeTensor* inputs, int inputsCount, s
     //
     // Smilar to scale but scale value should be provided per color channel.
     std::vector<float> scaleValues = get_float_list_parameter("scale_values", params, paramsCount);
-    for (auto scaleVal : scaleValues) {
-        NODE_ASSERT(scaleVal != 0, "cannot divide by scale equal to 0");
+    for (auto scale : scaleValues) {
+        NODE_ASSERT(scale != 0, "cannot divide by scale equal to 0");
     }
 
     // Mean values.

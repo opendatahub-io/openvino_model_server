@@ -14,7 +14,6 @@
 // limitations under the License.
 //*****************************************************************************
 
-#include <memory>
 #include <string>
 #include <utility>
 #include <openvino/genai/generation_config.hpp>
@@ -27,31 +26,33 @@ void Hermes3GenerationConfigBuilder::parseConfigFromRequest(const OpenAIChatComp
     // Call the base class method to fill in common configuration
     BaseGenerationConfigBuilder::parseConfigFromRequest(request);
 
-    // For now the only specific part is related to tools, so if there are no tools provided in the request
-    // we can exit early
-    if (request.toolNameSchemaMap.empty()) {
-        return;
-    }
+    // Set tool guided generation config specific to Hermes3 and Qwen3 models
+    ov::genai::StructuralTagsConfig structuralTagsConfig;
+    static const std::string toolCallTrigger = "<tool_call>";
+    structuralTagsConfig.triggers.push_back(toolCallTrigger);
 
-    if (enableToolGuidedGeneration || request.toolChoice == "required") {
-        // Set tool guided generation config specific to Hermes3 and Qwen3 models
-        auto triggeredTags = std::make_shared<ov::genai::StructuredOutputConfig::TriggeredTags>();
-        triggeredTags->triggers.push_back("<tool_call>");
-
-        for (const auto& [toolName, toolSchemaWrapper] : request.toolNameSchemaMap) {
-            const auto& toolSchema = toolSchemaWrapper.stringRepr;
-            ov::genai::StructuredOutputConfig::Tag tagItem;
-            tagItem.begin = "<tool_call>\n{\"name\": \"" + toolName + "\", \"arguments\": ";
-            tagItem.end = "}\n</tool_call>";
-            tagItem.content = ov::genai::StructuredOutputConfig::JSONSchema(toolSchema);
-            triggeredTags->tags.push_back(tagItem);
-        }
-        if (request.toolChoice == "required") {
-            triggeredTags->at_least_one = true;
-        }
-        ov::genai::StructuredOutputConfig::StructuralTag structuralTag = triggeredTags;
-        setStructuralTagsConfig(structuralTag);
+    for (const auto& [toolName, toolSchema] : request.toolNameSchemaMap) {
+        ov::genai::StructuralTagItem tagItem;
+        tagItem.begin = toolCallTrigger;
+        tagItem.schema = R"({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "enum": [")" +
+                         toolName + R"("]
+                },
+                "arguments": )" +
+                         toolSchema + R"(
+            },
+            "required": [
+                "name",
+                "arguments"
+            ]
+        })";
+        structuralTagsConfig.structural_tags.push_back(tagItem);
     }
+    setStructuralTagsConfig(structuralTagsConfig);
 }
 
 }  // namespace ovms

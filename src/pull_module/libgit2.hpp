@@ -27,8 +27,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include "model_downloader.hpp"
-
 namespace ovms {
 class Status;
 
@@ -48,19 +46,27 @@ struct Libgt2InitGuard {
     ~Libgt2InitGuard();
 };
 
-class HfDownloader : public IModelDownloader {
+class HfDownloader {
 public:
     HfDownloader(const std::string& sourceModel, const std::string& downloadPath, const std::string& hfEndpoint, const std::string& hfToken, const std::string& httpProxy, bool inOverwrite);
-    Status downloadModel() override;
+    Status cloneRepository();
+    std::string getGraphDirectory();
+    static std::string getGraphDirectory(const std::string& inDownloadPath, const std::string& inSourceModel);
 
 protected:
-    const std::string hfEndpoint;
-    const std::string hfToken;
-    const std::string httpProxy;
+    std::string sourceModel;
+    std::string downloadPath;
+    std::string hfEndpoint;
+    std::string hfToken;
+    std::string httpProxy;
+    bool overwriteModels;
 
+    HfDownloader();
     std::string GetRepoUrl();
     std::string GetRepositoryUrlWithPassword();
     bool CheckIfProxySet();
+    Status checkIfOverwriteAndRemove(const std::string& path);
     Status RemoveReadonlyFileAttributeFromDir(const std::string& directoryPath);
+    Status checkRequiredToolsArePresent();
 };
 }  // namespace ovms

@@ -17,9 +17,9 @@
 #include <string>
 
 #include "server_settings.hpp"
-#include "../stringutils.hpp"
 
 namespace ovms {
+
 std::string enumToString(ConfigExportType type) {
     auto it = configExportTypeToString.find(type);
     return (it != configExportTypeToString.end()) ? it->second : "UNKNOWN_MODEL";
@@ -38,9 +38,6 @@ std::string enumToString(GraphExportType type) {
 GraphExportType stringToEnum(const std::string& inString) {
     auto it = stringToType.find(inString);
     return (it != stringToType.end()) ? it->second : UNKNOWN_GRAPH;
-}
-bool isOptimumCliDownload(const std::string& sourceModel, std::optional<std::string> ggufFilename) {
-    return !startsWith(toLower(sourceModel), "openvino/") && (ggufFilename == std::nullopt);
 }
 
 }  // namespace ovms

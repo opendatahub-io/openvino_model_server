@@ -28,7 +28,7 @@ def libgit2_engine():
         build_file = "@_libgit2_engine//:BUILD",
         patch_args = ["-p1"],
         # Patch implements git-lfs filter, required for HF models download
-        patches = ["@ovms//third_party/libgit2:lfs.patch"],
+        patches = ["lfs.patch"],
     )
 
     #native.new_local_repository(
@@ -52,14 +52,13 @@ def _impl(repository_ctx):
         out_libs = "out_shared_libs = [\"{lib_name}.dll\"],".format(lib_name=lib_name)
         cache_entries = """
         "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
-        "CMAKE_CXX_FLAGS": " /guard:cf /GS -s -D_GLIBCXX_USE_CXX11_ABI=1",
+        "CMAKE_CXX_FLAGS": " -s -D_GLIBCXX_USE_CXX11_ABI=1",
         "CMAKE_LIBRARY_OUTPUT_DIRECTORY": "Debug",
         "WIN32": "True",
         "X86_64": "True",
         "BUILD_EXAMPLES": "OFF",
         "BUILD_TESTS": "OFF",
-        "BUILD_CLI": "OFF",
-        "CURL_DEPENDENCIES_DIR": "C:/opt/curl-8.14.1_1-win64-mingw",
+        "BUILD_CLI": "OFF"
         """
     else:
         lib_name = "libgit2"
@@ -67,7 +66,7 @@ def _impl(repository_ctx):
         out_libs = "out_shared_libs = [\"{lib_name}.so\"],".format(lib_name=lib_name)
         cache_entries = """
         "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
-        "CMAKE_CXX_FLAGS": " /guard:cf -s -D_GLIBCXX_USE_CXX11_ABI=1 -Wno-error=deprecated-declarations -Wuninitialized",
+        "CMAKE_CXX_FLAGS": " -s -D_GLIBCXX_USE_CXX11_ABI=1 -Wno-error=deprecated-declarations -Wuninitialized",
         "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": "lib",
         "CMAKE_INSTALL_LIBDIR": "lib",
         "BUILD_EXAMPLES": "OFF",

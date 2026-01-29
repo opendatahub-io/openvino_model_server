@@ -1,2 +1,0 @@
-# Always leave tekton alone since it branch specific
-.tekton/* merge=ours

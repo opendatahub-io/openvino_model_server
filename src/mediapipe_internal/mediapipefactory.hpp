@@ -66,7 +66,7 @@ private:
         ModelManager& manager) const;
 
 public:
-    Status create(std::unique_ptr<MediapipeGraphExecutor>& pipeline,
+    Status create(std::shared_ptr<MediapipeGraphExecutor>& pipeline,
         const std::string& name,
         ModelManager& manager) const;
 
@@ -78,7 +78,6 @@ public:
     void retireOtherThan(std::set<std::string>&& pipelinesInConfigFile, ModelManager& manager);
     Status revalidatePipelines(ModelManager&);
     const std::vector<std::string> getMediapipePipelinesNames() const;
-    const std::vector<std::string> getNamesOfAvailableMediapipePipelines() const;
     ~MediapipeFactory();
 };
 

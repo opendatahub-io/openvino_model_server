@@ -21,74 +21,35 @@
 #include <vector>
 
 #include "base_output_parser.hpp"
-
-#include "src/llm/apis/tool_schema_wrapper.hpp"
+#include "llama3/output_parser.hpp"
+#include "qwen3/output_parser.hpp"
+#include "hermes3/output_parser.hpp"
+#include "phi4/output_parser.hpp"
 
 namespace ovms {
-
 class OutputParser {
-    // Public types and enums
-public:
-    enum TagLookupStatus {
-        NOT_FOUND,
-        FOUND_COMPLETE,
-        FOUND_INCOMPLETE
-    };
-
-    class StreamOutputCache {
-        std::string buffer;
-
-    public:
-        TagLookupStatus lookupTag(const std::string& tag) const;
-        TagLookupStatus lookupTags(const std::vector<std::string>& tags) const;
-        void add(const std::string& chunk);
-        void clear();
-        const std::string& getBuffer() const;
-    };
-
-    enum ProcessingPhase {
-        UNKNOWN,
-        CONTENT,
-        REASONING,
-        TOOL_CALLS_PROCESSING_TOOL,
-        TOOL_CALLS_WAITING_FOR_TOOL
-    };
-
-private:
-    ov::genai::Tokenizer tokenizer;
-    std::unique_ptr<BaseOutputParser> toolParser = nullptr;       // Tool parser for extracting tool calls
-    std::unique_ptr<BaseOutputParser> reasoningParser = nullptr;  // Reasoning parser for extracting reasoning content
-
-    // Streaming related members
-    ProcessingPhase processingPhase = UNKNOWN;
-    StreamOutputCache streamOutputCache;
-
-    // Parsing methods below read chunks from streamOutputCache hence no string argument is needed
-
-    // Regular content parsing method does not require finishReason as content is always parsed
-    rapidjson::Document parseContentChunk(ProcessingPhase newPhase = CONTENT);
-
-    std::optional<rapidjson::Document> parseToolCallChunk(ov::genai::GenerationFinishReason finishReason, ProcessingPhase newPhase = TOOL_CALLS_PROCESSING_TOOL);
-    std::optional<rapidjson::Document> parseReasoningChunk(ov::genai::GenerationFinishReason finishReason, ProcessingPhase newPhase = REASONING);
+    std::unique_ptr<BaseOutputParser> parser_impl;
 
 public:
     OutputParser() = delete;
-    explicit OutputParser(ov::genai::Tokenizer& tokenizer, const std::string toolParserName, const std::string reasoningParserName, const ToolsSchemas_t& toolNameSchemaMap);
-
-    bool isToolParserAvailable() const;
-    bool isReasoningParserAvailable() const;
-    std::string getToolParserStartTag() const;
-
-    // Parse model output in the unary mode. Returns ParsedOutput containing data extracted by internal parsers.
-    ParsedOutput parse(const std::vector<int64_t>& generatedTokens, const bool toolsAvailable);
-
-    // Parse model output chunk in the steaming mode. Returns a JSON object containing the delta that conforms to OpenAI API
-    // or nullopt if no response can be produced.
-    std::optional<rapidjson::Document> parseChunk(const std::string& chunkResponse, const bool toolsAvailable, ov::genai::GenerationFinishReason finishReason);
-
-    bool requiresStreamingWithSpecialTokens() const {
-        return (reasoningParser && reasoningParser->requiresStreamingWithSpecialTokens()) &&
-               (toolParser && toolParser->requiresStreamingWithSpecialTokens());
+    explicit OutputParser(ov::genai::Tokenizer& tokenizer, std::string parserName) {
+        if (parserName == "llama3") {
+            parser_impl = std::make_unique<Llama3OutputParser>(tokenizer);
+        } else if (parserName == "qwen3") {
+            parser_impl = std::make_unique<Qwen3OutputParser>(tokenizer);
+        } else if (parserName == "hermes3") {
+            parser_impl = std::make_unique<Hermes3OutputParser>(tokenizer);
+        } else if (parserName == "phi4") {
+            parser_impl = std::make_unique<Phi4OutputParser>(tokenizer);
+        } else {
+            throw std::invalid_argument("Unsupported response parser: " + parserName);
+        }
+    }
+    ParsedOutput parse(const std::vector<int64_t>& generatedTokens) {
+        return parser_impl->parse(generatedTokens);
+    }
+    std::optional<rapidjson::Document> parseChunk(const std::string& chunkResponse) {
+        return parser_impl->parseChunk(chunkResponse);
     }
 };
 }  // namespace ovms

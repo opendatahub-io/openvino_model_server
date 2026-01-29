@@ -16,23 +16,19 @@ python export_model.py --help
 ```
 Expected Output:
 ```console
-usage: export_model.py [-h] {text_generation,embeddings_ov,rerank,rerank_ov,image_generation,text2speech,speech2text} ...
+usage: export_model.py [-h] {text_generation,embeddings,embeddings_ov,rerank,rerank_ov,image_generation} ...
 
 Export Hugging face models to OVMS models repository including all configuration for deployments
 
 positional arguments:
-  {text_generation,embeddings_ov,rerank,rerank_ov,image_generation,text2speech,speech2text}
+  {text_generation,embeddings,embeddings_ov,rerank,rerank_ov,image_generation}
                         subcommand help
     text_generation     export model for chat and completion endpoints
+    embeddings          [deprecated] export model for embeddings endpoint with models split into separate, versioned directories
     embeddings_ov       export model for embeddings endpoint with directory structure aligned with OpenVINO tools
     rerank              [deprecated] export model for rerank endpoint with models split into separate, versioned directories
     rerank_ov           export model for rerank endpoint with directory structure aligned with OpenVINO tools
     image_generation    export model for image generation endpoint
-    text2speech         export model for text2speech endpoint
-    speech2text         export model for speech2text endpoint
-
-options:
-  -h, --help            show this help message and exit
 ```
 For every use case subcommand there is adjusted list of parameters:
 
@@ -41,30 +37,11 @@ python export_model.py text_generation --help
 ```
 Expected Output:
 ```console
-usage: export_model.py text_generation [-h]
-                                       [--model_repository_path MODEL_REPOSITORY_PATH]
-                                       --source_model SOURCE_MODEL
-                                       [--model_name MODEL_NAME]
-                                       [--weight-format PRECISION]
-                                       [--config_file_path CONFIG_FILE_PATH]
-                                       [--overwrite_models]
-                                       [--target_device TARGET_DEVICE]
-                                       [--ov_cache_dir OV_CACHE_DIR]
-                                       [--extra_quantization_params EXTRA_QUANTIZATION_PARAMS]
-                                       [--pipeline_type {LM,LM_CB,VLM,VLM_CB,AUTO}]
-                                       [--kv_cache_precision {u8}]
-                                       [--enable_prefix_caching]
-                                       [--disable_dynamic_split_fuse]
-                                       [--max_num_batched_tokens MAX_NUM_BATCHED_TOKENS]
-                                       [--max_num_seqs MAX_NUM_SEQS]
-                                       [--cache_size CACHE_SIZE]
-                                       [--draft_source_model DRAFT_SOURCE_MODEL]
-                                       [--draft_model_name DRAFT_MODEL_NAME]
-                                       [--max_prompt_len MAX_PROMPT_LEN]
-                                       [--prompt_lookup_decoding]
-                                       [--reasoning_parser {qwen3,gptoss}]
-                                       [--tool_parser {llama3,phi4,hermes3,mistral,qwen3coder,gptoss}]
-                                       [--enable_tool_guided_generation]
+usage: export_model.py text_generation [-h] [--model_repository_path MODEL_REPOSITORY_PATH] --source_model SOURCE_MODEL [--model_name MODEL_NAME] [--weight-format PRECISION] [--config_file_path CONFIG_FILE_PATH] [--overwrite_models] [--target_device TARGET_DEVICE]
+                                       [--ov_cache_dir OV_CACHE_DIR] [--pipeline_type {LM,LM_CB,VLM,VLM_CB,AUTO}] [--kv_cache_precision {u8}] [--extra_quantization_params EXTRA_QUANTIZATION_PARAMS] [--enable_prefix_caching] [--disable_dynamic_split_fuse]
+                                       [--max_num_batched_tokens MAX_NUM_BATCHED_TOKENS] [--max_num_seqs MAX_NUM_SEQS] [--cache_size CACHE_SIZE] [--draft_source_model DRAFT_SOURCE_MODEL] [--draft_model_name DRAFT_MODEL_NAME] [--max_prompt_len MAX_PROMPT_LEN] [--prompt_lookup_decoding]
+                                       [--tools_model_type {llama3,phi4,hermes3,qwen3}]
+
 options:
   -h, --help            show this help message and exit
   --model_repository_path MODEL_REPOSITORY_PATH
@@ -82,12 +59,12 @@ options:
                         CPU, GPU, NPU or HETERO, default is CPU
   --ov_cache_dir OV_CACHE_DIR
                         Folder path for compilation cache to speedup initialization time
-  --extra_quantization_params EXTRA_QUANTIZATION_PARAMS
-                        Add advanced quantization parameters. Check optimum-intel documentation. Example: "--sym --group-size -1 --ratio 1.0 --awq --scale-estimation --dataset wikitext2"
   --pipeline_type {LM,LM_CB,VLM,VLM_CB,AUTO}
                         Type of the pipeline to be used. AUTO is used by default
   --kv_cache_precision {u8}
                         u8 or empty (model default). Reduced kv cache precision to u8 lowers the cache size consumption.
+  --extra_quantization_params EXTRA_QUANTIZATION_PARAMS
+                        Add advanced quantization parameters. Check optimum-intel documentation. Example: "--sym --group-size -1 --ratio 1.0 --awq --scale-estimation --dataset wikitext2"
   --enable_prefix_caching
                         This algorithm is used to cache the prompt tokens.
   --disable_dynamic_split_fuse
@@ -106,12 +83,8 @@ options:
                         Sets NPU specific property for maximum number of tokens in the prompt. Not effective if target device is not NPU
   --prompt_lookup_decoding
                         Set pipeline to use prompt lookup decoding
-  --reasoning_parser {qwen3,gptoss}
-                        Set the type of the reasoning parser for reasoning content extraction
-  --tool_parser {llama3,phi4,hermes3,mistral,qwen3coder,gptoss}
-                        Set the type of the tool parser for tool calls extraction
-  --enable_tool_guided_generation
-                        Enables enforcing tool schema during generation. Requires setting tool_parser
+  --tools_model_type {llama3,phi4,hermes3,qwen3}
+                        Set the type of model chat template and output parser
 ```
 
 ## Model Export Examples
@@ -138,50 +111,24 @@ Text generation for NPU target device. Command below sets max allowed prompt siz
 ```console
 python export_model.py text_generation --source_model meta-llama/Llama-3.2-3B-Instruct --config_file_path models/config_all.json --model_repository_path models --target_device NPU --max_prompt_len 2048 --ov_cache_dir ./models/.ov_cache
 ```
-> **Note:** Some models like `mistralai/Mistral-7B-Instruct-v0.3` might fail to export because the task can't be determined automatically. In such situation it can be set in `--extra_quantization_parameters`. For example:
-```console
-python export_model.py text_generation --source_model mistralai/Mistral-7B-Instruct-v0.3 --model_repository_path models --extra_quantization_params "--task text-generation-with-past"
-```
-> **Note:** Model `microsoft/Phi-3.5-vision-instruct` requires one manual adjustments after export in the file `generation_config.json` like in the [PR](https://huggingface.co/microsoft/Phi-3.5-vision-instruct/discussions/40/files).
-It will ensure, the generation stops after eos token.
-
-> **Note:** In order to export GPTQ models, you need to install also package `auto_gptq` via command `BUILD_CUDA_EXT=0 pip install auto_gptq` on Linux and `set BUILD_CUDA_EXT=0 && pip install auto_gptq` on Windows. 
-
 
 ### Embedding Models
 
 #### Embeddings with deployment on a single CPU host:
 ```console
-python export_model.py embeddings_ov --source_model BAAI/bge-large-en-v1.5 --weight-format int8 --config_file_path models/config_all.json
+python export_model.py embeddings --source_model Alibaba-NLP/gte-large-en-v1.5 --weight-format int8 --config_file_path models/config_all.json
 ```
 
 #### Embeddings with deployment on a dual CPU host:
 ```console
-python export_model.py embeddings_ov --source_model BAAI/bge-large-en-v1.5 --weight-format int8 --config_file_path models/config_all.json --num_streams 2
+python export_model.py embeddings --source_model Alibaba-NLP/gte-large-en-v1.5 --weight-format int8 --config_file_path models/config_all.json --num_streams 2
 ```
-
-#### Embeddings with pooling parameter
-Supported poolings: `LAST`, `MEAN`, `CLS` (default).
-```console
-python export_model.py embeddings_ov --source_model Qwen/Qwen3-Embedding-0.6B --pooling LAST --weight-format fp16 --config_file_path models/config_all.json
-```
-
-#### Embeddings with `sentence_transformers` library
-Some embedding models require special handling during export. For example:
-```console
-python export_model.py embeddings_ov --source_model Alibaba-NLP/gte-large-en-v1.5 --extra_quantization_params "--library sentence_transformers" --weight-format fp16 --config_file_path models/config_all.json
-```
-Known models that require it:
-- Alibaba-NLP/gte-large-en-v1.5
-- nomic-ai/nomic-embed-text-v1.5
-
-
 
 #### With Input Truncation
 By default, embeddings endpoint returns an error when the input exceed the maximum model context length.
 It is possible to change the behavior to truncate prompts automatically to fit the model. Add `--truncate` option in the export command.
 ```console
-python export_model.py embeddings_ov \
+python export_model.py embeddings \
     --source_model BAAI/bge-large-en-v1.5 \
     --weight-format int8 \
     --config_file_path models/config_all.json \
@@ -191,7 +138,7 @@ python export_model.py embeddings_ov \
 
 ### Reranking Models
 ```console
-python export_model.py rerank_ov \
+python export_model.py rerank \
     --source_model BAAI/bge-reranker-large \
     --weight-format int8 \
     --config_file_path models/config_all.json \

@@ -8,16 +8,24 @@ hidden:
 
 gRPC API <ovms_docs_grpc_api_tfs>
 RESTful API <ovms_docs_rest_api_tfs>
-Examples <https://github.com/openvinotoolkit/model_server/blob/releases/2025/4/client/python/tensorflow-serving-api/samples/README.md>
+Examples <https://github.com/openvinotoolkit/model_server/blob/main/client/python/tensorflow-serving-api/samples/README.md>
 ```
 
 ## Python Client
 
-When creating a Python-based client application, you can use [tensorflow-serving-api](https://pypi.org/project/tensorflow-serving-api/) package that can be used with OpenVINO Model Server.
+When creating a Python-based client application, there are two packages on PyPi that can be used with OpenVINO Model Server:
+- [tensorflow-serving-api](https://pypi.org/project/tensorflow-serving-api/)
+- [ovmsclient](https://pypi.org/project/ovmsclient/)
 
 ### Install the Package
 
 ::::{tab-set}
+:::{tab-item} ovmsclient
+:sync: ovmsclient
+```{code} sh
+pip3 install ovmsclient
+```
+:::
 :::{tab-item} tensorflow-serving-api
 :sync: tensorflow-serving-api
 ```{code} sh
@@ -29,6 +37,24 @@ pip3 install tensorflow-serving-api
 ### Request Model Status
 
 ::::{tab-set}
+:::{tab-item} ovmsclient [GRPC]
+:sync: ovmsclient-grpc
+```{code} python
+from ovmsclient import make_grpc_client
+
+client = make_grpc_client("localhost:9000")
+status = client.get_model_status(model_name="my_model")
+```
+:::
+:::{tab-item} ovmsclient [REST]
+:sync: ovmsclient-rest
+```{code} python
+from ovmsclient import make_http_client
+
+client = make_http_client("localhost:8000")
+status = client.get_model_status(model_name="my_model")
+```
+:::
 :::{tab-item} tensorflow-serving-api
 :sync: tensorflow-serving-api
 ```{code} python
@@ -64,6 +90,24 @@ curl http://localhost:8000/v1/models/my_model
 ### Request Model Metadata
 
 ::::{tab-set}
+:::{tab-item} ovmsclient [GRPC]
+:sync: ovmsclient-grpc
+```{code} python
+from ovmsclient import make_grpc_client
+
+client = make_grpc_client("localhost:9000")
+model_metadata = client.get_model_metadata(model_name="my_model")
+```
+:::
+:::{tab-item} ovmsclient [REST]
+:sync: ovmsclient-rest
+```{code} python
+from ovmsclient import make_http_client
+
+client = make_http_client("localhost:8000")
+model_metadata = client.get_model_metadata(model_name="my_model")
+```
+:::
 :::{tab-item} tensorflow-serving-api
 :sync: tensorflow-serving-api
 ```{code} python
@@ -120,6 +164,31 @@ curl http://localhost:8000/v1/models/my_model/metadata
 ### Request Prediction on a Binary Input
 
 ::::{tab-set}
+:::{tab-item} ovmsclient [GRPC]
+:sync: ovmsclient-grpc
+```{code} python
+from ovmsclient import make_grpc_client
+
+client = make_grpc_client("localhost:9000")
+with open("img.jpeg", "rb") as f:
+    data = f.read()
+inputs = {"input_name": data}    
+results = client.predict(inputs=inputs, model_name="my_model")
+```
+:::
+:::{tab-item} ovmsclient [REST]
+:sync: ovmsclient-rest
+```{code} python
+from ovmsclient import make_http_client
+
+client = make_http_client("localhost:8000")
+
+with open("img.jpeg", "rb") as f:
+    data = f.read()
+inputs = {"input_name": data}    
+results = client.predict(inputs=inputs, model_name="my_model")
+```
+:::
 :::{tab-item} tensorflow-serving-api
 :sync: tensorflow-serving-api
 ```{code} python
@@ -152,6 +221,31 @@ curl -X POST http://localhost:8000/v1/models/my_model:predict
 ### Request Prediction on a Numpy Array
 
 ::::{tab-set}
+:::{tab-item} ovmsclient [GRPC]
+:sync: ovmsclient-grpc
+```{code} python
+import numpy as np
+from ovmsclient import make_grpc_client
+
+client = make_grpc_client("localhost:9000")
+data = np.array([1.0, 2.0, ..., 1000.0])
+inputs = {"input_name": data}
+results = client.predict(inputs=inputs, model_name="my_model")
+```
+:::
+:::{tab-item} ovmsclient [REST]
+:sync: ovmsclient-rest
+```{code} python
+import numpy as np
+from ovmsclient import make_http_client
+
+client = make_http_client("localhost:8000")
+
+data = np.array([1.0, 2.0, ..., 1000.0])
+inputs = {"input_name": data}
+results = client.predict(inputs=inputs, model_name="my_model")
+```
+:::
 :::{tab-item} tensorflow-serving-api
 :sync: tensorflow-serving-api
 ```{code} python
@@ -183,6 +277,29 @@ curl -X POST http://localhost:8000/v1/models/my_model:predict
 ### Request Prediction on a string
 
 ::::{tab-set}
+:::{tab-item} ovmsclient [GRPC]
+:sync: ovmsclient-grpc
+```{code} python
+from ovmsclient import make_grpc_client
+
+client = make_grpc_client("localhost:9000")
+data = ["<string>"]
+inputs = {"input_name": data}
+results = client.predict(inputs=inputs, model_name="my_model")
+```
+:::
+:::{tab-item} ovmsclient [REST]
+:sync: ovmsclient-rest
+```{code} python
+from ovmsclient import make_http_client
+
+client = make_http_client("localhost:8000")
+
+data = ["<string>"]
+inputs = {"input_name": data}
+results = client.predict(inputs=inputs, model_name="my_model")
+```
+:::
 :::{tab-item} tensorflow-serving-api
 :sync: tensorflow-serving-api
 ```{code} python
@@ -211,6 +328,8 @@ curl -X POST http://localhost:8000/v1/models/my_model:predict
 :::
 ::::
 
+
+For complete usage examples see [ovmsclient samples](https://github.com/openvinotoolkit/model_server/tree/main/client/python/ovmsclient/samples).
 
 ## C++ and Go Clients
 

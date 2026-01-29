@@ -15,58 +15,18 @@
 //*****************************************************************************
 
 #include <limits>
-#include <string>
 #include <openvino/genai/generation_config.hpp>
 #include "base_generation_config_builder.hpp"
 
 namespace ovms {
-
-void BaseGenerationConfigBuilder::adjustConfigForDecodingMethod() {
-    switch (decodingMethod) {
-    case DecodingMethod::STANDARD:
-        // No special adjustments needed for standard decoding
-        break;
-    case DecodingMethod::SPECULATIVE_DECODING:
-        // Set num_assistant_tokens to a default value if neither num_assistant_tokens nor assistant_confidence_threshold are set
-        if (config.num_assistant_tokens == 0 && config.assistant_confidence_threshold == 0) {
-            config.num_assistant_tokens = 5;  // default value for speculative decoding
-        }
-        break;
-    case DecodingMethod::PROMPT_LOOKUP:
-        // Set num_assistant_tokens to a default value if not already set
-        if (config.num_assistant_tokens == 0) {
-            config.num_assistant_tokens = 5;  // default value for prompt lookup
-        }
-        // Set max_ngram_size to a default value if not already set
-        if (config.max_ngram_size == 0) {
-            config.max_ngram_size = 3;  // default value for prompt lookup
-        }
-        break;
-    }
-}
-
-void BaseGenerationConfigBuilder::setStructuralTagsConfig(const ov::genai::StructuredOutputConfig::StructuralTag& structuralTag) {
+void BaseGenerationConfigBuilder::setStructuralTagsConfig(const ov::genai::StructuralTagsConfig& structuralTagsConfig) {
     if (config.structured_output_config) {
-        config.structured_output_config->structural_tags_config = structuralTag;
+        config.structured_output_config->structural_tags_config = structuralTagsConfig;
     } else {
         ov::genai::StructuredOutputConfig structuredOutputConfig;
-        structuredOutputConfig.structural_tags_config = structuralTag;
+        structuredOutputConfig.structural_tags_config = structuralTagsConfig;
         config.structured_output_config = structuredOutputConfig;
     }
-}
-
-void BaseGenerationConfigBuilder::addStopString(const std::string& decodedStopString) {
-    config.stop_strings.insert(decodedStopString);
-}
-
-void BaseGenerationConfigBuilder::validateStructuredOutputConfig(ov::genai::Tokenizer& tokenizer) {
-    if (config.structured_output_config.has_value()) {
-        config.structured_output_config.value().validate(tokenizer);
-    }
-}
-
-void BaseGenerationConfigBuilder::unsetStructuredOutputConfig() {
-    config.structured_output_config.reset();
 }
 
 void BaseGenerationConfigBuilder::parseConfigFromRequest(const OpenAIChatCompletionsRequest& request) {
@@ -129,9 +89,9 @@ void BaseGenerationConfigBuilder::parseConfigFromRequest(const OpenAIChatComplet
         config.max_ngram_size = request.maxNgramSize.value();
 
     // Response format handling
-    if (request.responseFormat.has_value()) {
+    if (request.responseSchema.has_value()) {
         ov::genai::StructuredOutputConfig structuredOutputConfig;
-        structuredOutputConfig.structural_tags_config = request.responseFormat.value();
+        structuredOutputConfig.json_schema = request.responseSchema.value();
         config.structured_output_config = structuredOutputConfig;
         config.stop_strings.insert("#");
     }

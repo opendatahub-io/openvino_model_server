@@ -1037,7 +1037,7 @@ Status ModelInstance::loadModelImpl(const ModelConfig& config, const DynamicMode
 Status ModelInstance::setCacheOptions(const ModelConfig& config) {
     if (!config.getCacheDir().empty()) {
         if (!config.isAllowCacheSetToTrue() && (config.isCustomLoaderRequiredToLoadModel() || config.anyShapeSetToAuto() || (config.getBatchingMode() == Mode::AUTO))) {
-            OV_LOGGER("ov::Core: {}, ieCore.set_property(ov::cache_dir({}))", reinterpret_cast<const void*>(&this->ieCore), "");
+            OV_LOGGER("ov::Core: {}, ieCore.set_property(ov::cache_dir({}))", reinterpret_cast<const void*>(this->compiledModel.get()), "");
             this->ieCore.set_property(ov::cache_dir(""));
             SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Model: {} has disabled caching", this->getName());
             this->cacheDisabled = true;
@@ -1045,7 +1045,7 @@ Status ModelInstance::setCacheOptions(const ModelConfig& config) {
             SPDLOG_LOGGER_ERROR(modelmanager_logger, "Model: {} has allow cache set to true while using custom loader", this->getName());
             return StatusCode::ALLOW_CACHE_WITH_CUSTOM_LOADER;
         } else {
-            OV_LOGGER("ov::Core: {}, ieCore.set_property(ov::cache_dir({}))", reinterpret_cast<const void*>(&this->ieCore), config.getCacheDir());
+            OV_LOGGER("ov::Core: {}, ieCore.set_property(ov::cache_dir({}))", reinterpret_cast<const void*>(this->compiledModel.get()), config.getCacheDir());
             this->ieCore.set_property(ov::cache_dir(config.getCacheDir()));
             SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Model: {} has enabled caching", this->getName());
         }
@@ -1072,7 +1072,7 @@ Status ModelInstance::reloadModel(const ModelConfig& config, const DynamicModelP
     this->status.setLoading();
     while (!canUnloadInstance()) {
         SPDLOG_INFO("Waiting to reload model: {} version: {}. Blocked by: {} inferences in progress.",
-            getName(), getVersion(), predictRequestsHandlesCount.load());
+            getName(), getVersion(), predictRequestsHandlesCount);
         std::this_thread::sleep_for(std::chrono::milliseconds(UNLOAD_AVAILABILITY_CHECKING_INTERVAL_MILLISECONDS));
     }
     if ((this->config.isCustomLoaderRequiredToLoadModel()) && (isCustomLoaderConfigChanged)) {
@@ -1243,7 +1243,7 @@ void ModelInstance::unloadModelComponents() {
     subscriptionManager.notifySubscribers();
     while (!canUnloadInstance()) {
         SPDLOG_DEBUG("Waiting to unload model: {} version: {}. Blocked by: {} inferences in progress.",
-            getName(), getVersion(), predictRequestsHandlesCount.load());
+            getName(), getVersion(), predictRequestsHandlesCount);
         std::this_thread::sleep_for(std::chrono::milliseconds(UNLOAD_AVAILABILITY_CHECKING_INTERVAL_MILLISECONDS));
     }
     SET_IF_ENABLED(this->getMetricReporter().inferReqQueueSize, 0);

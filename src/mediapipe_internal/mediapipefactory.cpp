@@ -104,7 +104,7 @@ Status MediapipeFactory::reloadDefinition(const std::string& name,
     return mgd->reload(manager, config);
 }
 
-Status MediapipeFactory::create(std::unique_ptr<MediapipeGraphExecutor>& pipeline,
+Status MediapipeFactory::create(std::shared_ptr<MediapipeGraphExecutor>& pipeline,
     const std::string& name,
     ModelManager& manager) const {
     std::shared_lock lock(definitionsMtx);
@@ -137,16 +137,6 @@ const std::vector<std::string> MediapipeFactory::getMediapipePipelinesNames() co
     names.reserve(definitions.size());
     for (auto& [name, definition] : definitions) {
         names.push_back(definition->getName());
-    }
-    return names;
-}
-const std::vector<std::string> MediapipeFactory::getNamesOfAvailableMediapipePipelines() const {
-    std::vector<std::string> names;
-    std::shared_lock lock(definitionsMtx);
-    for (auto& [name, definition] : definitions) {
-        if (definition->getStatus().isAvailable()) {
-            names.push_back(definition->getName());
-        }
     }
     return names;
 }

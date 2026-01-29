@@ -17,7 +17,6 @@
 
 #include <memory>
 #include <string>
-#include <utility>
 #include <variant>
 
 #include <cxxopts.hpp>
@@ -25,8 +24,6 @@
 #include "graph_export/graph_cli_parser.hpp"
 #include "graph_export/rerank_graph_cli_parser.hpp"
 #include "graph_export/embeddings_graph_cli_parser.hpp"
-#include "graph_export/t2s_graph_cli_parser.hpp"
-#include "graph_export/s2t_graph_cli_parser.hpp"
 #include "graph_export/image_generation_graph_cli_parser.hpp"
 
 namespace ovms {
@@ -37,11 +34,11 @@ struct ModelsSettingsImpl;
 class CLIParser {
     std::unique_ptr<cxxopts::Options> options;
     std::unique_ptr<cxxopts::ParseResult> result;
-    std::variant<GraphCLIParser, RerankGraphCLIParser, EmbeddingsGraphCLIParser, ImageGenerationGraphCLIParser, TextToSpeechGraphCLIParser, SpeechToTextGraphCLIParser> graphOptionsParser;
+    std::variant<GraphCLIParser, RerankGraphCLIParser, EmbeddingsGraphCLIParser, ImageGenerationGraphCLIParser> graphOptionsParser;
 
 public:
     CLIParser() = default;
-    std::variant<bool, std::pair<int, std::string>> parse(int argc, char** argv);
+    void parse(int argc, char** argv);
     void prepare(ServerSettingsImpl*, ModelsSettingsImpl*);
 
 protected:
