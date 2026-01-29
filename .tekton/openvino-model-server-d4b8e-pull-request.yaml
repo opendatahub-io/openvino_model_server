@@ -18,6 +18,9 @@ metadata:
   name: openvino-model-server-d4b8e-on-pull-request
   namespace: open-data-hub-tenant
 spec:
+  timeouts:
+    pipeline: 8h
+    tasks: 8h
   params:
   - name: git-url
     value: '{{source_url}}'
@@ -36,6 +39,17 @@ spec:
     - linux-extra-fast/amd64
   - name: build-args-file
     value: .konflux/build-args.conf
+  taskRunSpecs:
+    - pipelineTaskName: build-images
+      stepSpecs:
+        - name: build
+          computeResources:
+            requests:
+              cpu: '8'
+              memory: 16Gi
+            limits:
+              cpu: '16'
+              memory: 32Gi
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while maintaining trust after pipeline customization.
