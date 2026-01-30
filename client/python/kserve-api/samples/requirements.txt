@@ -1,2 +1,2 @@
-tritonclient[all]<=2.45.0
+tritonclient[all]<=2.64.0
 requests<=2.32.2

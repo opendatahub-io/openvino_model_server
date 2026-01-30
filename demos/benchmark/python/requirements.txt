@@ -7,5 +7,5 @@ retry
 PyYAML
 pypng
 nvidia-pyindex
-tritonclient[all]==2.44.0
+tritonclient[all]==2.64.0
 numpy<2
