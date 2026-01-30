@@ -61,5 +61,5 @@ setuptools.setup(
         "build_apis": BuildApis,
      },
      packages=setuptools.find_namespace_packages(include=["ovmsclient*"]),
-     install_requires=["grpcio>=1.47.0", "protobuf>=3.19.4,<4.0", "numpy>=1.16.6", "requests>=2.27.1"],
+     install_requires=["grpcio>=1.47.0", "protobuf>=6.33.5,<6.34", "numpy>=1.16.6", "requests>=2.27.1"],
  )
