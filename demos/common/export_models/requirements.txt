@@ -10,5 +10,5 @@ sentence_transformers==3.1.1
 openai 
 transformers<=4.49 # 4.50 has a bug
 einops
-torchvision==0.21.0
+torchvision==0.25.0+cpu
 timm==1.0.15
