@@ -13,5 +13,5 @@ sentence_transformers==5.1.2
 sentencepiece==0.2.1  # Required by: transformers
 timm==1.0.22
 torchvision
-torch==2.9.1+cpu
+torch==2.10.0+cpu
 transformers==4.55.4
