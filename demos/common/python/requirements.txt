@@ -4,4 +4,4 @@ tensorflow-serving-api==2.16.1; python_version >= "3.12"
 tensorflow==2.16.1; python_version >= "3.12"
 tensorflow-serving-api<=2.13.1,>=2.11; python_version < "3.12"
 tensorflow<=2.13.1,>=2.11; python_version < "3.12"
-numpy<2.0.0
+numpy<2.4.3
