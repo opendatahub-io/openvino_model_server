@@ -1,0 +1,69 @@
+From 6bf892155e3f11dde49478c94dae9b6b3618b93a Mon Sep 17 00:00:00 2001
+From: Przemyslaw Wysocki <przemyslaw.wysocki@intel.com>
+Date: Fri, 23 Jan 2026 09:41:33 +0100
+Subject: [PATCH] [PyOV] Use `packaging` instead of `wheel.vendored` in CMake
+ checks (#33763)
+
+### Details:
+- `wheel==0.46` release at
+https://github.com/pypa/wheel/releases/tag/0.46.0:
+ `Removed vendored packaging in favor of a run-time dependency on it`
+- This caused an error in our pipelines, `wheel` no longer supplies
+`packaging` dependency, so we have to install and use it independently
+- This is being fixed with a WA:
+https://github.com/openvinotoolkit/openvino/pull/33755
+ - This PR is a proper fix for the issue
+ - Let's allow the WA to get merged first to unblock precommit
+
+### Tickets:
+ - 179738
+
+---------
+
+Signed-off-by: p-wysocki <przemyslaw.wysocki@intel.com>
+---
+ src/bindings/python/constraints.txt            | 2 +-
+ src/bindings/python/wheel/CMakeLists.txt       | 8 ++++----
+ src/bindings/python/wheel/requirements-dev.txt | 1 +
+ 3 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/src/bindings/python/wheel/CMakeLists.txt b/src/bindings/python/wheel/CMakeLists.txt
+index 8f654351ed8dce..733f9e480e4a68 100644
+--- a/src/bindings/python/wheel/CMakeLists.txt
++++ b/src/bindings/python/wheel/CMakeLists.txt
+@@ -6,10 +6,10 @@
+ # Define proper package name
+ #
+ 
+-execute_process(COMMAND ${Python3_EXECUTABLE} -c "import wheel.vendored.packaging.tags as tags ; print(f'{tags.interpreter_name()}{tags.interpreter_version()}')"
++execute_process(COMMAND ${Python3_EXECUTABLE} -c "from packaging import tags; print(f'{tags.interpreter_name()}{tags.interpreter_version()}')"
+                 OUTPUT_VARIABLE PYTHON_TAG OUTPUT_STRIP_TRAILING_WHITESPACE)
+ if(NOT PYTHON_TAG)
+-    message(FATAL_ERROR "Failed to detect Python Tag via wheel.vendored.packaging.tags. Please, check 'wheel' dependency version update")
++    message(FATAL_ERROR "Failed to detect Python Tag via packaging.tags. Please, check 'packaging' dependency version update")
+ endif()
+ 
+ execute_process(COMMAND ${Python3_EXECUTABLE} -c "from setuptools.command.bdist_wheel import get_abi_tag; print(f'{get_abi_tag()}')"
+@@ -18,10 +18,10 @@ if(NOT ABI_TAG)
+     message(FATAL_ERROR "Failed to detect ABI Tag via setuptools.command.bdist_wheel. Please, check 'setuptools' dependency version update")
+ endif()
+ 
+-execute_process(COMMAND ${Python3_EXECUTABLE} -c "import wheel.vendored.packaging.tags as tags ; print(f'{next(tags.platform_tags())}')"
++execute_process(COMMAND ${Python3_EXECUTABLE} -c "from packaging import tags; print(f'{next(tags.platform_tags())}')"
+                 OUTPUT_VARIABLE PLATFORM_TAG OUTPUT_STRIP_TRAILING_WHITESPACE)
+ if(NOT PLATFORM_TAG)
+-    message(FATAL_ERROR "Failed to detect Platform Tag via wheel.vendored.packaging.tags. Please, check 'wheel' dependency version update")
++    message(FATAL_ERROR "Failed to detect Platform Tag via packaging.tags. Please, check 'packaging' dependency version update")
+ endif()
+ 
+ # defines wheel architecture part of `PLATFORM_TAG`
+diff --git a/src/bindings/python/wheel/requirements-dev.txt b/src/bindings/python/wheel/requirements-dev.txt
+index a6c2dcbdf8fee1..f40b57ac55ef4f 100644
+--- a/src/bindings/python/wheel/requirements-dev.txt
++++ b/src/bindings/python/wheel/requirements-dev.txt
+@@ -2,4 +2,5 @@
+ setuptools
+ wheel
+ build
++packaging
+ patchelf; sys_platform == 'linux' and platform_machine == 'x86_64'
