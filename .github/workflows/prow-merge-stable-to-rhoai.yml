@@ -1,0 +1,87 @@
+name: Prow Merge stable Branch to rhoai Branch
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Fetch required branches
+        run: |
+          git fetch origin rhoai
+          git fetch origin stable
+      - name: Validate Sync Status
+        id: validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if there is any open sync PR from this stable branch
+          EXISTING_PR=$(gh pr list \
+            --base "rhoai" \
+            --json number,headRefName \
+            --jq ".[] | select(.headRefName | startswith(\"sync/stable\")) | .number" \
+            | head -n1)
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR #$EXISTING_PR already exists for syncing stable to rhoai."
+            echo "Please close any outstanding syncs from stable to rhoai before proceeding."
+            exit 1
+          fi
+
+          # Check if there are any changes to sync
+          if ! git diff --quiet \
+            "origin/rhoai..origin/stable" \
+            -- .; then
+            echo "Changes detected between stable and rhoai. Proceeding with PR creation."
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "No changes to sync from stable to rhoai."
+            echo "The branches are already in sync."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Sync stable to rhoai
+        if: steps.validate.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Generate sync branch name with timestamp
+          SYNC_BRANCH="sync/stable-$(date +%Y-%m-%d-%H%M%S)"
+          
+          # Configure git
+          git config user.name "Sync Bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create new branch from current HEAD (rhoai)
+          git checkout -b "$SYNC_BRANCH" origin/rhoai
+
+          # Perform the merge to maintain commit history
+          git merge --no-edit "origin/stable"
+
+          # Push the sync branch
+          git push origin "$SYNC_BRANCH"
+
+          # Create new PR
+          gh pr create \
+            --base "rhoai" \
+            --head "$SYNC_BRANCH" \
+            --title "Sync stable to rhoai" \
+            --body "$(cat <<EOF
+          ## Description
+          - Automated sync of changes from stable to rhoai
+          - Part of RHOAI release preparation
+
+          ## Changes
+          - All changes from stable
+
+          🤖 Generated with GitHub Actions
+          EOF
+          )"
