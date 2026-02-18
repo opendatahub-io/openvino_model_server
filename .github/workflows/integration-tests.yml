@@ -1,0 +1,209 @@
+name: Integration Tests
+
+on:
+  # Trigger when a status check is posted (OpenShift CI completion)
+  status:
+  # Allow manual trigger with custom image tag
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to test (e.g., pr-123)'
+        required: true
+        type: string
+
+jobs:
+  # Extract image information from the trigger event
+  setup:
+    name: Determine Image Tag
+    runs-on: ubuntu-latest
+    # Only run for workflow_dispatch or relevant status events
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'status' &&
+       contains(github.ref, 'pull/') &&
+       github.event.state == 'success' &&
+       contains(github.event.context, 'pr-image-mirror'))
+    outputs:
+      image_tag: ${{ steps.set_image_tag.outputs.tag }}
+      base_branch: ${{ steps.get_pr_info.outputs.base_branch }}
+    steps:
+      - name: Get PR information
+        if: github.event_name == 'status'
+        id: get_pr_info
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUM=$(echo "${{ github.ref }}" | grep -oP 'pull/\K[0-9]+')
+          BASE_BRANCH=$(gh pr view ${PR_NUM} --repo ${{ github.repository }} --json baseRefName --jq '.baseRefName')
+          echo "base_branch=${BASE_BRANCH}" >> $GITHUB_OUTPUT
+          echo "pr_number=${PR_NUM}" >> $GITHUB_OUTPUT
+          echo "PR #${PR_NUM} targets ${BASE_BRANCH}"
+
+      - name: Set image tag
+        id: set_image_tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=pr-${{ steps.get_pr_info.outputs.pr_number }}" >> $GITHUB_OUTPUT
+          fi
+
+  # Pull the image built by OpenShift CI
+  pull-image:
+    name: Pull Image from Quay.io
+    runs-on: ubuntu-latest
+    needs: setup
+    # For status events: only run if PR targets stable or stable-2.x
+    # For manual triggers: always run
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.setup.outputs.base_branch == 'stable' ||
+      needs.setup.outputs.base_branch == 'stable-2.x'
+    steps:
+      - name: Pull image from Quay.io
+        env:
+          IMAGE_TAG: ${{ needs.setup.outputs.image_tag }}
+        run: |
+          FULL_IMAGE="quay.io/opendatahub/openvino_model_server:${IMAGE_TAG}"
+          echo "Pulling image: ${FULL_IMAGE}"
+          docker pull ${FULL_IMAGE}
+          docker tag ${FULL_IMAGE} openvino/model_server:latest
+
+      - name: Save Docker image
+        run: |
+          docker save openvino/model_server:latest | gzip > model-server-image.tar.gz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-server-image
+          path: model-server-image.tar.gz
+          retention-days: 1
+
+  # File integrity test
+  file-integrity:
+    name: File Integrity Test
+    runs-on: ubuntu-latest
+    needs: pull-image
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: model-server-image
+
+      - name: Load Docker image
+        run: |
+          docker load < model-server-image.tar.gz
+
+      - name: Run file integrity test
+        run: |
+          make run_lib_files_test
+
+  # Python clients test
+  clients-test:
+    name: Python Clients Test
+    runs-on: ubuntu-latest
+    needs: pull-image
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: model-server-image
+
+      - name: Load Docker image
+        run: |
+          docker load < model-server-image.tar.gz
+
+      - name: Run Python clients test
+        run: |
+          make test_python_clients
+
+  # Latency performance test
+  latency-test:
+    name: Latency Performance Test
+    runs-on: ubuntu-latest
+    needs: pull-image
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: model-server-image
+
+      - name: Load Docker image
+        run: |
+          docker load < model-server-image.tar.gz
+
+      - name: Run latency test
+        run: |
+          make test_perf
+
+  # Throughput performance test
+  throughput-test:
+    name: Throughput Performance Test
+    runs-on: ubuntu-latest
+    needs: pull-image
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: model-server-image
+
+      - name: Load Docker image
+        run: |
+          docker load < model-server-image.tar.gz
+
+      - name: Run throughput test
+        run: |
+          make test_throughput
+
+  # Functional smoke tests
+  functional-tests-smoke:
+    name: Functional Tests (Smoke)
+    runs-on: ubuntu-latest
+    needs: pull-image
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: model-server-image
+
+      - name: Load Docker image
+        run: |
+          docker load < model-server-image.tar.gz
+
+      - name: Run functional smoke tests
+        env:
+          IMAGE: openvino/model_server:latest
+          TEST_PATH: "tests/functional/test_single_model.py tests/functional/test_batching.py tests/functional/test_multi_models.py -k test_run_inference"
+        run: |
+          make test_functional
