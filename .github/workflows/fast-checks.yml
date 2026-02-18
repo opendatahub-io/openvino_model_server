@@ -1,0 +1,69 @@
+name: Fast Checks
+
+on:
+  pull_request:
+    branches:
+      - stable
+      - stable-2.x
+  workflow_dispatch:
+
+jobs:
+  # Style checks (code quality)
+  style-checks:
+    name: Style Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run style checks
+        run: |
+          make style
+
+  # SDL security checks
+  sdl-security-checks:
+    name: SDL Security Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run SDL security checks
+        run: |
+          make sdl-check
+
+  # Client library tests
+  client-lib:
+    name: Client Library Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check for client library changes
+        id: client-lib-changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            client:
+              - 'client/python/ovmsclient/lib/**'
+
+      - name: Run client library tests
+        if: steps.client-lib-changes.outputs.client == 'true'
+        run: |
+          make test_client_lib
