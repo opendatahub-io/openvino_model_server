@@ -426,9 +426,10 @@ COPY --from=pkg /licenses /licenses
 # Setup Python Demos Environment
 COPY demos/python_demos/requirements.txt .
 RUN if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; \
-       else export DNF_TOOL=microdnf ; fi ; \
-       $DNF_TOOL install -y python3-pip git iproute net-tools ; $DNF_TOOL clean all ; \
-       pip3 install --no-cache-dir -r requirements.txt ; \
+       else export DNF_TOOL=microdnf ; fi && \
+       $DNF_TOOL install -y python3-pip git iproute net-tools && \
+       $DNF_TOOL clean all && \
+       pip3 install --no-cache-dir -r requirements.txt && \
        rm -f requirements.txt && \
        pip list --format=freeze
 
