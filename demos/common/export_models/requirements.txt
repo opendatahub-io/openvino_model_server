@@ -3,7 +3,7 @@ optimum-intel@git+https://github.com/huggingface/optimum-intel.git@a484bc6ee1175
 accelerate==1.11.0
 diffusers==0.35.2  # for image generation
 einops==0.8.1
-nncf==2.19.0
+nncf==3.0.0
 numpy==2.2.6
 openvino-tokenizers==2025.4.1.0
 openvino==2025.4.1
