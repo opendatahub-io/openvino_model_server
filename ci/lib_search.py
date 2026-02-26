@@ -80,6 +80,7 @@ def check_dir(start_dir):
         '.xml',
         'Doxyfile',
         'LICENSE',
+        'OWNERS',
         'REST_age_gender.ipynb',
         '__pycache__',
         'abseil_gcc_8.5_constant_expression.patch',
