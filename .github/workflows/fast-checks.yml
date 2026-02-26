@@ -9,7 +9,7 @@ on:
 jobs:
   # Style checks (code quality)
   style-checks:
-    name: ${{ github.event_name == 'pull_request' && format('{0}/', github.base_ref) || '' }}style-checks
+    name: Style Checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -24,7 +24,7 @@ jobs:
 
   # SDL security checks
   sdl-security-checks:
-    name: ${{ github.event_name == 'pull_request' && format('{0}/', github.base_ref) || '' }}sdl-security-checks
+    name: SDL Security Checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -39,7 +39,7 @@ jobs:
 
   # Client library tests
   client-lib:
-    name: ${{ github.event_name == 'pull_request' && format('{0}/', github.base_ref) || '' }}client-library-tests
+    name: Client Library Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
