@@ -461,6 +461,7 @@ RUN if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; \
 	$DNF_TOOL -y remove git-core && \
 	$DNF_TOOL clean all && \
 	pip list && \
+	rm -rf /root/.cache && \
 	rm -f base-requirements.txt
 
 USER ovms
