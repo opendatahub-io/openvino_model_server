@@ -432,5 +432,21 @@ COPY --from=pkg /usr/local/lib64/python3.12/site-packages/MarkupSafe-3.0.2.dist-
 COPY --from=pkg /usr/local/lib64/python3.12/site-packages/markupsafe /ovms/python_deps/markupsafe
 
 COPY --from=pkg /licenses /licenses
+
+# Setup Python Demos Environment. Have to establish a working python 3.12.
+COPY demos/python_demos/base-requirements.txt .
+RUN if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; \
+	else export DNF_TOOL=microdnf ; fi && \
+	$DNF_TOOL -y install python3.12 python3.12-pip git-core && \
+	alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+	alternatives --set python3 /usr/bin/python3.12 && \
+	ln -sf /usr/bin/pip3.12 /usr/bin/pip3 && \
+	ln -sf /usr/bin/pip3 /usr/bin/pip && \
+	pip install --no-cache-dir -r base-requirements.txt && \
+	$DNF_TOOL -y remove git-core && \
+	$DNF_TOOL clean all && \
+	pip list && \
+	rm -f base-requirements.txt
+
 USER ovms
 ENTRYPOINT ["/ovms/bin/ovms"]
