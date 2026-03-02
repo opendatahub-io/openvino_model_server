@@ -129,9 +129,9 @@ IF /I EXIST %bash_path% (
     echo [INFO] Msys installed in: %msys_path%
 )
 
-:: Set default USE_OV_BINARY if not set
-if "%USE_OV_BINARY%"=="" (
-    set "USE_OV_BINARY=1"
+:: Set default OV_USE_BINARY if not set
+if "%OV_USE_BINARY%"=="" (
+    set "OV_USE_BINARY=1"
 )
 
 set "genai_workspace=C:\\\\opt\\\\openvino\\\\runtime"
@@ -142,8 +142,8 @@ if "!output_user_root!" neq "opt" (
     if !errorlevel! neq 0 exit /b !errorlevel!
 )
 
-echo [INFO] USE_OV_BINARY=%USE_OV_BINARY%
-IF "%USE_OV_BINARY%"=="0" (
+echo [INFO] OV_USE_BINARY=%OV_USE_BINARY%
+IF "%OV_USE_BINARY%"=="0" (
     goto :install_openvino_from_src
 )
 
@@ -155,7 +155,7 @@ IF "%USE_OV_BINARY%"=="0" (
 ::::::::::::::::::::::: GENAI/OPENVINO install from ZIP - reinstalled per build trigger
 :: Set default GENAI_PACKAGE_URL if not set
 if "%GENAI_PACKAGE_URL%"=="" (
-    set "GENAI_PACKAGE_URL=https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/pre-release/2025.4.1.0rc1/openvino_genai_windows_2025.4.1.0rc1_x86_64.zip"
+    set "GENAI_PACKAGE_URL=https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/pre-release/2026.0.0.0rc3/openvino_genai_windows_2026.0.0.0rc3_x86_64.zip"
 )
 
 :: Extract genai_ver from GENAI_PACKAGE_URL (filename)
@@ -208,7 +208,7 @@ IF /I EXIST %BAZEL_SHORT_PATH%\openvino (
     rmdir /S /Q %BAZEL_SHORT_PATH%\openvino
 )
 if "%OV_SOURCE_BRANCH%"=="" (
-    set "OV_SOURCE_BRANCH=82bbf0292c5bd490bc25a383e63d6461d3ee05c5"
+    set "OV_SOURCE_BRANCH=f08e8b36350149367ace4ed108f5e215dccddc4f"
 )
 if "%OV_SOURCE_ORG%"=="" (
     set "OV_SOURCE_ORG=openvinotoolkit"
@@ -217,13 +217,24 @@ if "%TOKENIZER_SOURCE_ORG%"=="" (
     set "TOKENIZER_SOURCE_ORG=openvinotoolkit"
 )
 if "%TOKENIZER_SOURCE_BRANCH%"=="" (
-    set "TOKENIZER_SOURCE_BRANCH=e79796a77f3212bc69466be54d05ed04f0a6ffd8"
+    set "TOKENIZER_SOURCE_BRANCH=47cea02a2d47b2fcf9152a1891f7360d6fdf4a27"
 )
 if "%GENAI_SOURCE_ORG%"=="" (
     set "GENAI_SOURCE_ORG=openvinotoolkit"
 )
 if "%GENAI_SOURCE_BRANCH%"=="" (
-    set "GENAI_SOURCE_BRANCH=fc593653d7781f6bd722e62a8f6801fdba423262"
+    set "GENAI_SOURCE_BRANCH=dab5b993a38aeb15d06478d5f3aca72404646528"
+)
+
+echo [INFO] Using OpenVINO source from %OV_SOURCE_ORG%
+IF /I EXIST %BAZEL_SHORT_PATH%\openvino_src (
+    git -C %BAZEL_SHORT_PATH%\openvino_src remote -v | findstr "\/%OV_SOURCE_ORG%\/" > nul
+    if !errorlevel! equ 0 (
+        echo [INFO] Repository already points to %OV_SOURCE_ORG%
+    ) else (
+        echo [INFO] Repository points to different org, removing...
+        rmdir /S /Q %BAZEL_SHORT_PATH%\openvino_src
+    )
 )
 
 IF /I NOT EXIST %BAZEL_SHORT_PATH%\openvino_src (
@@ -489,9 +500,9 @@ exit /b 0
 :install_curl
 echo [INFO] Installing curl ...
 
-set "curl_dir=curl-8.14.1_1-win64-mingw"
-set "curl_ver=curl-8.14.1_1-win64-mingw.zip"
-set "curl_http=https://curl.se/windows/dl-8.14.1_1/"
+set "curl_dir=curl-8.18.0_4-win64-mingw"
+set "curl_ver=curl-8.18.0_4-win64-mingw.zip"
+set "curl_http=https://curl.se/windows/dl-8.18.0_4/"
 
 set "curl_zip=%opt_install_dir%\%curl_ver%"
 
@@ -523,7 +534,7 @@ IF /I EXIST %opt_install_dir%\%curl_dir% (
 )
 
 :: Create lib file for libgit2 linking
-set "curl_lib=C:\opt\curl-8.14.1_1-win64-mingw\bin\libcurl-x64.lib"
+set "curl_lib=C:\opt\curl-8.18.0_4-win64-mingw\bin\libcurl-x64.lib"
 IF /I EXIST %curl_lib% (
     echo [INFO] file exists %curl_lib% 
 ) ELSE (
@@ -538,7 +549,7 @@ IF /I EXIST %curl_lib% (
     exit /b
     :create_lib
 	IF /I EXIST !LIB_EXE! (
-		set "curl_def=C:\opt\curl-8.14.1_1-win64-mingw\bin\libcurl-x64.def"
+		set "curl_def=C:\opt\curl-8.18.0_4-win64-mingw\bin\libcurl-x64.def"
 		"!LIB_EXE!" /def:!curl_def! /out:%curl_lib% /MACHINE:x64
 		if !errorlevel! neq 0 exit /b !errorlevel!
         echo [INFO] !LIB_EXE! created.
