@@ -36,6 +36,7 @@
 #include "../../../mediapipe_internal/mediapipe_utils.hpp"
 #include "../../apis/openai_completions.hpp"
 #include "../../text_utils.hpp"
+#include "../../../tokenize/tokenize_parser.hpp"
 #if (PYTHON_DISABLE == 0)
 #include "../../py_jinja_template_processor.hpp"
 #endif
@@ -52,8 +53,10 @@ absl::Status VisualLanguageModelLegacyServable::loadRequest(std::shared_ptr<GenA
     }
     if (payload.uri == "/v3/chat/completions" || payload.uri == "/v3/v1/chat/completions") {
         executionContext->endpoint = Endpoint::CHAT_COMPLETIONS;
+    } else if (TokenizeParser::isTokenizeEndpoint(payload.uri)) {
+        executionContext->endpoint = Endpoint::TOKENIZE;
     } else {
-        return absl::InvalidArgumentError("Wrong endpoint. VLM Servable allowed only on /v3/chat/completions endpoint");
+        return absl::InvalidArgumentError("Wrong endpoint. VLM Servable allowed only on /v3/chat/completions endpoint or /v3/tokenize");
     }
     executionContext->payload = payload;
     return absl::OkStatus();
@@ -81,7 +84,7 @@ absl::Status VisualLanguageModelLegacyServable::parseRequest(std::shared_ptr<Gen
         getProperties()->tokenizer);
     auto& config = ovms::Config::instance();
 
-    auto status = executionContext->apiHandler->parseRequest(getProperties()->maxTokensLimit, getProperties()->bestOfLimit, getProperties()->maxModelLength, config.getServerSettings().allowedLocalMediaPath);
+    auto status = executionContext->apiHandler->parseRequest(getProperties()->maxTokensLimit, getProperties()->bestOfLimit, getProperties()->maxModelLength, config.getServerSettings().allowedLocalMediaPath, config.getServerSettings().allowedMediaDomains);
     if (!status.ok()) {
         SPDLOG_LOGGER_ERROR(llm_calculator_logger, "Failed to parse request: {}", status.message());
         return status;
@@ -117,6 +120,12 @@ absl::Status VisualLanguageModelLegacyServable::parseRequest(std::shared_ptr<Gen
 
 absl::Status VisualLanguageModelLegacyServable::scheduleExecution(std::shared_ptr<GenAiServableExecutionContext>& executionContext) {
     auto legacyExecutionContext = std::static_pointer_cast<VisualLanguageModelLegacyServableExecutionContext>(executionContext);
+    std::weak_ptr<VisualLanguageModelLegacyServableExecutionContext> weakContext = legacyExecutionContext;
+    legacyExecutionContext->payload.client->registerDisconnectionCallback([weakContext]() {
+        if (auto context = weakContext.lock()) {
+            context->clientDisconnected = true;
+        }
+    });
     if (legacyExecutionContext->payload.client->isDisconnected()) {
         return absl::CancelledError();
     }
@@ -167,8 +176,11 @@ absl::Status VisualLanguageModelLegacyServable::preparePartialResponse(std::shar
         std::unique_lock lock(legacyExecutionContext->mutex);
         while (executionContext->lastStreamerCallbackOutput.size() == 0 && generationStatus != std::future_status::ready) {
             SPDLOG_LOGGER_TRACE(llm_executor_logger, "Waiting for partial data...");
-            legacyExecutionContext->executionInProgress.wait(lock);
+            auto cvStatus = legacyExecutionContext->executionInProgress.wait_for(lock, std::chrono::milliseconds(10));
             generationStatus = legacyExecutionContext->finished.wait_for(std::chrono::nanoseconds::zero());
+            if (cvStatus == std::cv_status::timeout && generationStatus == std::future_status::ready) {
+                SPDLOG_LOGGER_TRACE(llm_executor_logger, "Race condition avoided - notification was missed but recovered with timeout");
+            }
         }
         lastTextChunk = executionContext->lastStreamerCallbackOutput;
         executionContext->lastStreamerCallbackOutput = "";
