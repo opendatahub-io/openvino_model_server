@@ -314,6 +314,7 @@ RUN rm -f /usr/lib64/cmake/OpenSSL/OpenSSLConfig.cmake
 # It speeds up CI when tests are executed outside of the image building
 # Konflux build system cuts off network access at times. Build all in 1 shot.
 # hadolint ignore=SC2046
+RUN cat /etc/resolv.conf && getent hosts github.com || :
 RUN bazel build --jobs=$JOBS ${debug_bazel_flags} //:ovms_dependencies @com_google_googletest//:gtest && \
   bazel build --jobs=$JOBS ${debug_bazel_flags} //src:release_custom_nodes && \
   bazel build --jobs=$JOBS ${debug_bazel_flags} ${minitrace_flags} //src:ovms \
