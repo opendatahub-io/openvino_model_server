@@ -1,4 +1,4 @@
-name: Integration Tests
+name: Integration Tests - Konflux
 
 on:
   # Trigger when a PR build status event is posted by Konflux
