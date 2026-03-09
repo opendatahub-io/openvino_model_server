@@ -277,9 +277,12 @@ RUN cp -v /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
 COPY src/ /ovms/src/
 
 # hadolint ignore=DL3059
-# Prefetch all external bazel deps to avoid transient DNS failures in later steps
+# Prefetch all external bazel deps to avoid transient DNS failures in later steps.
+# --nobuild fetches all external repos without compiling.
+# Then build tensorflow framework and model_api (which uses CMake FetchContent
+# to download nlohmann/json at build time, bypassing bazel's repo cache).
 RUN bazel build --nobuild ${debug_bazel_flags} //:ovms_dependencies @com_google_googletest//:gtest //src:ovms //src:release_custom_nodes && \
-    bazel build --jobs=$JOBS ${debug_bazel_flags} @org_tensorflow//tensorflow/core:framework
+    bazel build --jobs=$JOBS ${debug_bazel_flags} @org_tensorflow//tensorflow/core:framework @model_api//:model_api_cmake
 
 # Sample CPU Extension
 WORKDIR /ovms/src/example/SampleCpuExtension/
