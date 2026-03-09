@@ -277,7 +277,9 @@ RUN cp -v /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
 COPY src/ /ovms/src/
 
 # hadolint ignore=DL3059
-RUN bazel build --jobs=$JOBS ${debug_bazel_flags} @org_tensorflow//tensorflow/core:framework
+# Prefetch all external bazel deps to avoid transient DNS failures in later steps
+RUN bazel fetch ${debug_bazel_flags} //:ovms_dependencies @com_google_googletest//:gtest //src:ovms //src:release_custom_nodes && \
+    bazel build --jobs=$JOBS ${debug_bazel_flags} @org_tensorflow//tensorflow/core:framework
 
 # Sample CPU Extension
 WORKDIR /ovms/src/example/SampleCpuExtension/
