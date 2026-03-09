@@ -14,13 +14,13 @@
 # limitations under the License.
 #
 
-ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.6
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.7
 ARG BUILD_IMAGE=build
 ARG PKG_IMAGE=pkg
-ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
+ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.7
 
 FROM $BASE_IMAGE as base_build
-ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.6
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.7
 
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
 
@@ -111,7 +111,8 @@ ARG VERBOSE_LOGS=OFF
 ARG LTO_ENABLE=OFF
 
 # hadolint ignore=DL3041
-RUN dnf install -d6 -y https://vault.centos.org/centos/8-stream/PowerTools/x86_64/os/Packages/opencl-headers-2.2-1.20180306gite986688.el8.noarch.rpm \
+RUN dnf install -y -d6 \
+            https://vault.centos.org/centos/8-stream/PowerTools/x86_64/os/Packages/opencl-headers-2.2-1.20180306gite986688.el8.noarch.rpm \
             gdb \
             java-11-openjdk-devel \
             tzdata-java \
@@ -123,13 +124,13 @@ RUN dnf install -d6 -y https://vault.centos.org/centos/8-stream/PowerTools/x86_6
             unzip \
             vim \
             xz \
-            python3-devel \ 
+            python3.12 \
+            python3.12-devel \
+            python3.12-pip \
             libicu-devel && \
             dnf clean all
 
 WORKDIR /
-
-RUN python3 --version && python3 -m pip install numpy==1.21.0 --no-cache-dir
 
 ARG INSTALL_DRIVER_VERSION="24.52.32224"
 # GPU testing in build img & remote tensors dependencies
@@ -143,8 +144,8 @@ RUN wget -q https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packag
     if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; echo -e "max_parallel_downloads=8\nretries=50" >> /etc/dnf/dnf.conf ; else export DNF_TOOL=microdnf ; fi ; source ./install_gpu_drivers.sh && \
     groupadd --gid 5000 ovms && groupadd --gid 44 video1 && \
     useradd --home-dir /home/ovms --create-home --uid 5000 --gid 5000 --groups 39,44 --shell /bin/bash --skel /dev/null ovms
-RUN python3 --version && python3 -m pip install "numpy<2.0.0" --no-cache-dir && \
-    python3 --version && python3 -m pip install "Jinja2==3.1.6" "MarkupSafe==3.0.2" --no-cache-dir
+
+RUN python3.12 --version && python3.12 -m pip install "numpy<2.0.0" "Jinja2==3.1.6" "MarkupSafe==3.0.2"  --no-cache-dir
 
 # Set up Bazel
 ENV BAZEL_VERSION 6.1.1
@@ -167,15 +168,16 @@ ARG TEMP_DIR=/tmp/openvino_installer
 ARG CMAKE_BUILD_TYPE=Release
 ARG debug_bazel_flags="--strip=always  --config=mp_on_py_on --//:distro=redhat"
 
+RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && alternatives --install /usr/bin/python3-config python3-config /usr/bin/python3.12-config 2
+
 ################### BUILD OPENVINO FROM SOURCE - buildarg ov_use_binary=0  ############################
+
 # hadolint ignore=DL3041
 RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && dnf install -y gflags-devel gflags json-devel fdupes && \
     dnf clean all
 # hadolint ignore=DL3003
 RUN if [ "$ov_use_binary" == "0" ] ; then true ; else exit 0 ; fi ; git clone https://github.com/$ov_source_org/openvino.git /openvino && cd /openvino && git checkout $ov_source_branch && git submodule update --init --recursive
-COPY openvino-wheel-fix.patch /openvino
-RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; cd /openvino ; patch -p1 < openvino-wheel-fix.patch
-RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; if ! [[ $debug_bazel_flags == *"py_off"* ]]; then true ; else exit 0 ; fi ; pip3 install --no-cache-dir -r /openvino/src/bindings/python/wheel/requirements-dev.txt
+RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; if ! [[ $debug_bazel_flags == *"py_off"* ]]; then true ; else exit 0 ; fi ; pip3.12 install --no-cache-dir -r /openvino/src/bindings/python/wheel/requirements-dev.txt
 WORKDIR /openvino/build
 RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; \
     if ! [[ $debug_bazel_flags == *"py_off"* ]]; then \
@@ -191,7 +193,7 @@ RUN if [ "$ov_use_binary" == "0" ] ; then true ; else exit 0 ; fi ; \
     ln -s /openvino/inference-engine/temp/opencv_*/opencv /opt/intel/openvino/extras && \
     ln -s /usr/local/runtime /opt/intel/openvino && \
     ln -s /openvino/scripts/setupvars/setupvars.sh /opt/intel/openvino/setupvars.sh && \
-    ln -s /opt/intel/openvino /opt/intel/openvino_2025
+    ln -s /opt/intel/openvino /opt/intel/openvino_2026
 RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; if ! [[ $debug_bazel_flags == *"py_off"* ]]; then true ; else exit 0 ; fi ; mkdir -p /opt/intel/openvino && cp -r /openvino/bin/intel64/Release/python /opt/intel/openvino/
 RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; if ! [[ $debug_bazel_flags == *"py_off"* ]]; then true ; else exit 0 ; fi ; cp -r /openvino/tools/ovc/* /opt/intel/openvino/python
 ################## END OF OPENVINO SOURCE BUILD ######################
@@ -204,7 +206,7 @@ RUN if [ "$ov_use_binary" = "1" ] && [ "$DLDT_PACKAGE_URL" != "" ]; then true ; 
     mkdir /opt/intel && \
     tar -zxf ./*openvino_genai*.tar.gz -C /opt/intel && \
     ln -s /opt/intel/*openvino_genai* /opt/intel/openvino && \
-    ln -s /opt/intel/*openvino_genai* /opt/intel/openvino_2025
+    ln -s /opt/intel/*openvino_genai* /opt/intel/openvino_2026
 
 # install sample apps including benchmark_app
 # hadolint ignore=DL3041
@@ -222,16 +224,14 @@ WORKDIR /openvino_tokenizers/
 ARG ov_tokenizers_branch=85be884a69f10270703f81f970a5ee596a4c8df7
 ARG ov_tokenizers_org=openvinotoolkit
 ARG SDL_OPS="-fpic -O2 -U_FORTIFY_SOURCE -fstack-protector -fno-omit-frame-pointer -D_FORTIFY_SOURCE=1 -fno-strict-overflow -Wall -Wno-unknown-pragmas -Wno-error=sign-compare -fno-delete-null-pointer-checks -fwrapv -fstack-clash-protection -Wformat -Wformat-security -Werror=format-security -s -D_GLIBCXX_USE_CXX11_ABI=1 -Wno-error=deprecated-declarations -Wuninitialized"
-
 # hadolint ignore=DL3003
-RUN if ! [[ $debug_bazel_flags == *"_py_off"* ]]; then \  
-# python tokenizers built always from source because it is not in binary package
-    git clone https://github.com/$ov_tokenizers_org/openvino_tokenizers.git /openvino_tokenizers && cd /openvino_tokenizers && git checkout 85be884a69f10270703f81f970a5ee596a4c8df7 && git submodule update --init --recursive && \
+RUN git clone https://github.com/$ov_tokenizers_org/openvino_tokenizers.git /openvino_tokenizers && cd /openvino_tokenizers && git checkout $ov_tokenizers_branch && git submodule update --init --recursive && \
     sed -i '/openvino~=/d' /openvino_tokenizers/pyproject.toml && \
     sed -i '/requires-python/d' /openvino_tokenizers/pyproject.toml && \
     cd /openvino_tokenizers && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAKEFILE="${VERBOSE_LOGS}" -DCMAKE_CXX_FLAGS=" ${SDL_OPS} ${LTO_CXX_FLAGS} " -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" -S ./ -B ./build/  && cmake --build ./build/ --parallel $JOBS && cp /openvino_tokenizers/build/src/lib*.so /opt/intel/openvino/runtime/lib/intel64/ && \
-    python3 -m pip wheel -v --no-deps --wheel-dir wheel /openvino_tokenizers && \
-    python3 -m pip install --no-cache-dir "$(find wheel -name 'openvino_tokenizers*.whl')" --target /opt/intel/openvino/python ; \
+    if ! [[ $debug_bazel_flags == *"_py_off"* ]]; then \  
+    python3.12 -m pip wheel -v --no-deps --wheel-dir wheel /openvino_tokenizers && \
+    python3.12 -m pip install --no-cache-dir "$(find wheel -name 'openvino_tokenizers*.whl')" --target /opt/intel/openvino/python ; \
     fi
 
 WORKDIR /openvino_genai/
@@ -239,7 +239,7 @@ ARG ov_genai_branch=master
 ARG ov_genai_org=openvinotoolkit
 # hadolint ignore=DL3003
 RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; \
-    git clone https://github.com/$ov_genai_org/openvino.genai /openvino_genai && cd /openvino_genai && git checkout aae98de0cd99303e989c36392bf01026f9fd8000 && git submodule update --init --recursive ; \
+    git clone https://github.com/$ov_genai_org/openvino.genai /openvino_genai && cd /openvino_genai && git checkout $ov_genai_branch && git submodule update --init --recursive ; \
     cmake -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE -DCMAKE_CXX_FLAGS=" ${SDL_OPS}  ${LTO_CXX_FLAGS} " -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DENABLE_SYSTEM_ICU="True" -DBUILD_TOKENIZERS=OFF -DENABLE_SAMPLES=OFF -DENABLE_TOOLS=OFF -DENABLE_TESTS=OFF -DENABLE_XGRAMMAR=ON -S ./ -B ./build/ ; \ 
     cmake --build ./build/ --parallel $JOBS && cp /openvino_genai/build/openvino_genai/lib*.so* /opt/intel/openvino/runtime/lib/intel64/ ; \
     cp -r /openvino_genai/src/cpp/include/* /opt/intel/openvino/runtime/include/ ; \
@@ -276,13 +276,21 @@ RUN cp -v /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
 
 COPY src/ /ovms/src/
 
+# hadolint ignore=DL3059
+# Prefetch all external bazel deps to avoid transient DNS failures in later steps.
+# --nobuild fetches all external repos without compiling.
+# Then build tensorflow framework and model_api (which uses CMake FetchContent
+# to download nlohmann/json at build time, bypassing bazel's repo cache).
+RUN bazel build --nobuild ${debug_bazel_flags} //:ovms_dependencies @com_google_googletest//:gtest //src:ovms //src:release_custom_nodes && \
+    bazel build --jobs=$JOBS ${debug_bazel_flags} @org_tensorflow//tensorflow/core:framework @model_api//:model_api_cmake
+
 # Sample CPU Extension
 WORKDIR /ovms/src/example/SampleCpuExtension/
 RUN make
 
 RUN if ! [[ $debug_bazel_flags == *"py_off"* ]]; then true ; else exit 0 ; fi ; \
     mkdir -p /opt/intel/openvino/python/openvino-4.dist-info && \
-    echo $'Metadata-Version: 1.0\nName: openvino\nVersion: 2025.4.1' > /opt/intel/openvino/python/openvino-4.dist-info/METADATA
+    echo $'Metadata-Version: 1.0\nName: openvino\nVersion: 2026.0' > /opt/intel/openvino/python/openvino-4.dist-info/METADATA
 ENV PYTHONPATH=/opt/intel/openvino/python:/ovms/bazel-bin/src/python/binding
 
 WORKDIR /patchelf
@@ -293,7 +301,7 @@ RUN wget -q https://github.com/NixOS/patchelf/archive/0.10.tar.gz && \
 
 WORKDIR /ovms
 
-ARG PROJECT_VERSION="2025.4.1"
+ARG PROJECT_VERSION="2026.0.0"
 LABEL description="OpenVINO Model Server"
 ARG minitrace_flags
 
@@ -306,12 +314,16 @@ RUN bash -c "sed -i -e 's|REPLACE_PROJECT_VERSION|${PROJECT_VERSION}|g' /ovms/sr
 # OVMS
 ARG OPTIMIZE_BUILDING_TESTS=0
 RUN rm -f /usr/lib64/cmake/OpenSSL/OpenSSLConfig.cmake
+
 # Builds unit tests together with ovms server in one step
 # It speeds up CI when tests are executed outside of the image building
+# Konflux build system cuts off network access at times. Build all in 1 shot.
 # hadolint ignore=SC2046
+RUN cat /etc/resolv.conf && getent hosts github.com || :
 RUN bazel build --jobs=$JOBS ${debug_bazel_flags} //:ovms_dependencies @com_google_googletest//:gtest && \
   bazel build --jobs=$JOBS ${debug_bazel_flags} //src:release_custom_nodes && \
-  bazel build --jobs=$JOBS ${debug_bazel_flags} ${minitrace_flags} //src:ovms $(if [ "$OPTIMIZE_BUILDING_TESTS" == "1" ] ; then echo -n //src:ovms_test; fi)
+  bazel build --jobs=$JOBS ${debug_bazel_flags} ${minitrace_flags} //src:ovms \
+  $(if [ "$OPTIMIZE_BUILDING_TESTS" == "1" ] ; then echo -n //src:ovms_test; fi)
 
 # Tests execution
 COPY ci/check_coverage.bat /ovms/
@@ -327,7 +339,7 @@ RUN /ovms/bazel-bin/src/ovms --version && /ovms/bazel-bin/src/ovms
 COPY release_files/thirdparty-licenses/ /ovms/release_files/thirdparty-licenses/
 COPY release_files/LICENSE /ovms/release_files/LICENSE
 COPY client /client
-RUN python3 -c "import json; m={'PROJECT_VERSION':'${PROJECT_VERSION}','OPENVINO backend':'$(/ovms/bazel-bin/src/ovms --version | grep backend | cut -d' ' -f3)', \
+RUN python3.12 -c "import json; m={'PROJECT_VERSION':'${PROJECT_VERSION}','OPENVINO backend':'$(/ovms/bazel-bin/src/ovms --version | grep backend | cut -d' ' -f3)', \
     'BAZEL_BUILD_FLAGS':'${debug_bazel_flags}${minitrace_flags}}','BASE_IMAGE':'${BASE_IMAGE}' }; \
     print(json.dumps(m,indent=4))" > /ovms/release_files/metadata.json
 
@@ -339,9 +351,11 @@ ARG CAPI_FLAGS="--strip=always  --config=mp_off_py_off --//:distro=redhat"
 ARG JOBS=40
 ARG LTO_ENABLE=OFF
 WORKDIR /ovms
+# Konflux has a hard time locating the built binaries. Need to put it
+# in a known location.
 RUN mkdir -p /tmp/bazel-output && \
     bazel --output_base=/tmp/bazel-output \
-          build --jobs=$JOBS ${CAPI_FLAGS} //src:ovms_shared && \
+        build --jobs=$JOBS ${CAPI_FLAGS} //src:ovms_shared && \
     find /tmp/bazel-output -name libovms_shared.so && \
     LIB_PATH=$(find /tmp/bazel-output -name libovms_shared.so | head -n1) && \
     echo "Found built file: $LIB_PATH" && \
@@ -353,9 +367,11 @@ RUN mkdir -p /tmp/bazel-output && \
 RUN bazel build --jobs $JOBS ${CAPI_FLAGS} //src:capi_cpp_example
 
 # C-API benchmark app
+# Konflux has a hard time locating the built binaries. Need to put it
+# in a known location.
 RUN mkdir -p /tmp/bazel-output && \
     bazel --output_base=/tmp/bazel-output \
-          build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark && \
+        build --jobs=$JOBS ${CAPI_FLAGS} //src:capi_benchmark && \
     CAPI_BIN=$(find /tmp/bazel-output -type f -name capi_benchmark | head -n1) && \
     echo "Found built capi_benchmark: $CAPI_BIN" && \
     chmod +x "$CAPI_BIN" && \
@@ -392,8 +408,8 @@ RUN if [ -f /ovms_release/lib/libovms_shared.so ] ; then mv /ovms_release/lib/li
 FROM $RELEASE_BASE_IMAGE as release
 LABEL "name"="OVMS"
 LABEL "vendor"="Intel Corporation"
-LABEL "version"="2025.4.1"
-LABEL "release"="2025"
+LABEL "version"="2026.0.0"
+LABEL "release"="2026"
 LABEL "summary"="OpenVINO(TM) Model Server"
 LABEL "description"="OpenVINO(TM) Model Server is a solution for serving AI models"
 LABEL "maintainer"="dariusz.trawinski@intel.com"
@@ -419,7 +435,7 @@ RUN if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; echo -e "max_parallel_do
     fi ; \
     # For image with Python enabled install Python library
     if ! [[ $debug_bazel_flags == *"py_off"* ]]; then \
-        $DNF_TOOL install -y python3-libs --setopt=install_weak_deps=0 --nodocs; \
+        $DNF_TOOL install -y python3.12-libs --setopt=install_weak_deps=0 --nodocs; \
     fi ; \
     $DNF_TOOL install -y shadow-utils; \
     $DNF_TOOL clean all ; \
@@ -431,19 +447,27 @@ ENV LD_LIBRARY_PATH=/ovms/lib
 ENV PATH="$PATH:/ovms/bin"
 
 COPY --from=pkg /ovms_release /ovms
-COPY --from=pkg /usr/local/lib/python3.*/site-packages/jinja2 /ovms/python_deps/jinja2
-COPY --from=pkg /usr/local/lib/python3.*/site-packages/jinja2-3.1.6.dist-info /ovms/python_deps/jinja2-3.1.6.dist-info
-COPY --from=pkg /usr/local/lib64/python3.*/site-packages/MarkupSafe-3.0.2.dist-info /ovms/python_deps/MarkupSafe-3.0.2.dist-info
-COPY --from=pkg /usr/local/lib64/python3.*/site-packages/markupsafe /ovms/python_deps/markupsafe
+COPY --from=pkg /usr/local/lib/python3.12/site-packages/jinja2 /ovms/python_deps/jinja2
+COPY --from=pkg /usr/local/lib/python3.12/site-packages/jinja2-3.1.6.dist-info /ovms/python_deps/jinja2-3.1.6.dist-info
+COPY --from=pkg /usr/local/lib64/python3.12/site-packages/MarkupSafe-3.0.2.dist-info /ovms/python_deps/MarkupSafe-3.0.2.dist-info
+COPY --from=pkg /usr/local/lib64/python3.12/site-packages/markupsafe /ovms/python_deps/markupsafe
 
 COPY --from=pkg /licenses /licenses
 
-# Setup Python Demos Environment
+# Setup Python Demos Environment. Have to establish a working python 3.12.
 COPY demos/python_demos/base-requirements.txt .
 RUN if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; \
-	else export DNF_TOOL=microdnf ; fi ; \
-	$DNF_TOOL install -y python3-pip git iproute net-tools ; $DNF_TOOL clean all ; \
-	pip3 install --no-cache-dir -r base-requirements.txt ; \
+	else export DNF_TOOL=microdnf ; fi && \
+	$DNF_TOOL -y install python3.12 python3.12-pip git-core && \
+	alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+	alternatives --set python3 /usr/bin/python3.12 && \
+	ln -sf /usr/bin/pip3.12 /usr/bin/pip3 && \
+	ln -sf /usr/bin/pip3 /usr/bin/pip && \
+	pip install --no-cache-dir -r base-requirements.txt && \
+	$DNF_TOOL -y remove git-core && \
+	$DNF_TOOL clean all && \
+	pip list && \
+	rm -rf /root/.cache && \
 	rm -f base-requirements.txt
 
 USER ovms

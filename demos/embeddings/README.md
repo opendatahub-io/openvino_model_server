@@ -95,8 +95,8 @@ That ensures faster initialization time, better performance and lower memory con
 
 Download export script, install it's dependencies and create directory for the models:
 ```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/export_model.py -o export_model.py
+pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/requirements.txt
 mkdir models 
 ```
 
@@ -152,6 +152,24 @@ python export_model.py embeddings_ov --source_model intfloat/multilingual-e5-lar
 python export_model.py embeddings_ov --source_model intfloat/multilingual-e5-large --pooling MEAN --weight-format int8 --config_file_path models/config.json --model_repository_path models
 ```
 :::
+:::{tab-item} Alibaba-NLP/gte-large-en-v1.5
+:sync: gte-large-en-v1.5
+```console
+python export_model.py embeddings_ov --source_model Alibaba-NLP/gte-large-en-v1.5 --pooling CLS --extra_quantization_params "--library sentence_transformers"
+```
+:::
+:::{tab-item} nomic-ai/nomic-embed-text-v1.5
+:sync: nomic-embed-text-v1.5
+```console
+python export_model.py embeddings_ov --source_model nomic-ai/nomic-embed-text-v1.5 --pooling MEAN --extra_quantization_params "--library sentence_transformers"
+```
+:::
+:::{tab-item} sentence-transformers/all-mpnet-base-v2
+:sync: all-mpnet-base-v2
+```console
+python export_model.py embeddings_ov --source_model sentence-transformers/all-mpnet-base-v2 --pooling MEAN
+```
+:::
 ::::
 
 
@@ -205,9 +223,39 @@ python export_model.py embeddings_ov --source_model intfloat/multilingual-e5-lar
 python export_model.py embeddings_ov --source_model intfloat/multilingual-e5-large --pooling MEAN --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
 ```
 :::
+:::{tab-item} Alibaba-NLP/gte-large-en-v1.5
+:sync: gte-large-en-v1.5
+```console
+python export_model.py embeddings_ov --source_model Alibaba-NLP/gte-large-en-v1.5 --pooling CLS --weight-format int8 --target_device GPU --extra_quantization_params "--library sentence_transformers" --config_file_path models/config.json --model_repository_path models
+```
+:::
+:::{tab-item} nomic-ai/nomic-embed-text-v1.5
+:sync: nomic-embed-text-v1.5
+```console
+python export_model.py embeddings_ov --source_model nomic-ai/nomic-embed-text-v1.5 --pooling MEAN --weight-format int8 --target_device GPU --extra_quantization_params "--library sentence_transformers" --config_file_path models/config.json --model_repository_path models
+```
+:::
+:::{tab-item} sentence-transformers/all-mpnet-base-v2
+:sync: all-mpnet-base-v2
+```console
+python export_model.py embeddings_ov --source_model sentence-transformers/all-mpnet-base-v2 --pooling MEAN --weight-format int8 --target_device GPU --config_file_path models/config.json --model_repository_path models
+```
+:::
 ::::
 
+**NPU**
+::::{tab-set}
+:::{tab-item} Qwen/Qwen3-Embedding-0.6B
+:sync: Qwen3-Embedding-0.6B-fp16
+```console
+python export_model.py embeddings_ov --source_model BAAI/bge-large-en-v1.5 --pooling CLS --weight-format fp16 --target_device NPU --config_file_path models/config.json --model_repository_path models
+```
+:::
+::::
 
+> **Note** For NPU Change the `--weight-format` to quantize the model to `fp16`, `int8` or `int4` precision. For int4 precisions, add required extra parameter `--extra_quantization_params "--sym --ratio 1.0 --group-size -1"`
+> **Note** For NPU the pooling mode --pooling LAST has the best accuracy.
+> **Note** For NPU and the weight-format int4, use `--extra_quantization_params "--sym --ratio 1.0 --group-size -1"`
 > **Note** Change the `--weight-format` to quantize the model to `fp16`, `int8` or `int4` precision to reduce memory consumption and improve performance.
 > **Note:** The users in China need to set environment variable HF_ENDPOINT="https://hf-mirror.com" before running the export script to connect to the HF Hub.
 
@@ -244,19 +292,22 @@ python export_model.py embeddings_ov --source_model Qwen/Qwen3-Embedding-0.6B --
 ## Tested models
 All models supported by [optimum-intel](https://github.com/huggingface/optimum-intel) should be compatible. The demo is validated against following Hugging Face models:
 
-|Model name|Pooling|
-|---|---|
-|OpenVINO/Qwen3-Embedding-0.6B-int8-ov|LAST|
-|OpenVINO/bge-base-en-v1.5-int8-ov|CLS|
-|BAAI/bge-large-en-v1.5|CLS|
-|BAAI/bge-large-zh-v1.5|CLS|
-|thenlper/gte-small|CLS|
-|sentence-transformers/all-MiniLM-L12-v2|MEAN|
-|sentence-transformers/all-distilroberta-v1|MEAN|
-|mixedbread-ai/deepset-mxbai-embed-de-large-v1|MEAN|
-|intfloat/multilingual-e5-large-instruct|MEAN|
-|intfloat/multilingual-e5-large|MEAN|
-
+|Model name|Pooling|Devices|
+|---|---|---|
+|OpenVINO/Qwen3-Embedding-0.6B-int8-ov|LAST|CPU,GPU|
+|OpenVINO/bge-base-en-v1.5-int8-ov|CLS|CPU,GPU|
+|Qwen/Qwen3-Embedding-0.6B|LAST|CPU,GPU,NPU|
+|BAAI/bge-large-en-v1.5|CLS|CPU,GPU,NPU|
+|BAAI/bge-large-zh-v1.5|CLS|CPU,GPU,NPU|
+|thenlper/gte-small|CLS|CPU,GPU,NPU|
+|sentence-transformers/all-MiniLM-L12-v2|MEAN|CPU,GPU|
+|sentence-transformers/all-distilroberta-v1|MEAN|CPU,GPU|
+|mixedbread-ai/deepset-mxbai-embed-de-large-v1|MEAN|CPU,GPU|
+|intfloat/multilingual-e5-large-instruct|MEAN|CPU,GPU|
+|intfloat/multilingual-e5-large|MEAN|CPU,GPU|
+|Alibaba-NLP/gte-large-en-v1.5|CLS|CPU,GPU|
+|nomic-ai/nomic-embed-text-v1.5|MEAN|CPU,GPU|
+|sentence-transformers/all-mpnet-base-v2|MEAN|CPU,GPU,NPU|
 
 ## Server Deployment
 
@@ -273,6 +324,14 @@ to `docker run` command, use the image with GPU support and make sure set the ta
 
 ```bash
 docker run -d --rm -p 8000:8000 --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -v $(pwd)/models:/workspace:ro openvino/model_server:latest-gpu --rest_port 8000 --config_path /workspace/config.json
+```
+**NPU**
+NOTE: NPU execution for embeddings model is a preview feature.
+In case you want to use NPU device to run the embeddings model, add extra docker parameters `--device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1)` 
+to `docker run` command, use the image with NPU support and make sure set the target_device in subconfig.json to NPU. Also make sure the export model quantization level and cache size fit to the NPU memory. All of that can be applied with the commands:
+
+```bash
+docker run -d --user $(id -u):$(id -g) --rm -p 8000:8000 --device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render*  | head -1) -v $(pwd)/models:/workspace:ro openvino/model_server:latest-gpu --rest_port 8000 --config_path /workspace/config.json
 ```
 :::
 
@@ -296,7 +355,7 @@ ovms --rest_port 8000 --config_path ./models/config.json
 
 Wait for the model to load. You can check the status with a simple command below. Note that the slash `/` in the model name needs to be escaped with `%2F`:
 ```bash
-curl http://localhost:9999/v3/models/BAAI%2Fbge-large-en-v1.5
+curl http://localhost:8000/v3/models/BAAI%2Fbge-large-en-v1.5
 
 {"id":"BAAI/bge-large-en-v1.5","object":"model","created":1763997378,"owned_by":"OVMS"}
 ```
@@ -328,6 +387,7 @@ curl http://localhost:8000/v3/embeddings -H "Content-Type: application/json" -d 
   ],
   "usage":{"prompt_tokens":4,"total_tokens":4}
 }
+
 
 ```
 :::
@@ -367,7 +427,7 @@ It will report results like `Similarity score as cos_sim 0.9605122725993963`.
 
 ## Benchmarking feature extraction
 
-An asynchronous benchmarking client can be used to access the model server performance with various load conditions. Below are execution examples captured on dual Intel(R) Xeon(R) CPU Max 9480.
+An asynchronous benchmarking client can be used to access the model server performance with various load conditions. Below are execution examples captured on Intel(R) Core(TM) Ultra X7 368H.
 ```console
 git clone https://github.com/openvinotoolkit/model_server
 pushd .
@@ -375,48 +435,48 @@ cd model_server/demos/benchmark/v3/
 pip install -r requirements.txt
 python benchmark.py --api_url http://localhost:8000/v3/embeddings --dataset synthetic --synthetic_length 5 --request_rate 10 --batch_size 1 --model BAAI/bge-large-en-v1.5
 Number of documents: 1000
-100%|████████████████████████████████████████████████████████████████| 1000/1000 [01:44<00:00,  9.56it/s]
+100%|██████████████████████████████████████| 1000/1000 [01:40<00:00,  9.92it/s]
 Tokens: 5000
 Success rate: 100.0%. (1000/1000)
-Throughput - Tokens per second: 47.8
-Mean latency: 14.40 ms
-Median latency: 13.97 ms
+Throughput - Tokens per second: 49.6
+Mean latency: 12.75 ms
+Median latency: 12.43 ms
 Average document length: 5.0 tokens
 
 
 python benchmark.py --api_url http://localhost:8000/v3/embeddings --request_rate inf --batch_size 32 --dataset synthetic --synthetic_length 510 --model BAAI/bge-large-en-v1.5
 Number of documents: 1000
-100%|████████████████████████████████████████████████████████████████| 32/32 [00:17<00:00,  1.82it/s]
+100%|██████████████████████████████████████| 32/32 [00:13<00:00,  2.43it/s]
 Tokens: 510000
 Success rate: 100.0%. (32/32)
-Throughput - Tokens per second: 29,066.2
-Mean latency: 9768.28 ms
-Median latency: 9905.79 ms
+Throughput - Tokens per second: 38,746.8
+Mean latency: 6851.76 ms
+Median latency: 6790.46 ms
 Average document length: 510.0 tokens
 
 
-python benchmark.py --api_url http://localhost:8000/v3/embeddings --request_rate inf --batch_size 1 --dataset Cohere/wikipedia-22-12-simple-embeddings --model BAAI/bge-large-en-v1.5
+python benchmark.py --api_url http://localhost:8000/v3/embeddings --request_rate inf --batch_size 1 --dataset Cohere/wikipedia-2023-11-embed-multilingual-v3 --hf-subset simple --model BAAI/bge-large-en-v1.5
 Number of documents: 1000
-100%|████████████████████████████████████████████████████████████████| 1000/1000 [00:15<00:00, 64.02it/s]
-Tokens: 83208
+100%|██████████████████████████████████████| 1000/1000 [00:11<00:00, 89.84it/s]
+Tokens: 66568
 Success rate: 100.0%. (1000/1000)
-Throughput - Tokens per second: 4,120.6
-Mean latency: 1882.98 ms
-Median latency: 1608.47 ms
-Average document length: 83.208 tokens
+Throughput - Tokens per second: 5,980.8
+Mean latency: 1037.83 ms
+Median latency: 912.00 ms
+Average document length: 66.568 tokens
 ```
 
 ## RAG with Model Server
 
 Embeddings endpoint can be applied in RAG chains to delegated text feature extraction both for documented vectorization and in context retrieval.
-Check this demo to see the langchain code example which is using OpenVINO Model Server both for text generation and embedding endpoint in [RAG application demo](https://github.com/openvinotoolkit/model_server/tree/releases/2025/4/demos/continuous_batching/rag)
+Check this demo to see the langchain code example which is using OpenVINO Model Server both for text generation and embedding endpoint in [RAG application demo](https://github.com/openvinotoolkit/model_server/tree/releases/2026/0/demos/continuous_batching/rag)
 
 
 ## Testing the model accuracy over serving API
 
 A simple method of testing the response accuracy is via comparing the response for a sample prompt from the model server and with local python execution based on HuggingFace python code.
 
-The script [compare_results.py](https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/embeddings/compare_results.py) can assist with such experiment.
+The script [compare_results.py](https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/embeddings/compare_results.py) can assist with such experiment.
 ```bash
 popd
 cd model_server/demos/embeddings
@@ -451,7 +511,7 @@ Difference score with HF AutoModel: 0.020293646680283224
 It is easy also to run model evaluation using [MTEB](https://github.com/embeddings-benchmark/mteb) framework using a custom class based on openai model:
 ```bash
 pip install "mteb<2" einops openai --extra-index-url "https://download.pytorch.org/whl/cpu"
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/embeddings/ovms_mteb.py -o ovms_mteb.py
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/embeddings/ovms_mteb.py -o ovms_mteb.py
 python ovms_mteb.py --model BAAI/bge-large-en-v1.5 --service_url http://localhost:8000/v3/embeddings
 ```
 Results will be stored in `results` folder:
@@ -535,7 +595,7 @@ Compare against local HuggingFace execution for reference:
 mteb run -m thenlper/gte-small -t Banking77Classification --output_folder results
 ``` 
 
-# Usage of tokenize endpoint (release 2025.4 or weekly)
+# Usage of tokenize endpoint
 
 The `tokenize` endpoint provides a simple API for tokenizing input text using the same tokenizer as the deployed embeddings model. This allows you to see how your text will be split into tokens before feature extraction or inference. The endpoint accepts a string or list of strings and returns the corresponding token IDs.
 

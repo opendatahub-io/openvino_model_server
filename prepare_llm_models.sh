@@ -20,12 +20,15 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
-CB_MODEL="facebook/opt-125m"
+TEXT_GENERATION_MODEL="HuggingFaceTB/SmolLM2-360M-Instruct"
+FACEBOOK="facebook/opt-125m"
 TOKENIZER_FILE="openvino_tokenizer.bin"
 LEGACY_MODEL_FILE="1/model.bin"
 EMBEDDING_MODEL="thenlper/gte-small"
 RERANK_MODEL="BAAI/bge-reranker-base"
 VLM_MODEL="OpenGVLab/InternVL2-1B"
+TTS_MODEL="microsoft/speecht5_tts"
+STT_MODEL="openai/whisper-tiny"
 
 # Models for tools testing. Only tokenizers are downloaded.
 QWEN3_MODEL="Qwen/Qwen3-8B"
@@ -34,23 +37,7 @@ HERMES3_MODEL="NousResearch/Hermes-3-Llama-3.1-8B"
 PHI4_MODEL="microsoft/Phi-4-mini-instruct"
 MISTRAL_MODEL="mistralai/Mistral-7B-Instruct-v0.3"
 GPT_OSS="openai/gpt-oss-20b"
-
-MODELS=("$CB_MODEL/$TOKENIZER_FILE" "$RERANK_MODEL/rerank/$LEGACY_MODEL_FILE" "$VLM_MODEL/$TOKENIZER_FILE" "$QWEN3_MODEL/$TOKENIZER_FILE" "$LLAMA3_MODEL/$TOKENIZER_FILE" "$HERMES3_MODEL/$TOKENIZER_FILE" "$PHI4_MODEL/$TOKENIZER_FILE" "$MISTRAL_MODEL/$TOKENIZER_FILE" "$GPT_OSS/$TOKENIZER_FILE" "$EMBEDDING_MODEL/ov/$TOKENIZER_FILE" "$RERANK_MODEL/ov/$TOKENIZER_FILE")
-
-all_exist=true
-for model in "${MODELS[@]}"; do
-  if [ ! -f "$1/$model" ]; then
-    echo "Model file does not exist $1/$model"
-    all_exist=false
-    break
-  fi
-  echo "Model file exist $1/$model"
-done
-
-if $all_exist; then
-  echo "All model directories exist in $1. Skipping downloading models."
-  exit 0
-fi
+DEVSTRAL_MODEL="unsloth/Devstral-Small-2507"
 
 if [ "$(python3 -c 'import sys; print(sys.version_info[1])')" -le "8" ]; then echo "Prepare models with python > 3.8."; exit 1 ; fi
 
@@ -58,7 +45,7 @@ echo "Downloading LLM testing models to directory $1"
 export PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cpu https://storage.openvinotoolkit.org/simple/wheels/nightly"
 if [ "$2" = "docker" ]; then
     export PATH=$PATH:/opt/intel/openvino/python/bin
-    python3 -m pip install "optimum-intel"@git+https://github.com/huggingface/optimum-intel.git@a484bc6ee1175bbe8868bb53d2c42ab4c4802aa6 nncf sentence_transformers einops timm sentencepiece
+    python3 -m pip install "optimum-intel"@git+https://github.com/huggingface/optimum-intel.git nncf sentence_transformers einops timm==1.0.22 sentencepiece
 else
     python3 -m venv .venv
     . .venv/bin/activate
@@ -67,13 +54,49 @@ else
 fi
 mkdir -p $1
 
-if [ -f "$1/$CB_MODEL/$TOKENIZER_FILE" ]; then
-  echo "Models file $1/$CB_MODEL/$TOKENIZER_FILE exists. Skipping downloading models."
+if [ -f "$1/$TEXT_GENERATION_MODEL/$TOKENIZER_FILE" ]; then
+  echo "Models file $1/$TEXT_GENERATION_MODEL/$TOKENIZER_FILE exists. Skipping downloading models."
 else
-  python3 demos/common/export_models/export_model.py text_generation --source_model "$CB_MODEL" --weight-format int8 --model_repository_path $1
+  python3 demos/common/export_models/export_model.py text_generation --source_model "$TEXT_GENERATION_MODEL" --weight-format int8 --model_repository_path $1
 fi
-if [ ! -f "$1/$CB_MODEL/$TOKENIZER_FILE" ]; then
-  echo "[ERROR] Models file $1/$CB_MODEL/$TOKENIZER_FILE does not exist."
+
+if [ ! -f "$1/$TEXT_GENERATION_MODEL/$TOKENIZER_FILE" ]; then
+  echo "[ERROR] Models file $1/$TEXT_GENERATION_MODEL/$TOKENIZER_FILE does not exist."
+  exit 1
+fi
+
+if [ -f "$1/$FACEBOOK/$TOKENIZER_FILE" ]; then
+  echo "Models file $1/$FACEBOOK/$TOKENIZER_FILE exists. Skipping downloading models."
+else
+  python3 demos/common/export_models/export_model.py text_generation --source_model "$FACEBOOK" --weight-format int8 --model_repository_path $1
+fi
+if [ ! -f "$1/$FACEBOOK/$TOKENIZER_FILE" ]; then
+  echo "[ERROR] Models file $1/$FACEBOOK/$TOKENIZER_FILE does not exist."
+  exit 1
+fi
+
+if [ ! -f "$1/$FACEBOOK/chat_template.jinja" ]; then
+    echo "Copying dummy chat template to $FACEBOOK model directory."
+    cp src/test/llm/dummy_facebook_template.jinja "$1/$FACEBOOK/chat_template.jinja"
+fi
+
+if [ -f "$1/$TTS_MODEL/$TOKENIZER_FILE" ]; then
+  echo "Model file $1/$TTS_MODEL/$TOKENIZER_FILE exists. Skipping downloading models."
+else
+  python3 demos/common/export_models/export_model.py text2speech --source_model "$TTS_MODEL" --weight-format int4 --model_repository_path $1 --vocoder microsoft/speecht5_hifigan
+fi
+if [ ! -f "$1/$TTS_MODEL/$TOKENIZER_FILE" ]; then
+  echo "[ERROR] Model file $1/$TTS_MODEL/$TOKENIZER_FILE does not exist."
+  exit 1
+fi
+
+if [ -f "$1/$STT_MODEL/$TOKENIZER_FILE" ]; then
+  echo "Model file $1/$STT_MODEL/$TOKENIZER_FILE exists. Skipping downloading models."
+else
+  python3 demos/common/export_models/export_model.py speech2text --source_model "$STT_MODEL" --weight-format int4 --model_repository_path $1
+fi
+if [ ! -f "$1/$STT_MODEL/$TOKENIZER_FILE" ]; then
+  echo "[ERROR] Model file $1/$STT_MODEL/$TOKENIZER_FILE does not exist."
   exit 1
 fi
 
@@ -180,5 +203,16 @@ else
 fi
 if [ ! -f "$1/$GPT_OSS/$TOKENIZER_FILE" ]; then
   echo "[ERROR] Models file $1/$GPT_OSS/$TOKENIZER_FILE does not exist."
+  exit 1
+fi
+
+if [ -f "$1/$DEVSTRAL_MODEL/$TOKENIZER_FILE" ]; then
+  echo "Models file $1/$DEVSTRAL_MODEL/$TOKENIZER_FILE exists. Skipping downloading models."
+else
+  mkdir -p $1/$DEVSTRAL_MODEL
+  convert_tokenizer $DEVSTRAL_MODEL --with_detokenizer -o $1/$DEVSTRAL_MODEL
+fi
+if [ ! -f "$1/$DEVSTRAL_MODEL/$TOKENIZER_FILE" ]; then
+  echo "[ERROR] Models file $1/$DEVSTRAL_MODEL/$TOKENIZER_FILE does not exist."
   exit 1
 fi
