@@ -27,7 +27,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/openvino_model_server:odh-pr
+    value: 'quay.io/opendatahub/openvino_model_server:odh-pr-{{pull_request_number}}'
   - name: dockerfile
     value: Dockerfile.konflux
   - name: path-context
