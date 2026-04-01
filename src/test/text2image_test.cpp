@@ -45,6 +45,7 @@ class MockedMultiPartParser final : public ovms::MultiPartParser {
 public:
     MOCK_METHOD(bool, parse, (), (override));
     MOCK_METHOD(bool, hasParseError, (), (const, override));
+    MOCK_METHOD(std::vector<std::string>, getArrayFieldByName, (const std::string& name), (const, override));
     MOCK_METHOD(std::string, getFieldByName, (const std::string& name), (const, override));
     MOCK_METHOD(std::string_view, getFileContentByFieldName, (const std::string& name), (const, override));
     MOCK_METHOD(std::set<std::string>, getAllFieldNames, (), (const, override));
@@ -1303,8 +1304,8 @@ void printNHWCOVTensor(const ov::Tensor& tensor) {
     ASSERT_EQ(tensorShape[1], 4);
     ASSERT_EQ(tensorShape[2], 4);
     ASSERT_EQ(tensorShape[3], 3);
-    auto* dataR = tensor.data();
-    uint8_t* data = static_cast<uint8_t*>(dataR);
+    const auto* dataR = tensor.data();
+    const uint8_t* data = static_cast<const uint8_t*>(dataR);
     std::ostringstream oss;
     // print shape
     oss << "Tensor shape: (";

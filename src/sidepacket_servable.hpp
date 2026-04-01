@@ -15,10 +15,6 @@
 //*****************************************************************************
 #pragma once
 
-#include "openvino/op/constant.hpp"
-#include "openvino/runtime/core.hpp"
-#include "openvino/core/preprocess/pre_post_process.hpp"
-#include "openvino/op/multiply.hpp"
 #include "ovinferrequestsqueue.hpp"
 
 #include <memory>
@@ -48,6 +44,7 @@ struct SidepacketServable {
     std::optional<int64_t> sep_token;
     std::optional<uint32_t> maxModelLength;
     std::filesystem::path parsedModelsPath;
+    std::string targetDevice;
 
 public:
     SidepacketServable(const std::string& modelDir, const std::string& targetDevice, const std::string& pluginConfig, const std::string& graphPath);
@@ -77,8 +74,12 @@ public:
         return compiledModel.inputs().size();
     }
 
+    const std::string& getTargetDevice() {
+        return targetDevice;
+    }
+
 protected:
-    virtual std::shared_ptr<ov::Model> applyPrePostProcessing(std::shared_ptr<ov::Model> model) {
+    virtual std::shared_ptr<ov::Model> applyPrePostProcessing(ov::Core& core, std::shared_ptr<ov::Model> model, ov::AnyMap& properties) {
         // No custom postprocessing by default
         return model;
     }

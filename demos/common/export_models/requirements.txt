@@ -1,17 +1,20 @@
 --extra-index-url "https://download.pytorch.org/whl/cpu"
-optimum-intel@git+https://github.com/huggingface/optimum-intel.git@a484bc6ee1175bbe8868bb53d2c42ab4c4802aa6
-accelerate==1.11.0
-diffusers==0.35.2  # for image generation
-einops==0.8.1
-nncf==2.19.0
+--extra-index-url "https://storage.openvinotoolkit.org/simple/wheels/nightly"
+--extra-index-url "https://storage.openvinotoolkit.org/simple/wheels/pre-release"
+--pre
+optimum-intel@git+https://github.com/huggingface/optimum-intel.git@2c48d6430c265ac259c1b264f3e2c4025cdd7b76
+accelerate
+datasets
+diffusers  # for image generation
+einops
+nncf@git+https://github.com/openvinotoolkit/nncf.git@7a6ac29a15d247c0fc76da93f4d53bbfa7b489cc
 numpy==2.2.6
-openvino-tokenizers==2025.4.1.0
-openvino==2025.4.1
-#optimum is in dependency list of optimum-intel
-pillow==12.0.0
-sentence_transformers==5.1.2
-sentencepiece==0.2.1  # Required by: transformers
+openvino-tokenizers==2026.0.0rc3
+openvino==2026.0.0rc3
+pillow
+sentence_transformers
+sentencepiece  # Required by: transformers
 timm==1.0.22
 torchvision
 torch==2.9.1+cpu
-transformers==4.55.4
+transformers<4.58

@@ -30,7 +30,7 @@ Select deployment option depending on how you prepared models in the previous st
 Running this command starts the container with CPU only target device:
 ```bash
 mkdir -p models
-docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:latest --rest_port 8000 --source_model OpenVINO/InternVL2-2B-int4-ov --model_repository_path /models --model_name OpenGVLab/InternVL2-2B --task text_generation --pipeline_type VLM
+docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:latest --rest_port 8000 --source_model OpenVINO/InternVL2-2B-int4-ov --model_repository_path /models --model_name OpenGVLab/InternVL2-2B --task text_generation --pipeline_type VLM  --allowed_media_domains raw.githubusercontent.com
 ```
 **GPU**
 
@@ -39,7 +39,7 @@ to `docker run` command, use the image with GPU support.
 It can be applied using the commands below:
 ```bash
 mkdir -p models
-docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -v $(pwd)/models:/models:rw openvino/model_server:latest-gpu --rest_port 8000 --source_model OpenVINO/InternVL2-2B-int4-ov --model_repository_path models --model_name OpenGVLab/InternVL2-2B --task text_generation --target_device GPU --pipeline_type VLM
+docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -v $(pwd)/models:/models:rw openvino/model_server:latest-gpu --rest_port 8000 --source_model OpenVINO/InternVL2-2B-int4-ov --model_repository_path models --model_name OpenGVLab/InternVL2-2B --task text_generation --target_device GPU --pipeline_type VLM  --allowed_media_domains raw.githubusercontent.com
 ```
 :::
 
@@ -49,11 +49,11 @@ If you run on GPU make sure to have appropriate drivers installed, so the device
 
 ```bat
 mkdir models
-ovms --rest_port 8000 --source_model OpenVINO/InternVL2-2B-int4-ov --model_repository_path models --model_name OpenGVLab/InternVL2-2B --task text_generation --pipeline_type VLM --target_device CPU
+ovms --rest_port 8000 --source_model OpenVINO/InternVL2-2B-int4-ov --model_repository_path models --model_name OpenGVLab/InternVL2-2B --task text_generation --pipeline_type VLM --target_device CPU --allowed_media_domains raw.githubusercontent.com
 ```
 or
 ```bat
-ovms --rest_port 8000 --source_model OpenVINO/InternVL2-2B-int4-ov --model_repository_path models --model_name OpenGVLab/InternVL2-2B --task text_generation --pipeline_type VLM --target_device GPU
+ovms --rest_port 8000 --source_model OpenVINO/InternVL2-2B-int4-ov --model_repository_path models --model_name OpenGVLab/InternVL2-2B --task text_generation --pipeline_type VLM --target_device GPU --allowed_media_domains raw.githubusercontent.com
 ```
 :::
 
@@ -62,7 +62,7 @@ ovms --rest_port 8000 --source_model OpenVINO/InternVL2-2B-int4-ov --model_repos
 ## Model preparation
 Use this step for models outside of OpenVINO organization.
 
-Specific OVMS pull mode example for models outside of OpenVINO organization is described in section `## Pulling models outside of OpenVINO organization` in the [Ovms pull mode](https://github.com/openvinotoolkit/model_server/blob/releases/2025/4/docs/pull_hf_models.md)
+Specific OVMS pull mode example for models outside of OpenVINO organization is described in section `## Pulling models outside of OpenVINO organization` in the [Ovms pull mode](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/docs/pull_hf_models.md)
 
 Or you can use the python export_model.py script described below.
 
@@ -72,8 +72,8 @@ Execution parameters will be defined inside the `graph.pbtxt` file.
 
 Download export script, install it's dependencies and create directory for the models:
 ```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/export_model.py -o export_model.py
+pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/requirements.txt
 mkdir models
 ```
 
@@ -90,8 +90,6 @@ python export_model.py text_generation --source_model OpenGVLab/InternVL2-2B --w
 ```console
 python export_model.py text_generation --source_model OpenGVLab/InternVL2-2B --weight-format int4 --pipeline_type VLM --model_name OpenGVLab/InternVL2-2B --config_file_path models/config.json --model_repository_path models --overwrite_models --target_device GPU
 ```
-
-> **Note:** Change the `--weight-format` to quantize the model to `fp16` or `int8` precision to reduce memory consumption and improve performance.
 
 > **Note:** You can change the model used in the demo out of any topology [tested](https://openvinotoolkit.github.io/openvino.genai/docs/supported-models/#visual-language-models-vlms) with OpenVINO.
 Be aware that QwenVL models executed on GPU might experience execution errors with very high resolution images. In case of such behavior, it is recommended to reduce the parameter `max_pixels` in `preprocessor_config.json`.
@@ -140,7 +138,7 @@ Select deployment option depending on how you prepared models in the previous st
 
 Running this command starts the container with CPU only target device:
 ```bash
-docker run -d --rm -p 8000:8000 -v $(pwd)/models:/models:ro openvino/model_server:latest --rest_port 8000 --model_name OpenGVLab/InternVL2-2B --model_path /models/OpenGVLab/InternVL2-2B
+docker run -d --rm -p 8000:8000 -v $(pwd)/models:/models:ro openvino/model_server:latest --rest_port 8000 --model_name OpenGVLab/InternVL2-2B --model_path /models/OpenGVLab/InternVL2-2B --allowed_media_domains raw.githubusercontent.com
 ```
 **GPU**
 
@@ -148,7 +146,7 @@ In case you want to use GPU device to run the generation, add extra docker param
 to `docker run` command, use the image with GPU support. Export the models with precision matching the GPU capacity and adjust pipeline configuration.
 It can be applied using the commands below:
 ```bash
-docker run -d --rm -p 8000:8000 --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -v $(pwd)/models:/models:ro openvino/model_server:latest-gpu --rest_port 8000 --model_name OpenGVLab/InternVL2-2B --model_path /models/OpenGVLab/InternVL2-2B
+docker run -d --rm -p 8000:8000 --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -v $(pwd)/models:/models:ro openvino/model_server:latest-gpu --rest_port 8000 --model_name OpenGVLab/InternVL2-2B --model_path /models/OpenGVLab/InternVL2-2B --allowed_media_domains raw.githubusercontent.com
 ```
 :::
 
@@ -200,10 +198,10 @@ Let's send a request with text an image in the messages context.
 ![zebra](../../../demos/common/static/images/zebra.jpeg) 
 
 :::{dropdown} **Unary call with curl using image url**
-
+**Note**: using urls in request requires `--allowed_media_domains` parameter described [here](../../../docs/parameters.md)
 
 ```bash
-curl http://localhost:8000/v3/chat/completions  -H "Content-Type: application/json" -d "{ \"model\": \"OpenGVLab/InternVL2-2B\", \"messages\":[{\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"Describe what is one the picture.\"},{\"type\": \"image_url\", \"image_url\": {\"url\": \"http://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/static/images/zebra.jpeg\"}}]}], \"max_completion_tokens\": 100}"
+curl http://localhost:8000/v3/chat/completions  -H "Content-Type: application/json" -d "{ \"model\": \"OpenGVLab/InternVL2-2B\", \"messages\":[{\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"Describe what is one the picture.\"},{\"type\": \"image_url\", \"image_url\": {\"url\": \"http://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/3/demos/common/static/images/zebra.jpeg\"}}]}], \"max_completion_tokens\": 100}"
 ```
 ```json
 {
@@ -234,7 +232,7 @@ curl http://localhost:8000/v3/chat/completions  -H "Content-Type: application/js
 
 ```console
 pip3 install requests
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/static/images/zebra.jpeg -o zebra.jpeg
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/static/images/zebra.jpeg -o zebra.jpeg
 ```
 ```python
 import requests

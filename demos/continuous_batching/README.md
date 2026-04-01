@@ -33,8 +33,8 @@ LLM engine parameters will be defined inside the `graph.pbtxt` file.
 
 Download export script, install it's dependencies and create directory for the models:
 ```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/4/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/export_model.py -o export_model.py
+pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/requirements.txt
 mkdir models
 ```
 
@@ -50,7 +50,7 @@ python export_model.py text_generation --source_model meta-llama/Meta-Llama-3-8B
 
 **GPU**
 ```console
-python export_model.py text_generation --source_model meta-llama/Meta-Llama-3-8B-Instruct --weight-format int4 --target_device GPU --cache_size 2 --config_file_path models/config.json --model_repository_path models --overwrite_models
+python export_model.py text_generation --source_model meta-llama/Meta-Llama-3-8B-Instruct --weight-format int4 --target_device GPU --config_file_path models/config.json --model_repository_path models --overwrite_models
 ```
 
 > **Note:** Change the `--weight-format` to quantize the model to `int8` or `int4` precision to reduce memory consumption and improve performance.
@@ -379,16 +379,16 @@ P99 TPOT (ms):                           246.48
 
 The service deployed above can be used in RAG chain using `langchain` library with OpenAI endpoint as the LLM engine.
 
-Check the example in the [RAG notebook](https://github.com/openvinotoolkit/model_server/blob/releases/2025/4/demos/continuous_batching/rag/rag_demo.ipynb)
+Check the example in the [RAG notebook](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/demos/continuous_batching/rag/rag_demo.ipynb)
 
 ## Scaling the Model Server
 
-Check this simple [text generation scaling demo](https://github.com/openvinotoolkit/model_server/blob/releases/2025/4/demos/continuous_batching/scaling/README.md).
+Check this simple [text generation scaling demo](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/demos/continuous_batching/scaling/README.md).
 
 
 ## Testing the model accuracy over serving API
 
-Check the [guide of using lm-evaluation-harness](https://github.com/openvinotoolkit/model_server/blob/releases/2025/4/demos/continuous_batching/accuracy/README.md)
+Check the [guide of using lm-evaluation-harness](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/demos/continuous_batching/accuracy/README.md)
 
 ## Use Speculative Decoding
 
