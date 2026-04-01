@@ -277,7 +277,6 @@ RUN cp -v /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
 COPY src/ /ovms/src/
 
 # hadolint ignore=DL3059
-RUN bazel build --jobs=$JOBS ${debug_bazel_flags} @org_tensorflow//tensorflow/core:framework
 
 # Sample CPU Extension
 WORKDIR /ovms/src/example/SampleCpuExtension/
@@ -314,7 +313,8 @@ RUN rm -f /usr/lib64/cmake/OpenSSL/OpenSSLConfig.cmake
 # It speeds up CI when tests are executed outside of the image building
 # Konflux build system cuts off network access at times. Build all in 1 shot.
 # hadolint ignore=SC2046
-RUN bazel build --jobs=$JOBS ${debug_bazel_flags} //:ovms_dependencies @com_google_googletest//:gtest && \
+RUN bazel build --jobs=$JOBS ${debug_bazel_flags} @org_tensorflow//tensorflow/core:framework && \
+  bazel build --jobs=$JOBS ${debug_bazel_flags} //:ovms_dependencies @com_google_googletest//:gtest && \
   bazel build --jobs=$JOBS ${debug_bazel_flags} //src:release_custom_nodes && \
   bazel build --jobs=$JOBS ${debug_bazel_flags} ${minitrace_flags} //src:ovms \
   $(if [ "$OPTIMIZE_BUILDING_TESTS" == "1" ] ; then echo -n //src:ovms_test; fi)
