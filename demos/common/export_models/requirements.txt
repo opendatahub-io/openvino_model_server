@@ -6,7 +6,7 @@ optimum-intel@git+https://github.com/huggingface/optimum-intel.git@8fa4ebd9fb453
 openvino-tokenizers[transformers]<=2025.1.0rc3
 openvino==2025.1.0rc3
 nncf>=2.11.0 
-sentence_transformers==3.1.1 
+sentence_transformers==3.4.1 
 openai 
 transformers<=4.49 # 4.50 has a bug
 einops
