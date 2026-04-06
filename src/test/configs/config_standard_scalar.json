@@ -1,9 +1,0 @@
-{
-    "model_config_list": [
-        {"config": {
-                "name": "scalar",
-                "base_path": "/ovms/src/test/scalar"
-        	}
-	}
-    ]
-}
