@@ -1,0 +1,42 @@
+commit ea0690cbfc91191f81d8877928aa3f93e5090480
+Author: Steve Grubb <sgrubb@redhat.com>
+Date:   Thu Feb 26 19:17:14 2026 -0500
+
+    Install a python 3.12 environment for openvino
+
+diff --git a/Dockerfile.redhat b/Dockerfile.redhat
+index bc574eaa..9b9f5198 100644
+--- a/Dockerfile.redhat
++++ b/Dockerfile.redhat
+@@ -432,5 +432,21 @@ COPY --from=pkg /usr/local/lib64/python3.12/site-packages/MarkupSafe-3.0.2.dist-
+ COPY --from=pkg /usr/local/lib64/python3.12/site-packages/markupsafe /ovms/python_deps/markupsafe
+ 
+ COPY --from=pkg /licenses /licenses
++
++# Setup Python Demos Environment. Have to establish a working python 3.12.
++COPY demos/python_demos/base-requirements.txt .
++RUN if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; \
++	else export DNF_TOOL=microdnf ; fi && \
++	$DNF_TOOL -y install python3.12 python3.12-pip git-core && \
++	alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
++	alternatives --set python3 /usr/bin/python3.12 && \
++	ln -sf /usr/bin/pip3.12 /usr/bin/pip3 && \
++	ln -sf /usr/bin/pip3 /usr/bin/pip && \
++	pip install --no-cache-dir -r base-requirements.txt && \
++	$DNF_TOOL -y remove git-core && \
++	$DNF_TOOL clean all && \
++	pip list && pip check \
++	rm -f base-requirements.txt
++
+ USER ovms
+ ENTRYPOINT ["/ovms/bin/ovms"]
+diff --git a/demos/python_demos/base-requirements.txt b/demos/python_demos/base-requirements.txt
+new file mode 100644
+index 00000000..e8cb2ef5
+--- /dev/null
++++ b/demos/python_demos/base-requirements.txt
+@@ -0,0 +1,4 @@
++--extra-index-url "https://download.pytorch.org/whl/cpu"
++optimum-intel@git+https://github.com/huggingface/optimum-intel.git@2c48d6430c265ac259c1b264f3e2c4025cdd7b76
++nncf@git+https://github.com/openvinotoolkit/nncf.git@7a6ac29a15d247c0fc76da93f4d53bbfa7b489cc
++transformers<=4.53
