@@ -25,7 +25,7 @@ index bc574eaa..9b9f5198 100644
 +	pip install --no-cache-dir -r base-requirements.txt && \
 +	$DNF_TOOL -y remove git-core && \
 +	$DNF_TOOL clean all && \
-+	pip list && pip check \
++	pip list && pip check && \
 +	rm -f base-requirements.txt
 +
  USER ovms
