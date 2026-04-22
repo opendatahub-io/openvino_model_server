@@ -459,7 +459,7 @@ RUN if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; \
 	pip install --no-cache-dir -r base-requirements.txt && \
 	$DNF_TOOL -y remove git-core && \
 	$DNF_TOOL clean all && \
-	pip list && pip check \
+	pip list && pip check && \
 	rm -f base-requirements.txt
 
 USER ovms
