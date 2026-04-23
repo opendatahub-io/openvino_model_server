@@ -8,7 +8,7 @@
 
 ## Overview
 
-The script [face_detection.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/demos/face_detection/python/face_detection.py) runs face detection inference requests for all the images
+The script [face_detection.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/demos/face_detection/python/face_detection.py) runs face detection inference requests for all the images
 saved in `input_images_dir` directory.
 
 The script can adjust the input image size and change the batch size in the request. It demonstrates how to use
@@ -80,7 +80,7 @@ curl --create-dirs https://storage.openvinotoolkit.org/repositories/open_model_z
 :::{dropdown} **Deploying with Docker**
 ```bash
 chmod -R 755 model
-docker run --rm -d -u $(id -u):$(id -g) -v `pwd`/model:/models -p 9000:9000 openvino/model_server:latest --model_path /models --model_name face-detection --port 9000  --shape auto
+docker run --rm -d -u $(id -u):$(id -g) -v `pwd`/model:/models -p 9000:9000 openvino/model_server:2026.1 --model_path /models --model_name face-detection --port 9000  --shape auto
 ```
 :::
 :::{dropdown} **Deploying on Bare Metal**

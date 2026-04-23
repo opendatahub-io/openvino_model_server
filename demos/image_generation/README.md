@@ -3,6 +3,12 @@
 This demo shows how to deploy image generation models (Stable Diffusion/Stable Diffusion 3/Stable Diffusion XL/FLUX) to create and edit images with the OpenVINO Model Server.
 Image generation pipelines are exposed via [OpenAI API](https://platform.openai.com/docs/api-reference/images/create) `images/generations` and `images/edits` endpoints.
 
+Supported workloads:
+- **Text-to-image** — generate an image from a text prompt (`/v3/images/generations`)
+- **Image-to-image** — transform an existing image guided by a prompt (`/v3/images/edits`)
+- **Inpainting** — repaint a masked region of an image (`/v3/images/edits` with `mask` field)
+- **Outpainting** — extend an image beyond its original borders (`/v3/images/edits` with `mask` field and larger canvas)
+
 Check [supported models](https://openvinotoolkit.github.io/openvino.genai/docs/supported-models/#image-generation-models).
 
 > **Note:** Please note that FLUX models are not supported on NPU.
@@ -41,7 +47,7 @@ mkdir -p models
 
 docker run -d --rm --user $(id -u):$(id -g) -p 8000:8000 -v $(pwd)/models:/models/:rw \
   -e http_proxy=$http_proxy -e https_proxy=$https_proxy -e no_proxy=$no_proxy \
-  openvino/model_server:latest \
+  openvino/model_server:2026.1 \
     --rest_port 8000 \
     --model_repository_path /models/ \
     --task image_generation \
@@ -85,7 +91,7 @@ mkdir -p models
 docker run -d --rm -p 8000:8000 -v $(pwd)/models:/models/:rw \
   --user $(id -u):$(id -g) --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
   -e http_proxy=$http_proxy -e https_proxy=$https_proxy -e no_proxy=$no_proxy \
-  openvino/model_server:latest-gpu \
+  openvino/model_server:2026.1-gpu \
     --rest_port 8000 \
     --model_repository_path /models/ \
     --task image_generation \
@@ -137,7 +143,7 @@ docker run -d --rm -p 8000:8000 \
   -v $(pwd)/cache:/cache/:rw \
   --user $(id -u):$(id -g) --device /dev/accel --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
   -e http_proxy=$http_proxy -e https_proxy=$https_proxy -e no_proxy=$no_proxy \
-  openvino/model_server:latest-gpu \
+  openvino/model_server:2026.1-gpu \
     --rest_port 8000 \
     --model_repository_path /models/ \
     --task image_generation \
@@ -176,8 +182,8 @@ Image generation pipeline parameters will be defined inside the `graph.pbtxt` fi
 
 Download export script, install it's dependencies and create directory for the models:
 ```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/export_models/export_model.py -o export_model.py
+pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/export_models/requirements.txt
 mkdir models
 ```
 
@@ -257,7 +263,7 @@ Running this command starts the container with CPU only target device:
 Start docker container:
 ```bash
 docker run -d --rm -p 8000:8000 -v $(pwd)/models:/models:rw \
-  openvino/model_server:latest \
+  openvino/model_server:2026.1 \
     --rest_port 8000 \
     --model_name OpenVINO/stable-diffusion-v1-5-int8-ov \
     --model_path /models/stable-diffusion-v1-5/stable-diffusion-v1-5
@@ -296,7 +302,7 @@ It can be applied using the commands below:
 ```bash
 docker run -d --rm -p 8000:8000 -v $(pwd)/models:/models:rw \
   --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
-  openvino/model_server:latest-gpu \
+  openvino/model_server:2026.1-gpu \
     --rest_port 8000 \
     --model_name OpenVINO/stable-diffusion-v1-5-int8-ov \
     --model_path /models/stable-diffusion-v1-5/stable-diffusion-v1-5
@@ -337,7 +343,7 @@ docker run -d --rm -p 8000:8000 \
   -v $(pwd)/cache:/cache:rw \
   -u $(id -u):$(id -g) \
   --device /dev/accel --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
-  openvino/model_server:latest-gpu \
+  openvino/model_server:2026.1-gpu \
     --rest_port 8000 \
     --model_name OpenVINO/stable-diffusion-v1-5-int8-ov \
     --model_path /models/stable-diffusion-v1-5/stable-diffusion-v1-5
@@ -364,35 +370,34 @@ ovms --rest_port 8000 ^
 
 Wait for the model to load. You can check the status with a simple command:
 ```console
-curl http://localhost:8000/v1/config
+curl http://localhost:8000/v3/models
 ```
 
 ```json
 {
- "OpenVINO/stable-diffusion-v1-5-int8-ov" :
- {
-  "model_version_status": [
-   {
-    "version": "1",
-    "state": "AVAILABLE",
-    "status": {
-     "error_code": "OK",
-     "error_message": "OK"
+  "object": "list",
+  "data": [
+    {
+      "id": "OpenVINO/stable-diffusion-v1-5-int8-ov",
+      "object": "model",
+      "created": 0,
+      "owned_by": "OVMS"
     }
-   }
   ]
- }
 }
 ```
 
 ## Request Generation
 
-A single servable exposes following endpoints:
-- text to image: `images/generations`
-- image to image: `images/edits` 
+A single servable exposes the following endpoints:
+- **Text-to-image**: `images/generations` — JSON body with `prompt`
+- **Image-to-image**: `images/edits` — multipart form with `image` + `prompt` (no mask)
+- **Inpainting**: `images/edits` — multipart form with `image` + `mask` + `prompt`
+- **Outpainting**: `images/edits` — multipart form with `image` + `mask` + `prompt` (image placed on larger canvas, mask marks the area to fill)
 
-Endpoints unsupported for now:
-- inpainting: `images/edits` with `mask` field
+> **Note:** Inpainting/outpainting requests are processed sequentially — concurrent requests will be queued.
+
+> **Note:** For inpainting/outpainting, dedicated inpainting models (e.g. `stable-diffusion-v1-5/stable-diffusion-inpainting`) only support the `images/edits` endpoint. Check [supported models](https://openvinotoolkit.github.io/openvino.genai/docs/supported-models/#image-generation-models).
 
 All requests are processed in unary format, with no streaming capabilities.
 
@@ -518,6 +523,206 @@ image.save('edit_output.png')
 
 Output file (`edit_output.png`):  
 ![edit_output](./edit_output.png)
+
+### Requesting inpainting with cURL
+
+Inpainting replaces a masked region in an image based on the prompt. The `mask` is a black-and-white image where white pixels mark the area to repaint.
+
+Download sample images:
+```console
+curl -O https://raw.githubusercontent.com/openvinotoolkit/model_server/main/demos/image_generation/cat.png
+curl -O https://raw.githubusercontent.com/openvinotoolkit/model_server/main/demos/image_generation/cat_mask.png
+```
+
+![cat](./cat.png) ![cat_mask](./cat_mask.png)
+
+::::{tab-set}
+:::{tab-item} Linux
+:sync: linux
+```bash
+curl http://localhost:8000/v3/images/edits \
+  -F "model=diffusers/stable-diffusion-xl-1.0-inpainting-0.1" \
+  -F "prompt=a golden retriever dog sitting on a bench in a sunny park" \
+  -F "image=@cat.png" \
+  -F "mask=@cat_mask.png" \
+  -F "num_inference_steps=50" \
+  -F "size=1024x1024" | jq -r '.data[0].b64_json' | base64 --decode > inpaint_output.png
+```
+:::
+
+:::{tab-item} Windows Command Prompt
+:sync: windows
+```bat
+curl http://localhost:8000/v3/images/edits ^
+  -F "model=diffusers/stable-diffusion-xl-1.0-inpainting-0.1" ^
+  -F "prompt=a golden retriever dog sitting on a bench in a sunny park" ^
+  -F "image=@cat.png" ^
+  -F "mask=@cat_mask.png" ^
+  -F "num_inference_steps=50" ^
+  -F "size=1024x1024"
+```
+:::
+
+::::
+
+Expected output (`inpaint_output.png`):
+
+![inpaint_output](./inpaint_output.png)
+
+### Requesting inpainting with OpenAI Python package
+
+```python
+from openai import OpenAI
+import base64
+from io import BytesIO
+from PIL import Image
+
+client = OpenAI(
+    base_url="http://localhost:8000/v3",
+    api_key="unused"
+)
+
+response = client.images.edit(
+            model="diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+            image=open("cat.png", "rb"),
+            mask=open("cat_mask.png", "rb"),
+            prompt="a golden retriever dog sitting on a bench in a sunny park",
+            extra_body={
+                "num_inference_steps": 50,
+                "size": "1024x1024"
+            }
+        )
+base64_image = response.data[0].b64_json
+
+image_data = base64.b64decode(base64_image)
+image = Image.open(BytesIO(image_data))
+image.save('inpaint_output.png')
+```
+
+### Requesting outpainting with cURL
+
+Outpainting extends an image beyond its original borders. Prepare two images:
+- **outpaint_input.png** — the original image centered on a larger canvas (e.g. 768×768) with black borders
+- **outpaint_mask.png** — white where the new content should be generated (the borders), black where the original image is
+
+Download sample images:
+```console
+curl -O https://raw.githubusercontent.com/openvinotoolkit/model_server/main/demos/image_generation/outpaint_input.png
+curl -O https://raw.githubusercontent.com/openvinotoolkit/model_server/main/demos/image_generation/outpaint_mask.png
+```
+
+![outpaint_input](./outpaint_input.png) ![outpaint_mask](./outpaint_mask.png)
+
+::::{tab-set}
+:::{tab-item} Linux
+:sync: linux
+```bash
+curl http://localhost:8000/v3/images/edits \
+  -F "model=stable-diffusion-v1-5/stable-diffusion-inpainting" \
+  -F "prompt=a cat sitting on a bench in a park" \
+  -F "image=@outpaint_input.png" \
+  -F "mask=@outpaint_mask.png" \
+  -F "num_inference_steps=50" \
+  -F "size=768x768" | jq -r '.data[0].b64_json' | base64 --decode > outpaint_output.png
+```
+:::
+
+:::{tab-item} Windows Command Prompt
+:sync: windows
+```bat
+curl http://localhost:8000/v3/images/edits ^
+  -F "model=stable-diffusion-v1-5/stable-diffusion-inpainting" ^
+  -F "prompt=a cat sitting on a bench in a park" ^
+  -F "image=@outpaint_input.png" ^
+  -F "mask=@outpaint_mask.png" ^
+  -F "num_inference_steps=50" ^
+  -F "size=768x768"
+```
+:::
+
+::::
+
+Expected output (`outpaint_output.png`):
+
+![outpaint_output](./outpaint_output.png)
+
+### Requesting outpainting with OpenAI Python package
+
+```python
+from openai import OpenAI
+import base64
+from io import BytesIO
+from PIL import Image
+
+client = OpenAI(
+    base_url="http://localhost:8000/v3",
+    api_key="unused"
+)
+
+response = client.images.edit(
+            model="stable-diffusion-v1-5/stable-diffusion-inpainting",
+            image=open("outpaint_input.png", "rb"),
+            mask=open("outpaint_mask.png", "rb"),
+            prompt="a cat sitting on a bench in a park",
+            extra_body={
+                "num_inference_steps": 50,
+                "size": "768x768"
+            }
+        )
+base64_image = response.data[0].b64_json
+
+image_data = base64.b64decode(base64_image)
+image = Image.open(BytesIO(image_data))
+image.save('outpaint_output.png')
+```
+
+### Using dedicated inpainting models
+
+For best inpainting/outpainting quality, use a dedicated inpainting model. These models have a 9-channel UNet specifically trained for masked generation.
+
+Example models for inpainting:
+- `stable-diffusion-v1-5/stable-diffusion-inpainting` — SD 1.5 based, 512×512 native resolution
+- `diffusers/stable-diffusion-xl-1.0-inpainting-0.1` — SDXL based, 1024×1024 native resolution
+
+For the full list see [supported image generation models](https://openvinotoolkit.github.io/openvino.genai/docs/supported-models/#image-generation-models).
+
+> **Note:** Dedicated inpainting models only expose the `images/edits` endpoint (with mask). Text-to-image and image-to-image requests will return an error indicating the pipeline is not available for this model. Base models (e.g. `stable-diffusion-v1-5/stable-diffusion-v1-5`) support all endpoints including inpainting.
+
+::::{tab-set}
+:::{tab-item} Docker (Linux) — GPU
+:sync: docker-gpu
+```bash
+mkdir -p models
+
+docker run -d --rm -p 8000:8000 -v $(pwd)/models:/models/:rw \
+  --user $(id -u):$(id -g) --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
+  -e http_proxy=$http_proxy -e https_proxy=$https_proxy -e no_proxy=$no_proxy \
+  openvino/model_server:2026.1-gpu \
+    --rest_port 8000 \
+    --model_repository_path /models/ \
+    --task image_generation \
+    --source_model stable-diffusion-v1-5/stable-diffusion-inpainting \
+    --weight-format int8 \
+    --target_device GPU
+```
+:::
+
+:::{tab-item} Bare metal (Windows)
+:sync: bare-metal
+```bat
+mkdir models
+
+ovms --rest_port 8000 ^
+  --model_repository_path ./models/ ^
+  --task image_generation ^
+  --source_model stable-diffusion-v1-5/stable-diffusion-inpainting ^
+  --weight-format int8 ^
+  --target_device GPU
+```
+:::
+
+::::
+
 
 ### Strength influence on final damage
 

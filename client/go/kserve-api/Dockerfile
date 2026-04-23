@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM golang:1.23.0
+FROM golang:1.24.0
 
 RUN apt-get update && \
     apt-get -y install git unzip build-essential autoconf libtool protobuf-compiler libprotobuf-dev && \
@@ -26,14 +26,14 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34
 RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.4.0
 
 # Compile API
-RUN wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/0/src/kfserving_api/grpc_predict_v2.proto
+RUN wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/1/src/kfserving_api/grpc_predict_v2.proto
 RUN echo 'option go_package = "./grpc-client";' >> grpc_predict_v2.proto
 RUN protoc --go_out="./" --go-grpc_out="./" ./grpc_predict_v2.proto
 
 COPY . /app
 WORKDIR /app/build
-RUN go get google.golang.org/grpc@v1.62.0 
-RUN go get google.golang.org/grpc/internal/transport@v1.62.0
+RUN go get google.golang.org/grpc@v1.79.3
+RUN go get google.golang.org/grpc/internal/transport@v1.79.3
 RUN for I in ../*go; do go build $I; done
 # In case of dependencies version updates below might be useful, so we can substitute the go.mod and go.sum files
 # with versions that has been processed by go. 

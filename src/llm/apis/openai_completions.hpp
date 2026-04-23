@@ -26,6 +26,7 @@
 
 #include <openvino/genai/generation_config.hpp>
 #include <openvino/genai/generation_handle.hpp>
+#include <openvino/genai/json_container.hpp>
 #include <openvino/genai/llm_pipeline.hpp>
 #include <openvino/genai/tokenizer.hpp>
 #include <openvino/genai/visual_language/pipeline.hpp>
@@ -34,6 +35,7 @@
 #pragma warning(push)
 #pragma warning(disable : 6001 4324 6385 6386)
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #pragma warning(pop)
 #include "../io_processing/output_parser.hpp"
 #include "openai_request.hpp"
@@ -66,7 +68,8 @@ class OpenAIChatCompletionsHandler {
     OpenAIChatCompletionsRequest request;
     std::chrono::time_point<std::chrono::system_clock> created;
     ov::genai::Tokenizer tokenizer;
-    size_t processedTokens = 0;  // tracks overall number of tokens processed by the pipeline
+    size_t processedTokens = 0;              // tracks overall number of tokens processed by the pipeline
+    bool toolCallsDetectedInStream = false;  // tracks whether tool calls were detected in any streaming chunk
 
     // Output parser is used to parse chat completions response to extract specific fields like tool calls and reasoning.
     std::unique_ptr<OutputParser> outputParser = nullptr;
@@ -109,19 +112,22 @@ public:
     const std::unique_ptr<OutputParser>& getOutputParser() const;
 
     void setPromptTokensUsage(size_t promptTokens);
+    void setCompletionTokensUsage(size_t completionTokens);
 
     void incrementProcessedTokens(size_t numTokens = 1);
 
     absl::Status parseRequest(std::optional<uint32_t> maxTokensLimit, uint32_t bestOfLimit, std::optional<uint32_t> maxModelLength, std::optional<std::string> allowedLocalMediaPath = std::nullopt, std::optional<std::vector<std::string>> allowedMediaDomains = std::nullopt);
     absl::Status parseMessages(std::optional<std::string> allowedLocalMediaPath = std::nullopt, std::optional<std::vector<std::string>> allowedMediaDomains = std::nullopt);
     absl::Status parseTools();
+    absl::StatusOr<std::optional<ov::genai::JsonContainer>> parseToolsToJsonContainer();
+    absl::StatusOr<std::optional<ov::genai::JsonContainer>> parseChatTemplateKwargsToJsonContainer();
     const bool areToolsAvailable() const;
 
     std::string serializeUnaryResponse(const std::vector<ov::genai::GenerationOutput>& generationOutputs);
-    std::string serializeUnaryResponse(const ov::genai::EncodedResults& results);
-    // VLMDecodedResults does not contain tokens that we can count, so we need to pass completionTokens in order to provide correct usage statistics
-    std::string serializeUnaryResponse(const ov::genai::VLMDecodedResults& results, size_t completionTokens);
+    std::string serializeUnaryResponse(ov::genai::EncodedResults& results);
+    std::string serializeUnaryResponse(ov::genai::VLMDecodedResults& results);
     std::string serializeStreamingChunk(const std::string& chunkResponse, ov::genai::GenerationFinishReason finishReason);
     std::string serializeStreamingUsageChunk();
+    std::string serializeStreamingHandshakeChunk();
 };
 }  // namespace ovms

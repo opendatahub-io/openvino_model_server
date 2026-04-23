@@ -3,12 +3,12 @@
 ## Introduction
 This guide shows how to configure a simple Directed Acyclic Graph (DAG) with a custom node that performs input resizing before passing input data to the model.
 
-The node below is provided as a demonstration. See instructions for how to build and use the custom node: [Image Transformation](https://github.com/openvinotoolkit/model_server/tree/releases/2026/0/src/custom_nodes/image_transformation).
+The node below is provided as a demonstration. See instructions for how to build and use the custom node: [Image Transformation](https://github.com/openvinotoolkit/model_server/tree/releases/2026/1/src/custom_nodes/image_transformation).
 
 
 To run inference with this setup, we will use the following:
 
-- Example client in Python [face_detection.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/demos/face_detection/python/face_detection.py) that can be used to request inference on with the desired input shape.
+- Example client in Python [face_detection.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/demos/face_detection/python/face_detection.py) that can be used to request inference on with the desired input shape.
 
 - An example [face_detection_retail_0004](https://github.com/openvinotoolkit/open_model_zoo/blob/releases/2021/4/models/intel/face-detection-retail-0004/README.md) model.
 
@@ -31,7 +31,7 @@ curl https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/mode
 #### Pull the Latest Model Server Image
 Pull the latest version of OpenVINO&trade; Model Server from Docker Hub :
 ```bash
-docker pull openvino/model_server:latest
+docker pull openvino/model_server:2026.1
 ```
 
 ### Build a Custom Node
@@ -136,7 +136,7 @@ echo '{
 #### Start Model Server Container with Downloaded Model
 Start the container with the image pulled in the previous step and mount `<models_dir>` :
 ```bash
-docker run --rm -d -v ${PWD}:/models -p 9000:9000 openvino/model_server:latest --config_path /models/config.json --port 9000
+docker run --rm -d -v ${PWD}:/models -p 9000:9000 openvino/model_server:2026.1 --config_path /models/config.json --port 9000
 ```
 
 #### Run the Client

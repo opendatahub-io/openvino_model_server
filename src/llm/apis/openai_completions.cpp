@@ -17,7 +17,9 @@
 #include "openai_completions.hpp"
 
 #include <cmath>
+#include <limits>
 #include <memory>
+#include <stdexcept>
 #include "src/port/rapidjson_stringbuffer.hpp"
 #include "src/port/rapidjson_writer.hpp"
 #include <set>
@@ -43,6 +45,57 @@ using namespace rapidjson;
 namespace ovms {
 
 constexpr size_t DEFAULT_MAX_STOP_WORDS = 16;  // same as deep-seek
+
+namespace {
+
+ov::genai::JsonContainer rapidJsonValueToJsonContainer(const rapidjson::Value& value) {
+    if (value.IsNull()) {
+        return ov::genai::JsonContainer(nullptr);
+    }
+    if (value.IsBool()) {
+        return ov::genai::JsonContainer(value.GetBool());
+    }
+    if (value.IsInt()) {
+        return ov::genai::JsonContainer(value.GetInt());
+    }
+    if (value.IsUint()) {
+        return ov::genai::JsonContainer(static_cast<int64_t>(value.GetUint()));
+    }
+    if (value.IsInt64()) {
+        return ov::genai::JsonContainer(value.GetInt64());
+    }
+    if (value.IsUint64()) {
+        auto uintValue = value.GetUint64();
+        if (uintValue <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            return ov::genai::JsonContainer(static_cast<int64_t>(uintValue));
+        }
+        return ov::genai::JsonContainer(static_cast<double>(uintValue));
+    }
+    if (value.IsDouble()) {
+        return ov::genai::JsonContainer(value.GetDouble());
+    }
+    if (value.IsString()) {
+        return ov::genai::JsonContainer(std::string(value.GetString(), value.GetStringLength()));
+    }
+    if (value.IsArray()) {
+        ov::genai::JsonContainer arrayContainer = ov::genai::JsonContainer::array();
+        for (const auto& item : value.GetArray()) {
+            arrayContainer.push_back(rapidJsonValueToJsonContainer(item));
+        }
+        return arrayContainer;
+    }
+    if (value.IsObject()) {
+        ov::genai::JsonContainer objectContainer = ov::genai::JsonContainer::object();
+        for (auto member = value.MemberBegin(); member != value.MemberEnd(); ++member) {
+            const std::string key(member->name.GetString(), member->name.GetStringLength());
+            objectContainer[key] = rapidJsonValueToJsonContainer(member->value);
+        }
+        return objectContainer;
+    }
+    throw std::invalid_argument("Unsupported JSON value type");
+}
+
+}  // namespace
 
 absl::Status OpenAIChatCompletionsHandler::parseCompletionsPart() {
     // prompt: string
@@ -207,123 +260,137 @@ absl::Status OpenAIChatCompletionsHandler::parseMessages(std::optional<std::stri
         auto& obj = it->value.GetArray()[i];
         if (!obj.IsObject())
             return absl::InvalidArgumentError("Message is not a JSON object");
-        // Add new message to chat history. Note that chat history contains only messages with "role" and "content" fields
+        // Add new message to chat history with role, content, and tool-related fields (tool_calls, tool_call_id, name)
         // Other values are not stored in chat history, but are still present in the request object
         request.chatHistory.push_back({});
         for (auto member = obj.MemberBegin(); member != obj.MemberEnd(); member++) {
             if (!member->name.IsString())
                 return absl::InvalidArgumentError("Invalid message structure");
-            if (member->value.IsString() && (member->name.GetString() == std::string("role") || member->name.GetString() == std::string("content"))) {
+            std::string memberName = member->name.GetString();
+            if (member->value.IsString() && (memberName == "role" || memberName == "content")) {
                 // Add new field to the last message in history
-                // tools handing to be done later
-                request.chatHistory.last()[member->name.GetString()] = member->value.GetString();
+                request.chatHistory.last()[memberName] = member->value.GetString();
                 continue;
-            } else {
-                if (member->name.GetString() == std::string("content") && member->value.IsArray()) {
-                    // Adjust content field format when it is passed as an array of objects (typically with images)
-                    if (member->value.GetArray().Size() == 0) {
-                        return absl::InvalidArgumentError("Invalid message structure - content array is empty");
+            }
+            // Handle tool_call_id and name string fields for tool calling
+            if (member->value.IsString() && (memberName == "tool_call_id" || memberName == "name")) {
+                request.chatHistory.last()[memberName] = member->value.GetString();
+                continue;
+            }
+            // Handle null content (common in assistant messages with tool_calls)
+            if (memberName == "content" && member->value.IsNull()) {
+                request.chatHistory.last()[memberName] = ov::genai::JsonContainer(nullptr);
+                continue;
+            }
+            // Handle tool_calls array for function calling
+            if (memberName == "tool_calls" && member->value.IsArray()) {
+                request.chatHistory.last()[memberName] = rapidJsonValueToJsonContainer(member->value);
+                continue;
+            }
+            if (memberName == "content" && member->value.IsArray()) {
+                // Adjust content field format when it is passed as an array of objects (typically with images)
+                if (member->value.GetArray().Size() == 0) {
+                    return absl::InvalidArgumentError("Invalid message structure - content array is empty");
+                }
+                jsonChanged = true;
+                Value contentText(rapidjson::kStringType);
+                contentText.SetString("", doc.GetAllocator());
+                for (auto& v : member->value.GetArray()) {
+                    if (!v.IsObject()) {
+                        return absl::InvalidArgumentError("Invalid message structure - content array should contain objects");
                     }
-                    jsonChanged = true;
-                    Value contentText(rapidjson::kStringType);
-                    contentText.SetString("", doc.GetAllocator());
-                    for (auto& v : member->value.GetArray()) {
-                        if (!v.IsObject()) {
-                            return absl::InvalidArgumentError("Invalid message structure - content array should contain objects");
+                    auto entry = v.GetObject();
+                    if (!entry.HasMember("type") || !entry["type"].IsString()) {
+                        return absl::InvalidArgumentError("Invalid message structure - content object type missing");
+                    }
+                    auto entryType = entry["type"].GetString();
+                    if (entryType == std::string("text")) {
+                        if (!entry.HasMember("text") || !entry["text"].IsString()) {
+                            return absl::InvalidArgumentError("Invalid message structure - content text missing");
                         }
-                        auto entry = v.GetObject();
-                        if (!entry.HasMember("type") || !entry["type"].IsString()) {
-                            return absl::InvalidArgumentError("Invalid message structure - content object type missing");
+                        contentText = entry["text"];
+                        continue;
+                    } else if (entryType == std::string("image_url")) {
+                        if (!entry.HasMember("image_url") || !entry["image_url"].IsObject()) {
+                            return absl::InvalidArgumentError("Invalid message structure - content image_url missing");
                         }
-                        auto entryType = entry["type"].GetString();
-                        if (entryType == std::string("text")) {
-                            if (!entry.HasMember("text") || !entry["text"].IsString()) {
-                                return absl::InvalidArgumentError("Invalid message structure - content text missing");
+                        auto imageUrl = entry["image_url"].GetObject();
+                        if (!imageUrl.HasMember("url") || !imageUrl["url"].IsString()) {
+                            return absl::InvalidArgumentError("Invalid message structure - image_url does not have url field");
+                        }
+                        std::string url = imageUrl["url"].GetString();
+                        std::string pattern = "base64,";
+                        std::size_t pos = url.find(pattern);
+                        std::string decoded;
+                        ov::Tensor tensor;
+                        if (pos != std::string::npos) {
+                            SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Loading image from base64 string");
+                            size_t offset = pos + pattern.length();
+                            if (!absl::Base64Unescape(std::string_view(url.data() + offset, url.size() - offset), &decoded)) {
+                                return absl::InvalidArgumentError("Invalid base64 string in request");
                             }
-                            contentText = entry["text"];
-                            continue;
-                        } else if (entryType == std::string("image_url")) {
-                            if (!entry.HasMember("image_url") || !entry["image_url"].IsObject()) {
-                                return absl::InvalidArgumentError("Invalid message structure - content image_url missing");
+                            try {
+                                tensor = loadImageStbiFromMemory(decoded);
+                            } catch (std::runtime_error& e) {
+                                std::stringstream ss;
+                                ss << "Image parsing failed: " << e.what();
+                                SPDLOG_LOGGER_DEBUG(llm_calculator_logger, ss.str());
+                                return absl::InvalidArgumentError(ss.str());
                             }
-                            auto imageUrl = entry["image_url"].GetObject();
-                            if (!imageUrl.HasMember("url") || !imageUrl["url"].IsString()) {
-                                return absl::InvalidArgumentError("Invalid message structure - image_url does not have url field");
+                        } else if (std::regex_match(url.c_str(), std::regex("^(http|https|ftp|sftp|)://(.*)"))) {
+                            SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Loading image using curl");
+                            int64_t sizeLimit = 20000000;  // restrict single image size to 20MB
+                            if (!allowedMediaDomains.has_value() || !isDomainAllowed(allowedMediaDomains.value(), url.c_str())) {
+                                return absl::InvalidArgumentError("Given url does not match any allowed domain from allowed_media_domains");
                             }
-                            std::string url = imageUrl["url"].GetString();
-                            std::string pattern = "base64,";
-                            std::size_t pos = url.find(pattern);
-                            std::string decoded;
-                            ov::Tensor tensor;
-                            if (pos != std::string::npos) {
-                                SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Loading image from base64 string");
-                                size_t offset = pos + pattern.length();
-                                if (!absl::Base64Unescape(std::string_view(url.data() + offset, url.size() - offset), &decoded)) {
-                                    return absl::InvalidArgumentError("Invalid base64 string in request");
-                                }
-                                try {
-                                    tensor = loadImageStbiFromMemory(decoded);
-                                } catch (std::runtime_error& e) {
-                                    std::stringstream ss;
-                                    ss << "Image parsing failed: " << e.what();
-                                    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, ss.str());
-                                    return absl::InvalidArgumentError(ss.str());
-                                }
-                            } else if (std::regex_match(url.c_str(), std::regex("^(http|https|ftp|sftp|)://(.*)"))) {
-                                SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Loading image using curl");
-                                int64_t sizeLimit = 20000000;  // restrict single image size to 20MB
-                                if (!allowedMediaDomains.has_value() || !isDomainAllowed(allowedMediaDomains.value(), url.c_str())) {
-                                    return absl::InvalidArgumentError("Given url does not match any allowed domain from allowed_media_domains");
-                                }
-                                auto status = downloadImage(url.c_str(), decoded, sizeLimit);
-                                if (status != absl::OkStatus()) {
-                                    return status;
-                                }
-                                try {
-                                    tensor = loadImageStbiFromMemory(decoded);
-                                } catch (std::runtime_error& e) {
-                                    std::stringstream ss;
-                                    ss << "Image parsing failed: " << e.what();
-                                    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, ss.str());
-                                    return absl::InvalidArgumentError("Image parsing failed");
-                                }
+                            auto status = downloadImage(url.c_str(), decoded, sizeLimit);
+                            if (status != absl::OkStatus()) {
+                                return status;
+                            }
+                            try {
+                                tensor = loadImageStbiFromMemory(decoded);
+                            } catch (std::runtime_error& e) {
+                                std::stringstream ss;
+                                ss << "Image parsing failed: " << e.what();
+                                SPDLOG_LOGGER_DEBUG(llm_calculator_logger, ss.str());
+                                return absl::InvalidArgumentError("Image parsing failed");
+                            }
 
-                            } else {
-                                if (!allowedLocalMediaPath.has_value()) {
-                                    return absl::InvalidArgumentError("Loading images from local filesystem is disabled.");
-                                }
-                                if (FileSystem::isPathEscaped(url)) {
-                                    std::stringstream ss;
-                                    ss << "Path " << url.c_str() << " escape with .. is forbidden.";
-                                    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, ss.str());
-                                    return absl::InvalidArgumentError(ss.str());
-                                }
-                                SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Loading image from local filesystem");
-                                const auto firstMissmatch = std::mismatch(url.begin(), url.end(), allowedLocalMediaPath.value().begin(), allowedLocalMediaPath.value().end());
-                                if (firstMissmatch.second != allowedLocalMediaPath.value().end()) {
-                                    return absl::InvalidArgumentError("Given filepath is not subpath of allowed_local_media_path");
-                                }
-                                try {
-                                    tensor = loadImageStbiFromFile(url.c_str());
-                                } catch (std::runtime_error& e) {
-                                    std::stringstream ss;
-                                    ss << "Image file " << url.c_str() << " parsing failed: " << e.what();
-                                    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, ss.str());
-                                    return absl::InvalidArgumentError(ss.str());
-                                }
-                            }
-                            request.imageHistory.push_back({i, tensor});
                         } else {
-                            return absl::InvalidArgumentError("Unsupported content type");
+                            if (!allowedLocalMediaPath.has_value()) {
+                                return absl::InvalidArgumentError("Loading images from local filesystem is disabled.");
+                            }
+                            if (FileSystem::isPathEscaped(url)) {
+                                std::stringstream ss;
+                                ss << "Path " << url.c_str() << " escape with .. is forbidden.";
+                                SPDLOG_LOGGER_DEBUG(llm_calculator_logger, ss.str());
+                                return absl::InvalidArgumentError(ss.str());
+                            }
+                            SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Loading image from local filesystem");
+                            const auto firstMissmatch = std::mismatch(url.begin(), url.end(), allowedLocalMediaPath.value().begin(), allowedLocalMediaPath.value().end());
+                            if (firstMissmatch.second != allowedLocalMediaPath.value().end()) {
+                                return absl::InvalidArgumentError("Given filepath is not subpath of allowed_local_media_path");
+                            }
+                            try {
+                                tensor = loadImageStbiFromFile(url.c_str());
+                            } catch (std::runtime_error& e) {
+                                std::stringstream ss;
+                                ss << "Image file " << url.c_str() << " parsing failed: " << e.what();
+                                SPDLOG_LOGGER_DEBUG(llm_calculator_logger, ss.str());
+                                return absl::InvalidArgumentError(ss.str());
+                            }
                         }
+                        request.imageHistory.push_back({i, tensor});
+                    } else {
+                        return absl::InvalidArgumentError("Unsupported content type");
                     }
-                    // Pulling out text from nested structure to the "content" field for text and replace whole "content" value for image data
-                    // with empty string, since images are stored separately in request.images
-                    member->value = contentText;
-                    // Add new field to the last message in history if content is text
-                    if (member->value.IsString()) {
-                        request.chatHistory.last()[member->name.GetString()] = member->value.GetString();
-                    }
+                }
+                // Pulling out text from nested structure to the "content" field for text and replace whole "content" value for image data
+                // with empty string, since images are stored separately in request.images
+                member->value = contentText;
+                // Add new field to the last message in history if content is text
+                if (member->value.IsString()) {
+                    request.chatHistory.last()[member->name.GetString()] = member->value.GetString();
                 }
             }
         }
@@ -437,6 +504,51 @@ absl::Status OpenAIChatCompletionsHandler::parseTools() {
         request.processedJson = buffer.GetString();
     }
     return absl::OkStatus();
+}
+
+absl::StatusOr<std::optional<ov::genai::JsonContainer>> OpenAIChatCompletionsHandler::parseToolsToJsonContainer() {
+    auto it = doc.FindMember("tools");
+    if (it == doc.MemberEnd() || it->value.IsNull()) {
+        return std::nullopt;
+    }
+    try {
+        return rapidJsonValueToJsonContainer(it->value);
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Direct tools conversion to JsonContainer failed: {}. Falling back to JSON string conversion.", e.what());
+        try {
+            rapidjson::StringBuffer toolsBuffer;
+            rapidjson::Writer<rapidjson::StringBuffer> toolsWriter(toolsBuffer);
+            it->value.Accept(toolsWriter);
+            return ov::genai::JsonContainer::from_json_string(toolsBuffer.GetString());
+        } catch (const std::exception& fallbackEx) {
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Fallback tools conversion failed: {}", fallbackEx.what());
+            return absl::InvalidArgumentError(absl::StrCat("Invalid tools payload: ", fallbackEx.what()));
+        }
+    }
+}
+
+absl::StatusOr<std::optional<ov::genai::JsonContainer>> OpenAIChatCompletionsHandler::parseChatTemplateKwargsToJsonContainer() {
+    auto it = doc.FindMember("chat_template_kwargs");
+    if (it == doc.MemberEnd() || it->value.IsNull()) {
+        return std::nullopt;
+    }
+    if (!it->value.IsObject()) {
+        return absl::InvalidArgumentError("chat_template_kwargs must be an object");
+    }
+    try {
+        return rapidJsonValueToJsonContainer(it->value);
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Direct chat_template_kwargs conversion to JsonContainer failed: {}. Falling back to JSON string conversion.", e.what());
+        try {
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            it->value.Accept(writer);
+            return ov::genai::JsonContainer::from_json_string(buffer.GetString());
+        } catch (const std::exception& fallbackEx) {
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Fallback chat_template_kwargs conversion failed: {}", fallbackEx.what());
+            return absl::InvalidArgumentError(absl::StrCat("Invalid chat_template_kwargs payload: ", fallbackEx.what()));
+        }
+    }
 }
 
 const bool OpenAIChatCompletionsHandler::areToolsAvailable() const {
@@ -823,6 +935,10 @@ void OpenAIChatCompletionsHandler::setPromptTokensUsage(size_t promptTokens) {
     usage.promptTokens = promptTokens;
 }
 
+void OpenAIChatCompletionsHandler::setCompletionTokensUsage(size_t completionTokens) {
+    usage.completionTokens = completionTokens;
+}
+
 void OpenAIChatCompletionsHandler::incrementProcessedTokens(size_t numTokens) {
     processedTokens += numTokens;
     if (!request.echo || processedTokens > usage.promptTokens)
@@ -848,6 +964,30 @@ void updateUsage(CompletionUsageStatistics& usage, const std::vector<int64_t>& g
         usage.completionTokens -= usage.promptTokens;
 }
 
+static std::optional<std::string> mapFinishReason(ov::genai::GenerationFinishReason finishReason, bool hasToolCalls) {
+    // GenerationFinishReason::TOOL_CALLS is not available in GenAI yet.
+    // Use feature detection based on presence of tool calls as a workaround until GenAI exposes TOOL_CALLS.
+    if (hasToolCalls && finishReason == ov::genai::GenerationFinishReason::STOP) {
+        return "tool_calls";
+    }
+    switch (finishReason) {
+    case ov::genai::GenerationFinishReason::STOP:
+        return "stop";
+    case ov::genai::GenerationFinishReason::LENGTH:
+        return "length";
+    default:
+        return std::nullopt;
+    }
+}
+
+static bool hasToolCallsInStreamingDelta(const rapidjson::Document& delta) {
+    if (!delta.HasMember("delta") || !delta["delta"].IsObject()) {
+        return false;
+    }
+    const auto& deltaObj = delta["delta"];
+    return deltaObj.HasMember("tool_calls") && deltaObj["tool_calls"].IsArray();
+}
+
 ParsedOutput OpenAIChatCompletionsHandler::parseOutputIfNeeded(const std::vector<int64_t>& generatedIds) {
     OVMS_PROFILE_FUNCTION();
     ParsedOutput parsedOutput;
@@ -867,6 +1007,7 @@ std::string OpenAIChatCompletionsHandler::serializeUnaryResponse(const std::vect
     // choices: array of size N, where N is related to n request parameter
     jsonResponse.StartArray("choices");
     int index = 0;
+    // Manual usage setup for CB pipelines. For legacy we rely on PerfMetrics object from GenAI `generate` results
     usage.completionTokens = 0;
     for (const ov::genai::GenerationOutput& generationOutput : generationOutputs) {
         SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Generated tokens: {}", generationOutput.generated_ids);
@@ -878,22 +1019,13 @@ std::string OpenAIChatCompletionsHandler::serializeUnaryResponse(const std::vect
         // finish_reason: string;
         // "stop" => natural stop point due to stopping criteria
         // "length" => due to reaching max_tokens parameter
+        // "tool_calls" => generation stopped due to generated tool calls
 
-        std::string finishReason;
-        switch (generationOutput.finish_reason) {
-        case ov::genai::GenerationFinishReason::STOP:
-            finishReason = "stop";
-            break;
-        case ov::genai::GenerationFinishReason::LENGTH:
-            finishReason = "length";
-            break;
-        default:
-            finishReason = "unknown";
+        std::optional<std::string> finishReason = mapFinishReason(generationOutput.finish_reason, !parsedOutput.toolCalls.empty());
+        if (!finishReason.has_value()) {
             SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Unknown finish reason: {}", static_cast<int>(generationOutput.finish_reason));
-            break;
         }
-        jsonResponse.FinishReason(finishReason);
-
+        jsonResponse.FinishReason(finishReason.value_or("unknown"));
         // index: integer; Choice index, only n=1 supported anyway
         jsonResponse.Index(index++);
 
@@ -990,23 +1122,24 @@ std::string OpenAIChatCompletionsHandler::serializeUnaryResponse(const std::vect
     return jsonResponse.ToString();
 }
 
-std::string OpenAIChatCompletionsHandler::serializeUnaryResponse(const ov::genai::EncodedResults& results) {
+std::string OpenAIChatCompletionsHandler::serializeUnaryResponse(ov::genai::EncodedResults& results) {
     OVMS_PROFILE_FUNCTION();
+    usage.promptTokens = results.perf_metrics.get_num_input_tokens();
+    usage.completionTokens = results.perf_metrics.get_num_generated_tokens();
     OpenAiJsonResponse jsonResponse;
     jsonResponse.StartObject();
 
     // choices: array of size N, where N is related to n request parameter
     jsonResponse.StartArray("choices");
     int index = 0;
-    usage.completionTokens = 0;
     for (int i = 0; i < results.tokens.size(); i++) {
         const std::vector<int64_t>& tokens = results.tokens[i];
         SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Generated tokens: {}", tokens);
-        updateUsage(usage, tokens, request.echo);
         ParsedOutput parsedOutput = parseOutputIfNeeded(tokens);
         jsonResponse.StartObject();
-        // finish_reason: string; always "stop" for this method
-        jsonResponse.FinishReason("stop");
+        // finish_reason: "stop" in regular scenario, "tool_calls" if output contains tool calls
+        auto finishReason = mapFinishReason(ov::genai::GenerationFinishReason::STOP, !parsedOutput.toolCalls.empty());
+        jsonResponse.FinishReason(finishReason.value_or("unknown"));
         // index: integer; Choice index, only n=1 supported anyway
         jsonResponse.Index(index++);
 
@@ -1049,35 +1182,49 @@ std::string OpenAIChatCompletionsHandler::serializeUnaryResponse(const ov::genai
     return jsonResponse.ToString();
 }
 
-std::string OpenAIChatCompletionsHandler::serializeUnaryResponse(const ov::genai::VLMDecodedResults& results, size_t completionTokens) {
+std::string OpenAIChatCompletionsHandler::serializeUnaryResponse(ov::genai::VLMDecodedResults& results) {
     OVMS_PROFILE_FUNCTION();
+    usage.promptTokens = results.perf_metrics.get_num_input_tokens();
+    usage.completionTokens = results.perf_metrics.get_num_generated_tokens();
     OpenAiJsonResponse jsonResponse;
     jsonResponse.StartObject();
 
     // choices: array of size N, where N is related to n request parameter
     jsonResponse.StartArray("choices");
     int index = 0;
-    usage.completionTokens = completionTokens;
+
     for (int i = 0; i < results.texts.size(); i++) {
         const std::string& text = results.texts[i];
         SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Generated text: {}", text);
+
+        // Workaround to use OVMS unary parsers: get tokens from string
+        // This way we have detokenized text from GenAI and calculate tokens, to further convert back to text again, in parseOutputIfNeeded...
+        auto result = tokenizer.encode(text);
+        auto& input_ids = result.input_ids;
+        if (input_ids.get_shape().size() != 2)
+            throw std::runtime_error("input_ids should have 2 dimensions");
+        if (input_ids.get_shape()[0] != 1)
+            throw std::runtime_error("input_ids should have 1 batch size");
+        if (input_ids.get_element_type() != ov::element::i64)
+            throw std::runtime_error("input_ids should have i64 element type");
+
+        int64_t* input_ids_data = reinterpret_cast<int64_t*>(input_ids.data());
+        std::vector<int64_t> generatedTokens(input_ids_data, input_ids_data + input_ids.get_shape()[1]);
+
+        SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Generated tokens: {}", generatedTokens);
+        ParsedOutput parsedOutput = parseOutputIfNeeded(generatedTokens);
         jsonResponse.StartObject();
-        // finish_reason: string; always "stop" for this method
-        jsonResponse.FinishReason("stop");
+        // finish_reason: "stop" in regular scenario, "tool_calls" if output contains tool calls
+        auto finishReason = mapFinishReason(ov::genai::GenerationFinishReason::STOP, !parsedOutput.toolCalls.empty());
+        jsonResponse.FinishReason(finishReason.value_or("unknown"));
         // index: integer; Choice index, only n=1 supported anyway
         jsonResponse.Index(index++);
         // logprobs: object/null; Log probability information for the choice. TODO
 
-        // message: object
         if (endpoint == Endpoint::CHAT_COMPLETIONS) {
-            jsonResponse.StartObject("message");
-            jsonResponse.String("content", text);
-            jsonResponse.String("role", "assistant");  // TODO - hardcoded
-            // TODO: tools_call
-            // TODO: function_call (deprecated)
-            jsonResponse.EndObject();
+            jsonResponse.MessageObject(parsedOutput);
         } else if (endpoint == Endpoint::COMPLETIONS) {
-            jsonResponse.String("text", text);
+            jsonResponse.Text(parsedOutput);
         }
 
         // finish message object
@@ -1121,6 +1268,7 @@ std::string OpenAIChatCompletionsHandler::serializeStreamingChunk(const std::str
 
     Value choices(kArrayType);
     Value choice(kObjectType);
+    bool hasToolCalls = false;
 
     // choices: array of size N, where N is related to n request parameter
     choices.SetArray();
@@ -1129,19 +1277,9 @@ std::string OpenAIChatCompletionsHandler::serializeStreamingChunk(const std::str
     // "stop" => natural stop point due to stopping criteria
     // "length" => due to reaching max_tokens parameter
     // "content_filter" => when produced restricted output (not supported)
-    // "tool_calls" => generation stopped and waiting for tool output (not supported)
+    // "tool_calls" => generation stopped and waiting for tool output
     // "function_call" => deprecated
     // null - natural scenario when the generation has not completed yet
-    switch (finishReason) {
-    case ov::genai::GenerationFinishReason::STOP:
-        choice.AddMember("finish_reason", "stop", allocator);
-        break;
-    case ov::genai::GenerationFinishReason::LENGTH:
-        choice.AddMember("finish_reason", "length", allocator);
-        break;
-    default:
-        choice.AddMember("finish_reason", Value(), allocator);
-    }
     // index: integer; Choice index, only n=1 supported anyway
     choice.AddMember("index", 0, allocator);
     // logprobs: object/null; Log probability information for the choice. TODO
@@ -1150,11 +1288,20 @@ std::string OpenAIChatCompletionsHandler::serializeStreamingChunk(const std::str
         if (outputParser != nullptr) {
             std::optional<Document> delta = outputParser->parseChunk(chunkResponse, areToolsAvailable(), finishReason);
             if (!delta.has_value()) {
-                return "";
+                // If the generation is still ongoing, there is nothing to emit yet
+                if (finishReason == ov::genai::GenerationFinishReason::NONE) {
+                    return "";
+                }
+                // Generation finished but parser returned no delta (e.g. empty chunk after tool call).
+                // We still need to emit a chunk with the appropriate finish_reason.
             }
-            if (delta->HasMember("delta")) {
+            if (delta.has_value() && delta->HasMember("delta")) {
                 // Deep copy the "delta" member value into the choice object
                 choice.AddMember("delta", Value((*delta)["delta"], allocator), allocator);
+                hasToolCalls = hasToolCallsInStreamingDelta(*delta);
+                if (hasToolCalls) {
+                    toolCallsDetectedInStream = true;
+                }
             }
 
         } else {
@@ -1165,6 +1312,13 @@ std::string OpenAIChatCompletionsHandler::serializeStreamingChunk(const std::str
         }
     } else if (endpoint == Endpoint::COMPLETIONS) {
         choice.AddMember("text", Value(chunkResponse.c_str(), allocator), allocator);
+    }
+
+    auto serializedFinishReason = mapFinishReason(finishReason, hasToolCalls || toolCallsDetectedInStream);
+    if (serializedFinishReason.has_value()) {
+        choice.AddMember("finish_reason", Value(serializedFinishReason.value().c_str(), allocator), allocator);
+    } else {
+        choice.AddMember("finish_reason", Value(rapidjson::kNullType), allocator);
     }
 
     choices.PushBack(choice, allocator);
@@ -1239,6 +1393,54 @@ std::string OpenAIChatCompletionsHandler::serializeStreamingUsageChunk() {
     writer.EndObject();  // }
 
     writer.EndObject();  // }
+    return buffer.GetString();
+}
+
+std::string OpenAIChatCompletionsHandler::serializeStreamingHandshakeChunk() {
+    OVMS_PROFILE_FUNCTION();
+    Document doc;
+    doc.SetObject();
+    Document::AllocatorType& allocator = doc.GetAllocator();
+
+    Value choices(kArrayType);
+    Value choice(kObjectType);
+
+    // choices: array of size N, where N is related to n request parameter
+    choices.SetArray();
+    choice.SetObject();
+
+    choice.AddMember("index", 0, allocator);
+    if (endpoint == Endpoint::CHAT_COMPLETIONS) {
+        Value delta(kObjectType);
+        delta.SetObject();
+        delta.AddMember("role", Value("assistant", allocator), allocator);
+        delta.AddMember("content", Value(rapidjson::kNullType), allocator);
+        choice.AddMember("delta", delta, allocator);
+    } else if (endpoint == Endpoint::COMPLETIONS) {
+        choice.AddMember("text", Value(rapidjson::kNullType), allocator);
+    }
+
+    choice.AddMember("finish_reason", Value(rapidjson::kNullType), allocator);
+    choices.PushBack(choice, allocator);
+
+    doc.AddMember("choices", choices, allocator);
+
+    // created: integer; Unix timestamp (in seconds) when the MP graph was created.
+    doc.AddMember("created", std::chrono::duration_cast<std::chrono::seconds>(created.time_since_epoch()).count(), allocator);
+
+    // model: string; copied from the request
+    doc.AddMember("model", Value(request.model.c_str(), allocator), allocator);
+
+    // object: string; defined that the type streamed chunk rather than complete response
+    if (endpoint == Endpoint::CHAT_COMPLETIONS) {
+        doc.AddMember("object", Value("chat.completion.chunk", allocator), allocator);
+    } else if (endpoint == Endpoint::COMPLETIONS) {
+        doc.AddMember("object", Value("text_completion.chunk", allocator), allocator);
+    }
+
+    StringBuffer buffer;
+    Writer<StringBuffer> writer(buffer);
+    doc.Accept(writer);
     return buffer.GetString();
 }
 }  // namespace ovms

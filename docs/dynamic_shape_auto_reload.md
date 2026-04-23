@@ -7,7 +7,7 @@ This guide explains how to configure a model to accept input data in different s
 
 Enable dynamic shape via model reloading by setting the `shape` parameter to `auto`. To configure and use the dynamic batch size, take advantage of:
 
-- Example client in Python [face_detection.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/demos/face_detection/python/face_detection.py) that can be used to request inference with the desired input shape.
+- Example client in Python [face_detection.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/demos/face_detection/python/face_detection.py) that can be used to request inference with the desired input shape.
 
 - An example [face_detection_retail_0004](https://github.com/openvinotoolkit/open_model_zoo/blob/releases/2021/4/models/intel/face-detection-retail-0004/README.md) model.
 
@@ -29,13 +29,13 @@ curl https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/mode
 #### Pull the Latest Model Server Image
 Pull the latest version of OpenVINO&trade; Model Server from Docker Hub:
 ```bash
-docker pull openvino/model_server:latest
+docker pull openvino/model_server:2026.1
 ```
 
 #### Start the Model Server Container with the Model and Dynamic Batch Size
 Start the container using the image pulled in the previous step and mount the `models` directory:
 ```bash
-docker run --rm -d -v $(pwd)/models:/models -p 9000:9000 openvino/model_server:latest --model_name face-detection --model_path /models/face_detection --shape auto --port 9000
+docker run --rm -d -v $(pwd)/models:/models -p 9000:9000 openvino/model_server:2026.1 --model_name face-detection --model_path /models/face_detection --shape auto --port 9000
 ```
 
 #### Run the Client

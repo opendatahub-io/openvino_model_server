@@ -65,15 +65,15 @@ Following table lists supported tag and packet types in pbtxt graph definition:
 |pbtxt line|input/output|tag|packet type|stream name|
 |:---|:---|:---|:---|:---|
 |input_stream: "a"|input|none|ov::Tensor|a|
-|output_stream: "b"|input|none|ov::Tensor|b|
+|output_stream: "b"|output|none|ov::Tensor|b|
 |input_stream: "IMAGE:a"|input|IMAGE|mediapipe::ImageFrame|a|
 |output_stream: "IMAGE:b"|output|IMAGE|mediapipe::ImageFrame|b|
-|input_stream: "OVTENSOR:a"|output|OVTENSOR|ov::Tensor|a|
+|input_stream: "OVTENSOR:a"|input|OVTENSOR|ov::Tensor|a|
 |output_stream: "OVTENSOR:b"|output|OVTENSOR|ov::Tensor|b|
 |input_stream: "REQUEST:req"|input|REQUEST|KServe inference::ModelInferRequest|req|
 |output_stream: "RESPONSE:res"|output|RESPONSE|KServe inference::ModelInferResponse|res|
 
-In case of missing tag OpenVINO Model Server assumes that the packet type is `ov::Tensor'. The stream name can be arbitrary but the convention is to use a lower case word.
+In case of missing tag OpenVINO Model Server assumes that the packet type is `ov::Tensor`. The stream name can be arbitrary but the convention is to use a lowercase word.
 
 The required data layout for the MediaPipe `IMAGE` conversion is HWC and the supported precisions are:
 |Datatype|Allowed number of channels|
@@ -110,7 +110,7 @@ client.async_stream_infer(
 ```
 
 ### List of default calculators
-Beside OpenVINO inference calculators, model server public docker image also includes all the calculators used in the enabled demos.
+Besides OpenVINO inference calculators, model server public docker image also includes all the calculators used in the enabled demos.
 The list of all included calculators, subgraphs, input/output stream handler is reported in the model server is started with extra parameter `--log_level TRACE`.
 
 ### CPU and GPU execution
@@ -156,7 +156,7 @@ Here is example of the `subconfig.json`:
 
 ### Starting OpenVINO Model Server with Mediapipe servables
 Starting the single graph with `subconfig.json` is achieved by running the server in single model mode  (without `config.json`). Pass the model_path as the folder path with graph.pbtxt and the graph name to be exposed as a model:
-`docker run --rm -it -v <folder with graph.pbtxt>:/model openvino/model_server:latest --model_path /model --model_name mediapipe_graph_name`
+`docker run --rm -it -v <folder with graph.pbtxt>:/model openvino/model_server:2026.1 --model_path /model --model_name mediapipe_graph_name`
 
 This example command will load the `graph.pbtxt` and `subconfig.json` file from the mounted directory the container.
 
@@ -219,7 +219,7 @@ Subconfig file may only contain *model_config_list* section  - in the same forma
 ## Deployment testing
 ### Debug logs
 The simplest method to validate the graph execution is to set the Model Server `log_level` to `DEBUG`.
-`docker run --rm -it -v $(pwd):/config openvino/model_server:latest --config_path /config/config.json --log_level DEBUG`
+`docker run --rm -it -v $(pwd):/config openvino/model_server:2026.1 --config_path /config/config.json --log_level DEBUG`
 
 It will report in a verbose way all the operations in the mediapipe framework from the graph initialization and execution.
 The model server logs could confirm the graph correct format and loading all the required models.
@@ -256,8 +256,8 @@ the version parameter is ignored. MediaPipe graphs are not versioned. Though, th
 MediaPipe graphs can include only the calculators built-in the model server image.
 If you want to add your own mediapipe calculator to OpenVINO Model Server functionality you need to add it as a dependency and rebuild the OpenVINO Model Server binary.
 
-If you have it in external repository, you need to add the http_archive() definition or git_repository() definition to the bazel [WORKSPACE](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/WORKSPACE) file.
-Then you need to add the calculator target as a bazel dependency to the [src/BUILD](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/src/BUILD) file. This should be done for:
+If you have it in external repository, you need to add the http_archive() definition or git_repository() definition to the bazel [WORKSPACE](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/WORKSPACE) file.
+Then you need to add the calculator target as a bazel dependency to the [src/BUILD](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/src/BUILD) file. This should be done for:
 
 ```
 cc_library(

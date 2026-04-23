@@ -19,13 +19,13 @@ curl https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/mode
 #### Pull the Latest Model Server Image from Docker Hub
 Pull the latest version of OpenVINO&trade; Model Server from Docker Hub :
 ```bash
-docker pull openvino/model_server:latest
+docker pull openvino/model_server:2026.1
 ```
 
 #### Start the Container with Downloaded Model
 Start the container with the image pulled in the previous step and mount the `models` directory :
 ```bash
-docker run --rm -d -v $(pwd)/models:/models -p 9000:9000 openvino/model_server:latest --model_name resnet --model_path /models/resnet --layout NHWC:NCHW --port 9000
+docker run --rm -d -v $(pwd)/models:/models -p 9000:9000 openvino/model_server:2026.1 --model_name resnet --model_path /models/resnet --layout NHWC:NCHW --port 9000
 ```
 
 ### Download ovmsclient Package
@@ -36,9 +36,9 @@ pip3 install ovmsclient
 
 ### Download a Sample Image and Label Mappings
 ```bash
-wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/0/demos/common/static/images/zebra.jpeg
+wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/1/demos/common/static/images/zebra.jpeg
 
-wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/0/demos/common/python/classes.py
+wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/1/demos/common/python/classes.py
 ```
 
 ### Run Inference

@@ -5,7 +5,7 @@ The recommended deployment method in Kubernetes is via Kserve operator for Kuber
 ## ServingRuntime configuration:
 
 ```
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/extras/kserve/kserve-openvino.yaml -O
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/extras/kserve/kserve-openvino.yaml -O
 sed -i 's/openvino\/model_server:replace/openvino\/model_server:2025.4-py/' kserve-openvino.yaml
 kubectl apply -f kserve-openvino.yaml
 ```
@@ -61,7 +61,7 @@ Note that using s3 or minio bucket requires configuring credentials like describ
 
 ## Deprecation notice about OpenVINO operator
 
-The dedicated [operator for OpenVINO]((https://operatorhub.io/operator/ovms-operator)) is now deprecated. KServe operator can now support all OVMS use cases including generative models. It provides wider set of features and configuration options. Because KServe is commonly used for other serving runtimes, it gives easier transition and transparent migration.
+The dedicated [operator for OpenVINO](https://operatorhub.io/operator/ovms-operator) is now deprecated. KServe operator can now support all OVMS use cases including generative models. It provides wider set of features and configuration options. Because KServe is commonly used for other serving runtimes, it gives easier transition and transparent migration.
 
 ## Additional Resources
 

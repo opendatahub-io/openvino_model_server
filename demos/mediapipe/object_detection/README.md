@@ -29,7 +29,7 @@ python mediapipe_object_detection.py --download_models
 :::{dropdown} **Deploying with Docker**
 ```bash
 sed -i 's;ssdlite_object_detection_labelmap.txt;/demo/ssdlite_object_detection_labelmap.txt;g' graph.pbtxt
-docker run -d -v $PWD:/demo -p 9000:9000 openvino/model_server:latest --config_path /demo/config.json --port 9000
+docker run -d -v $PWD:/demo -p 9000:9000 openvino/model_server:2026.1 --config_path /demo/config.json --port 9000
 ```
 :::
 :::{dropdown} **Deploying on Bare Metal**
@@ -61,4 +61,4 @@ Received images with bounding boxes will be located in ./results directory.
 
 ## Real time stream analysis
 
-For demo featuring real time stream application see [real_time_stream_analysis](https://github.com/openvinotoolkit/model_server/tree/releases/2026/0/demos/real_time_stream_analysis/python)
+For demo featuring real time stream application see [real_time_stream_analysis](https://github.com/openvinotoolkit/model_server/tree/releases/2026/1/demos/real_time_stream_analysis/python)

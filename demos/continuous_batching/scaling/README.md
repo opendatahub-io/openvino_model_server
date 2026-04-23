@@ -28,8 +28,8 @@ NUMA node5 CPU(s):                    160-191,352-383
 
 Download the export_model.py script and install python dependencies:
 ```bash
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/0/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/export_models/export_model.py -o export_model.py
+pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/export_models/requirements.txt
 mkdir models
 ```
 Use the export_model.py script:
@@ -38,12 +38,12 @@ python export_model.py text_generation --source_model meta-llama/Meta-Llama-3-8B
 ```
 Start the Model Server instances:
 ```bash
-docker run --cpuset-cpus $(lscpu | grep node0 | cut -d: -f2)  -d --rm -p 8003:8003 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:latest --rest_port 8003 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
-docker run --cpuset-cpus $(lscpu | grep node1 | cut -d: -f2)  -d --rm -p 8004:8004 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:latest --rest_port 8004 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
-docker run --cpuset-cpus $(lscpu | grep node2 | cut -d: -f2)  -d --rm -p 8005:8005 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:latest --rest_port 8005 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
-docker run --cpuset-cpus $(lscpu | grep node3 | cut -d: -f2)  -d --rm -p 8006:8006 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:latest --rest_port 8006 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
-docker run --cpuset-cpus $(lscpu | grep node4 | cut -d: -f2)  -d --rm -p 8007:8007 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:latest --rest_port 8007 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
-docker run --cpuset-cpus $(lscpu | grep node5 | cut -d: -f2)  -d --rm -p 8008:8008 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:latest --rest_port 8008 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --cpuset-cpus $(lscpu | grep node0 | cut -d: -f2)  -d --rm -p 8003:8003 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:2026.1 --rest_port 8003 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --cpuset-cpus $(lscpu | grep node1 | cut -d: -f2)  -d --rm -p 8004:8004 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:2026.1 --rest_port 8004 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --cpuset-cpus $(lscpu | grep node2 | cut -d: -f2)  -d --rm -p 8005:8005 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:2026.1 --rest_port 8005 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --cpuset-cpus $(lscpu | grep node3 | cut -d: -f2)  -d --rm -p 8006:8006 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:2026.1 --rest_port 8006 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --cpuset-cpus $(lscpu | grep node4 | cut -d: -f2)  -d --rm -p 8007:8007 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:2026.1 --rest_port 8007 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --cpuset-cpus $(lscpu | grep node5 | cut -d: -f2)  -d --rm -p 8008:8008 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_FP16:/model:ro openvino/model_server:2026.1 --rest_port 8008 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
 ```
 Confirm in logs if the containers loaded the models successfully.
 
@@ -86,7 +86,7 @@ git clone --branch v0.7.3 --depth 1 https://github.com/vllm-project/vllm
 cd vllm
 pip3 install -r requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
 cd benchmarks
-curl -L https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json -o ShareGPT_V3_unfiltered_cleaned_split.json
+curl -L https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/releases/2026/1/ShareGPT_V3_unfiltered_cleaned_split.json -o ShareGPT_V3_unfiltered_cleaned_split.json
 ```
 Then, we can run the benchmark script:
 ```bash
@@ -137,10 +137,10 @@ python export_model.py text_generation --source_model meta-llama/Meta-Llama-3-8B
 ```
 Start the Model Server instances:
 ```bash
-docker run --device /dev/dri/renderD128 -d --rm -p 8003:8003 -u 0 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_INT4:/model:ro openvino/model_server:latest-gpu --rest_port 8003 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
-docker run --device /dev/dri/renderD129 -d --rm -p 8004:8004 -u 0 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_INT4:/model:ro openvino/model_server:latest-gpu --rest_port 8004 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
-docker run --device /dev/dri/renderD130 -d --rm -p 8005:8005 -u 0 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_INT4:/model:ro openvino/model_server:latest-gpu --rest_port 8005 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
-docker run --device /dev/dri/renderD131 -d --rm -p 8006:8006 -u 0 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_INT4:/model:ro openvino/model_server:latest-gpu --rest_port 8006 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --device /dev/dri/renderD128 -d --rm -p 8003:8003 -u 0 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_INT4:/model:ro openvino/model_server:2026.1-gpu --rest_port 8003 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --device /dev/dri/renderD129 -d --rm -p 8004:8004 -u 0 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_INT4:/model:ro openvino/model_server:2026.1-gpu --rest_port 8004 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --device /dev/dri/renderD130 -d --rm -p 8005:8005 -u 0 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_INT4:/model:ro openvino/model_server:2026.1-gpu --rest_port 8005 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
+docker run --device /dev/dri/renderD131 -d --rm -p 8006:8006 -u 0 -v $(pwd)/models/Meta-Llama-3-8B-Instruct_INT4:/model:ro openvino/model_server:2026.1-gpu --rest_port 8006 --model_name meta-llama/Meta-Llama-3-8B-Instruct --model_path /model
 ```
 Confirm in logs if the containers loaded the models successfully.
 
@@ -214,7 +214,7 @@ python export_model.py text_generation --source_model deepseek-ai/DeepSeek-R1-Di
 
 Deploy model:
 ```bash
-docker run --device /dev/dri -d --rm -p 8000:8000 -u 0 -v $(pwd)/models/DeepSeek-R1-Distill-Qwen-32B_INT4:/model:ro openvino/model_server:latest-gpu --rest_port 8000 --model_name deepseek-ai/DeepSeek-R1-Distill-Qwen-32B --model_path /model
+docker run --device /dev/dri -d --rm -p 8000:8000 -u 0 -v $(pwd)/models/DeepSeek-R1-Distill-Qwen-32B_INT4:/model:ro openvino/model_server:2026.1-gpu --rest_port 8000 --model_name deepseek-ai/DeepSeek-R1-Distill-Qwen-32B --model_path /model
 ```
 
 ### Testing the scalability

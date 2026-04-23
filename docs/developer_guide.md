@@ -134,7 +134,7 @@ Click the test that needs to be run:
 
 ```bash
 docker run -d --name server-test -v ~/resnet50-binary:/models/resnet50-binary -p 9178:9178 \
-openvino/model_server:latest --model_name resnet-binary --model_path /models/resnet50-binary --port 9178
+openvino/model_server:2026.1 --model_name resnet-binary --model_path /models/resnet50-binary --port 9178
 ```
 
 3. The grpc client connects to the OpenVINO Model Server service that is running on port 9178.
@@ -188,7 +188,7 @@ make test_functional
 2. Add any configuration variables to the command line in this format :
 
 ```bash
-export IMAGE="openvino/model_server:latest"
+export IMAGE="openvino/model_server:2026.1"
 ```
 
 3. To make command repetition easier, create and store the configuration options in a file named `user_config.py`. Put this file in the main project directory.
@@ -317,6 +317,22 @@ sudo reboot
 > NOTE: It is required to execute unit tests on machine with Intel Data Center GPU.
 
 > NOTE: For RedHat base OS unit tests, which require VA API, are skipped.
+
+## Checking code coverage of unit tests
+
+To check code coverage of unit tests, execute the following command to create build image and run unit tests with code coverage enabled:
+
+```
+make ovms_builder_image BASE_OS=ubuntu24 CHECK_COVERAGE=1 RUN_TESTS=1 MEDIAPIPE_DISABLE=0 PYTHON_DISABLE=0 OV_USE_BINARY=1 OVMS_CPP_DOCKER_IMAGE=ovms_coverage
+```
+
+Then run `get_coverage` target to extract report from the container:
+
+```
+make get_coverage OVMS_CPP_DOCKER_IMAGE=ovms_coverage
+```
+
+It should create report in `genhtml` directory. Open `index.html` file in this directory to check the code coverage report.
 
 ## Debugging
 
