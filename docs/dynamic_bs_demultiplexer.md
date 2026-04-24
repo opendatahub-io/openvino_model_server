@@ -9,7 +9,7 @@ More information about this feature can be found in [dynamic batch size in demul
 
 > **NOTE**: Only one dynamic demultiplexer (`demultiply_count` with value `-1`) can exist in the pipeline.
 
-- Example client in python [grpc_predict_resnet.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/client/python/tensorflow-serving-api/samples/grpc_predict_resnet.py) can be used to request the pipeline. Use `--dag-batch-size-auto` flag to add an additional dimension to the input shape which is required for demultiplexing feature.
+- Example client in python [grpc_predict_resnet.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/client/python/tensorflow-serving-api/samples/grpc_predict_resnet.py) can be used to request the pipeline. Use `--dag-batch-size-auto` flag to add an additional dimension to the input shape which is required for demultiplexing feature.
 
 - The example uses model [resnet](https://github.com/openvinotoolkit/open_model_zoo/blob/2022.1.0/models/intel/resnet50-binary-0001/README.md).
 
@@ -33,7 +33,7 @@ chmod -R 755 ./models
 #### Pull the latest OVMS image from dockerhub
 Pull the latest version of OpenVINO&trade; Model Server from Dockerhub :
 ```bash
-docker pull openvino/model_server:latest
+docker pull openvino/model_server:2026.1
 ```
 
 #### OVMS configuration file
@@ -97,7 +97,7 @@ echo '{
 #### Start ovms docker container with downloaded model
 Start ovms container with image pulled in previous step and mount `models` directory :
 ```bash
-docker run --rm -d -v $(pwd):/models -p 9000:9000 openvino/model_server:latest --config_path /models/config.json --port 9000
+docker run --rm -d -v $(pwd):/models -p 9000:9000 openvino/model_server:2026.1 --config_path /models/config.json --port 9000
 ```
 
 #### Checking metadata

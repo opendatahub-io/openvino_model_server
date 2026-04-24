@@ -7,7 +7,7 @@ This guide shows how to configure a model to accept input data with different ba
 
 Enabling dynamic batch size via model reload is as simple as setting the `batch_size` parameter to `auto`. To configure and use the dynamic batch size, take advantage of:
 
-- An example client in Python [grpc_predict_resnet.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/client/python/tensorflow-serving-api/samples/grpc_predict_resnet.py) that can be used to request inference with the desired batch size.
+- An example client in Python [grpc_predict_resnet.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/client/python/tensorflow-serving-api/samples/grpc_predict_resnet.py) that can be used to request inference with the desired batch size.
 
 - A sample [resnet](https://github.com/openvinotoolkit/open_model_zoo/blob/2022.1.0/models/intel/resnet50-binary-0001/README.md) model.
 
@@ -29,13 +29,13 @@ curl https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/mode
 #### Pull the Latest Model Server Image
 Pull the latest version of OpenVINO&trade; Model Server from Docker Hub :
 ```bash
-docker pull openvino/model_server:latest
+docker pull openvino/model_server:2026.1
 ```
 
 #### Start the Model Server Container with Downloaded Model and Dynamic Batch Size
 Start the server container with the image pulled in the previous step and mount the `models` directory :
 ```bash
-docker run --rm -d -v $(pwd)/models:/models -p 9000:9000 openvino/model_server:latest --model_name resnet --model_path /models/resnet --batch_size auto --port 9000
+docker run --rm -d -v $(pwd)/models:/models -p 9000:9000 openvino/model_server:2026.1 --model_name resnet --model_path /models/resnet --batch_size auto --port 9000
 ```
 
 #### Run the Client

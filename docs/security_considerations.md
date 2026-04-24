@@ -6,7 +6,7 @@ By default, the OpenVINO Model Server containers start with the security context
 For additional security hardening, you might also consider preventing write operations on the container root filesystem by adding a `--read-only` flag. This prevents undesired modification of the container files. In case the cloud storage used for the model repository (S3, Google Storage, or Azure storage) is restricting the root filesystem, it should be combined with `--tmpfs /tmp` flag.
 
 ```
-docker run --rm -d --user $(id -u):$(id -g) --read-only --tmpfs /tmp -p 9000:9000 openvino/model_server:latest \
+docker run --rm -d --user $(id -u):$(id -g) --read-only --tmpfs /tmp -p 9000:9000 openvino/model_server:2026.1 \
 --model_path s3://bucket/model --model_name model --port 9000
 
 ```
@@ -33,7 +33,7 @@ OVMS supports multimodal models with image inputs provided as URL. However, to p
 OpenVINO Model Server has a set of mechanisms preventing denial of service attacks from the client applications. They include the following:
 - setting the number of inference execution streams which can limit the number of parallel inference calls in progress for each model. It can be tuned with `NUM_STREAMS` or `PERFORMANCE_HINT` plugin config.
 - setting the maximum number of gRPC threads which is, by default, configured to the number 8 * number_of_cores. It can be changed with the parameter `--grpc_max_threads`.
-- setting the maximum number of REST workers which is, be default, configured to the number 4 * number_of_cores. It can be changed with the parameter `--rest_workers`.
+- setting the maximum number of REST workers which is, by default, configured to the number 4 * number_of_cores. It can be changed with the parameter `--rest_workers`.
 - maximum size of REST and GRPC message which is 1GB - bigger messages will be rejected
 - setting max_concurrent_streams which defines how many concurrent threads can be initiated from a single client - the remaining will be queued. The default is equal to the number of CPU cores. It can be changed with the `--grpc_channel_arguments grpc.max_concurrent_streams=8`.
 - setting the gRPC memory quota for the requests buffer - the default is 2GB. It can be changed with `--grpc_memory_quota=2147483648`. Value `0` invalidates the quota.

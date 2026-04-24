@@ -28,12 +28,12 @@ curl https://storage.googleapis.com/mediapipe-assets/iris_landmark.tflite -o iri
 :::{dropdown} **Deploying with Docker**
 Pull the latest version of OpenVINO&trade; Model Server from Docker Hub:
 ```Bash
-docker pull openvino/model_server:latest
+docker pull openvino/model_server:2026.1
 
 ```
 ```bash
 chmod -R 755 .
-docker run -d -v $PWD/mediapipe:/mediapipe -v $PWD:/models -p 9000:9000 openvino/model_server:latest --config_path /models/config_iris.json --port 9000
+docker run -d -v $PWD/mediapipe:/mediapipe -v $PWD:/models -p 9000:9000 openvino/model_server:2026.1 --config_path /models/config_iris.json --port 9000
 ```
 :::
 :::{dropdown} **Deploying on Bare Metal**
@@ -51,7 +51,7 @@ ovms --config_path config_iris.json --port 9000
 ```console
 pip install -r requirements.txt
 # download a sample image for analysis
-wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/0/demos/common/static/images/people/people2.jpeg
+wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/1/demos/common/static/images/people/people2.jpeg
 echo people2.jpeg>input_images.txt
 # launch the client
 python mediapipe_iris_tracking.py --grpc_port 9000 --images_list input_images.txt

@@ -28,10 +28,10 @@ model
 
 ### Start the OVMS container:
 ```bash
-docker run -d -u $(id -u):$(id -g) -v $(pwd):/workspace -p 8000:8000 openvino/model_server:latest \
+docker run -d -u $(id -u):$(id -g) -v $(pwd):/workspace -p 8000:8000 openvino/model_server:2026.1 \
 --model_path /workspace/model --model_name mobile_net --rest_port 8000
 ```
-Alternatively see (instructions)[https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/docs/deploying_server_baremetal.md] for deployment on bare metal.
+Alternatively see (instructions)[https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/docs/deploying_server_baremetal.md] for deployment on bare metal.
 
 Make sure to:
 

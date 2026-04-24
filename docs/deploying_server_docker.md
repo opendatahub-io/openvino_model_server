@@ -18,7 +18,7 @@ This example shows how to launch the model server with a ResNet50 image classifi
 Pull an image from Docker:
 
 ```bash
-docker pull openvino/model_server:latest
+docker pull openvino/model_server:2026.1
 ```
 
 or [RedHat Ecosystem Catalog](https://catalog.redhat.com/software/containers/intel/openvino-model-server/607833052937385fc98515de):
@@ -35,7 +35,7 @@ docker pull registry.connect.redhat.com/intel/openvino-model-server:latest
 
 ```bash
 wget https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.1/models_bin/2/resnet50-binary-0001/FP32-INT1/resnet50-binary-0001.{xml,bin} -P models/resnet50/1
-docker run -u $(id -u) -v $(pwd)/models:/models -p 9000:9000 openvino/model_server:latest \
+docker run -u $(id -u) -v $(pwd)/models:/models -p 9000:9000 openvino/model_server:2026.1 \
 --model_name resnet --model_path /models/resnet50 \
 --layout NHWC:NCHW --port 9000
 ```
@@ -43,8 +43,8 @@ docker run -u $(id -u) -v $(pwd)/models:/models -p 9000:9000 openvino/model_serv
 ##### 2.2 Download input files: an image and a label mapping file
 
 ```bash
-wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/0/demos/common/static/images/zebra.jpeg
-wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/0/demos/common/python/classes.py
+wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/1/demos/common/static/images/zebra.jpeg
+wget https://raw.githubusercontent.com/openvinotoolkit/model_server/releases/2026/1/demos/common/python/classes.py
 ```
 
 ##### 2.3 Install the Python-based ovmsclient package

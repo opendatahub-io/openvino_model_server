@@ -26,8 +26,8 @@ Multiple [OpenVINO models optimized for NPU](https://huggingface.co/collections/
 :sync: Linux
 ```bash
 mkdir -p models
-docker run -d --rm -u $(id -u):$(id -g) -v $(pwd)/models:/models:rw openvino/model_server:latest-gpu --pull --source_model OpenVINO/Qwen3-8B-int4-cw-ov --model_repository_path /models --target_device NPU --task text_generation --tool_parser hermes3 --cache_dir /models/.ov_cache --enable_prefix_caching true --max_prompt_len 2000
-docker run -d --rm -u $(id -u):$(id -g) -v $(pwd)/models:/models:rw openvino/model_server:latest-gpu --add_to_config --config_path /models/config.json --model_name OpenVINO/Qwen3-8B-int4-cw-ov --model_path /models/OpenVINO/Qwen3-8B-int4-cw-ov
+docker run -d --rm -u $(id -u):$(id -g) -v $(pwd)/models:/models:rw openvino/model_server:2026.1-gpu --pull --source_model OpenVINO/Qwen3-8B-int4-cw-ov --model_repository_path /models --target_device NPU --task text_generation --tool_parser hermes3 --cache_dir /models/.ov_cache --enable_prefix_caching true --max_prompt_len 2000
+docker run -d --rm -u $(id -u):$(id -g) -v $(pwd)/models:/models:rw openvino/model_server:2026.1-gpu --add_to_config --config_path /models/config.json --model_name OpenVINO/Qwen3-8B-int4-cw-ov --model_path /models/OpenVINO/Qwen3-8B-int4-cw-ov
 ```
 ::: 
 :::{tab-item} Windows
@@ -47,7 +47,7 @@ ovms.exe --add_to_config --config_path models\config.json --model_name OpenVINO/
 Running this command starts the container with NPU enabled:
 ```bash
 docker run -d --rm --device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -u $(id -u):$(id -g) \
--p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:latest-gpu --rest_port 8000 --config_path /models/config.json
+-p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:2026.1-gpu --rest_port 8000 --config_path /models/config.json
 ```
 :::
 
@@ -286,7 +286,7 @@ The three main tourist attractions in Paris are the Eiffel Tower, the Louvre, an
 
 ## Testing the model accuracy over serving API
 
-Check the [guide of using lm-evaluation-harness](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/demos/continuous_batching/accuracy/README.md)
+Check the [guide of using lm-evaluation-harness](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/demos/continuous_batching/accuracy/README.md)
 
 > **Note:** Text generation on NPU is not returning the log_probs which are required to calculate some of the metrics. Only the tasks of type `generate_until` can be used.
 For example `--tasks leaderboard_ifeval`.

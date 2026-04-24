@@ -2,7 +2,7 @@
 
 ## Overview
 
-The script [image_classification.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/0/demos/image_classification/python/image_classification.py) reads all images and their labels specified in the text file. It then classifies them with [ResNet50](https://github.com/openvinotoolkit/open_model_zoo/blob/releases/2023/1/models/intel/resnet50-binary-0001/README.md) model and presents accuracy results.
+The script [image_classification.py](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/demos/image_classification/python/image_classification.py) reads all images and their labels specified in the text file. It then classifies them with [ResNet50](https://github.com/openvinotoolkit/open_model_zoo/blob/releases/2023/1/models/intel/resnet50-binary-0001/README.md) model and presents accuracy results.
 
 
 ## Download ResNet50 model
@@ -15,7 +15,7 @@ wget -P model/1 https://storage.openvinotoolkit.org/repositories/open_model_zoo/
 
 ## Run OpenVINO Model Server
 ```bash
-docker run -d -v $PWD/model:/models -p 9000:9000 openvino/model_server:latest --model_path /models --model_name resnet --port 9000
+docker run -d -v $PWD/model:/models -p 9000:9000 openvino/model_server:2026.1 --model_path /models --model_name resnet --port 9000
 ```
 
 ## Run the client:
