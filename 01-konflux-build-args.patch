@@ -12,14 +12,15 @@ new file mode 100644
 index 0000000000..644f757c52
 --- /dev/null
 +++ b/.konflux/build-args.conf
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,37 @@
 +# Base images
 +BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.7
 +RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9-minimal:9.7
 +
 +# Logging/tests
 +VERBOSE_LOGS=ON
-+RUN_TESTS=ON
++RUN_TESTS=1
++OPTIMIZE_BUILDING_TESTS=1
 +CHECK_COVERAGE=0
 +
 +# Distro/GPU
