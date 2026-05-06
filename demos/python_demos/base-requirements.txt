@@ -1,4 +1,4 @@
 --extra-index-url "https://download.pytorch.org/whl/cpu"
-optimum-intel@git+https://github.com/huggingface/optimum-intel.git
+optimum-intel@git+https://github.com/huggingface/optimum-intel.git@2ca7f8bb09d536c0b6136830dfe31c7fefe14701
 nncf>=2.11.0
-transformers<=4.53
+transformers<=4.58
