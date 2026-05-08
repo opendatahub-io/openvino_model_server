@@ -1,0 +1,19 @@
+name: Security Checks
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sdl-security-checks:
+    name: SDL Security Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run SDL security checks
+        run: |
+          make sdl-check
