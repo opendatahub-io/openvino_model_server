@@ -29,6 +29,7 @@ jobs:
         if: steps.run-sdl-check.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} \
+          gh pr comment "$PR_NUMBER" \
             --body "⚠️ **SDL Security Checks Failed** - Review recommended but not blocking merge."
