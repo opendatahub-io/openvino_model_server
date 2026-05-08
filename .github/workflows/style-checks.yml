@@ -6,6 +6,9 @@ on:
       - 'stable*'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   style-checks:
     name: Style Checks
