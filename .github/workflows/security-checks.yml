@@ -1,7 +1,14 @@
 name: Security Checks
 
 on:
+  pull_request:
+    branches:
+      - 'stable*'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   sdl-security-checks:
@@ -15,5 +22,14 @@ jobs:
         with:
           python-version: '3.12'
       - name: Run SDL security checks
+        id: run-sdl-check
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: make sdl-check
+      - name: PR comment on failure
+        if: steps.run-sdl-check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          make sdl-check
+          gh pr comment "$PR_NUMBER" \
+            --body "⚠️ **SDL Security Checks Failed** - Review recommended but not blocking merge."
