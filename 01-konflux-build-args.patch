@@ -35,13 +35,13 @@ index 0000000000..644f757c52
 +LTO_LD_FLAGS=-flto=auto -ffat-lto-objects -Wl,-plugin-opt=-march=haswell
 +
 +# Source/branch
-+SOURCE=openvinotoolkit
++SOURCE=opendatahub-io
 +BRANCH=releases/2026/1
-+ov_source_org=openvinotoolkit
++ov_source_org=opendatahub-io
 +ov_source_branch=releases/2026/1
-+ov_tokenizers_org=openvinotoolkit
++ov_tokenizers_org=opendatahub-io
 +ov_tokenizers_branch=releases/2026/1
-+ov_genai_org=openvinotoolkit
++ov_genai_org=opendatahub-io
 +ov_genai_branch=releases/2026/1
 +
 +# Parallelism
