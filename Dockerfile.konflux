@@ -460,7 +460,9 @@ RUN if [ -f /usr/bin/dnf ] ; then export DNF_TOOL=dnf ; \
 	$DNF_TOOL -y remove git-core && \
 	$DNF_TOOL clean all && \
 	pip list && pip check && \
-	rm -f base-requirements.txt
+	rm -f base-requirements.txt \
+	ls /ovms/lib ; \
+	ln -s /ovms/lib/libopenvino_genai.so /ovms/lib/libopenvino_genai.so.2613
 
 USER ovms
 ENTRYPOINT ["/ovms/bin/ovms"]
