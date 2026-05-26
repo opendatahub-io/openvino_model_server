@@ -1,0 +1,38 @@
+name: Client Library Tests
+
+on:
+  pull_request:
+    branches:
+      - 'stable-2.x'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  client-lib:
+    name: Client Library Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip virtualenv
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+      - name: Check for client library changes
+        id: client-lib-changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            client:
+              - 'client/python/ovmsclient/lib/**'
+      - name: Run client library tests
+        if: steps.client-lib-changes.outputs.client == 'true'
+        run: |
+          make test_client_lib
