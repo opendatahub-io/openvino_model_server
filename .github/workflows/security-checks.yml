@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   sdl-security-checks:
@@ -25,11 +24,16 @@ jobs:
         id: run-sdl-check
         continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: make sdl-check
-      - name: PR comment on failure
-        if: steps.run-sdl-check.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+      - name: Save result
+        id: save-result
+        if: github.event_name == 'pull_request'
         run: |
-          gh pr comment "$PR_NUMBER" \
-            --body "⚠️ **SDL Security Checks Failed** - Review recommended but not blocking merge."
+          echo "outcome=${{ steps.run-sdl-check.outcome }}" > result.txt
+          echo "pr_number=${{ github.event.pull_request.number }}" >> result.txt
+      - name: Upload result artifact
+        if: steps.save-result.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdl-check-result
+          path: result.txt
+          retention-days: 1
