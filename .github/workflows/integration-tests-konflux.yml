@@ -18,7 +18,6 @@ on:
 
 permissions:
   contents: read
-  statuses: write
 
 jobs:
   # Extract image information from the trigger event
@@ -58,8 +57,17 @@ jobs:
           fi
           echo "source_ref=${REF}" >> $GITHUB_OUTPUT
           echo "Source ref: ${REF}"
+
+  # Post failure statuses if setup fails
+  post-setup-failure-statuses:
+    name: Post Setup Failure Statuses
+    runs-on: ubuntu-latest
+    needs: setup
+    if: github.event_name == 'check_run' && needs.setup.result == 'failure'
+    permissions:
+      statuses: write
+    steps:
       - name: Post setup failure statuses
-        if: github.event_name == 'check_run' && failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -92,8 +100,17 @@ jobs:
           name: model-server-image
           path: model-server-image.tar.gz
           retention-days: 1
+
+  # Post failure statuses if image pull fails
+  post-pull-image-failure-statuses:
+    name: Post Image Pull Failure Statuses
+    runs-on: ubuntu-latest
+    needs: [setup, pull-image]
+    if: github.event_name == 'check_run' && needs.pull-image.result == 'failure'
+    permissions:
+      statuses: write
+    steps:
       - name: Post image pull failure statuses
-        if: github.event_name == 'check_run' && failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -106,22 +123,33 @@ jobs:
               -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           done
 
+  # Post pending statuses for all tests
+  post-tests-pending-statuses:
+    name: Post All Tests Pending Statuses
+    runs-on: ubuntu-latest
+    needs: [setup, pull-image]
+    if: github.event_name == 'check_run'
+    permissions:
+      statuses: write
+    steps:
+      - name: Post pending statuses for all tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for context in "File Integrity Test" "Python Clients Test" "Latency Performance Test" "Throughput Performance Test" "Functional Tests"; do
+            gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
+              -f state=pending \
+              -f context="$context" \
+              -f description="Running tests..." \
+              -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          done
+
   # File integrity test
   file-integrity:
     name: File Integrity Test
     runs-on: ubuntu-latest
     needs: [setup, pull-image]
     steps:
-      - name: Post pending status to commit
-        if: github.event_name == 'check_run'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=pending \
-            -f context="File Integrity Test" \
-            -f description="Running file integrity tests..." \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -136,25 +164,26 @@ jobs:
       - name: Run file integrity test
         run: |
           make run_lib_files_test
-      - name: Post success status to commit
-        if: github.event_name == 'check_run' && success()
+
+  # Post final status for file integrity test
+  post-file-integrity-final-status:
+    name: Post File Integrity Final Status
+    runs-on: ubuntu-latest
+    needs: [setup, file-integrity]
+    if: github.event_name == 'check_run' && needs.file-integrity.result != 'skipped'
+    permissions:
+      statuses: write
+    steps:
+      - name: Post final status to commit
         env:
           GH_TOKEN: ${{ github.token }}
+          STATE: ${{ needs.file-integrity.result == 'success' && 'success' || 'failure' }}
+          DESCRIPTION: ${{ needs.file-integrity.result == 'success' && 'File integrity tests passed' || 'File integrity tests failed' }}
         run: |
           gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=success \
+            -f state="$STATE" \
             -f context="File Integrity Test" \
-            -f description="File integrity tests passed" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      - name: Post failure status to commit
-        if: github.event_name == 'check_run' && failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=failure \
-            -f context="File Integrity Test" \
-            -f description="File integrity tests failed" \
+            -f description="$DESCRIPTION" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   # Python clients test
@@ -163,16 +192,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [setup, pull-image]
     steps:
-      - name: Post pending status to commit
-        if: github.event_name == 'check_run'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=pending \
-            -f context="Python Clients Test" \
-            -f description="Running Python client tests..." \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -187,25 +206,26 @@ jobs:
       - name: Run Python clients test
         run: |
           make test_python_clients
-      - name: Post success status to commit
-        if: github.event_name == 'check_run' && success()
+
+  # Post final status for Python clients test
+  post-clients-test-final-status:
+    name: Post Python Clients Test Final Status
+    runs-on: ubuntu-latest
+    needs: [setup, clients-test]
+    if: github.event_name == 'check_run' && needs.clients-test.result != 'skipped'
+    permissions:
+      statuses: write
+    steps:
+      - name: Post final status to commit
         env:
           GH_TOKEN: ${{ github.token }}
+          STATE: ${{ needs.clients-test.result == 'success' && 'success' || 'failure' }}
+          DESCRIPTION: ${{ needs.clients-test.result == 'success' && 'Python client tests passed' || 'Python client tests failed' }}
         run: |
           gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=success \
+            -f state="$STATE" \
             -f context="Python Clients Test" \
-            -f description="Python client tests passed" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      - name: Post failure status to commit
-        if: github.event_name == 'check_run' && failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=failure \
-            -f context="Python Clients Test" \
-            -f description="Python client tests failed" \
+            -f description="$DESCRIPTION" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   # Latency performance test
@@ -214,16 +234,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [setup, pull-image]
     steps:
-      - name: Post pending status to commit
-        if: github.event_name == 'check_run'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=pending \
-            -f context="Latency Performance Test" \
-            -f description="Running latency tests..." \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -242,25 +252,26 @@ jobs:
       - name: Run latency test
         run: |
           make test_perf
-      - name: Post success status to commit
-        if: github.event_name == 'check_run' && success()
+
+  # Post final status for latency performance test
+  post-latency-test-final-status:
+    name: Post Latency Performance Test Final Status
+    runs-on: ubuntu-latest
+    needs: [setup, latency-test]
+    if: github.event_name == 'check_run' && needs.latency-test.result != 'skipped'
+    permissions:
+      statuses: write
+    steps:
+      - name: Post final status to commit
         env:
           GH_TOKEN: ${{ github.token }}
+          STATE: ${{ needs.latency-test.result == 'success' && 'success' || 'failure' }}
+          DESCRIPTION: ${{ needs.latency-test.result == 'success' && 'Latency tests passed' || 'Latency tests failed' }}
         run: |
           gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=success \
+            -f state="$STATE" \
             -f context="Latency Performance Test" \
-            -f description="Latency tests passed" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      - name: Post failure status to commit
-        if: github.event_name == 'check_run' && failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=failure \
-            -f context="Latency Performance Test" \
-            -f description="Latency tests failed" \
+            -f description="$DESCRIPTION" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   # Throughput performance test
@@ -269,16 +280,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [setup, pull-image]
     steps:
-      - name: Post pending status to commit
-        if: github.event_name == 'check_run'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=pending \
-            -f context="Throughput Performance Test" \
-            -f description="Running throughput tests..." \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -297,25 +298,26 @@ jobs:
       - name: Run throughput test
         run: |
           make test_throughput
-      - name: Post success status to commit
-        if: github.event_name == 'check_run' && success()
+
+  # Post final status for throughput performance test
+  post-throughput-test-final-status:
+    name: Post Throughput Performance Test Final Status
+    runs-on: ubuntu-latest
+    needs: [setup, throughput-test]
+    if: github.event_name == 'check_run' && needs.throughput-test.result != 'skipped'
+    permissions:
+      statuses: write
+    steps:
+      - name: Post final status to commit
         env:
           GH_TOKEN: ${{ github.token }}
+          STATE: ${{ needs.throughput-test.result == 'success' && 'success' || 'failure' }}
+          DESCRIPTION: ${{ needs.throughput-test.result == 'success' && 'Throughput tests passed' || 'Throughput tests failed' }}
         run: |
           gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=success \
+            -f state="$STATE" \
             -f context="Throughput Performance Test" \
-            -f description="Throughput tests passed" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      - name: Post failure status to commit
-        if: github.event_name == 'check_run' && failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=failure \
-            -f context="Throughput Performance Test" \
-            -f description="Throughput tests failed" \
+            -f description="$DESCRIPTION" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   # Functional tests
@@ -324,16 +326,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [setup, pull-image]
     steps:
-      - name: Post pending status to commit
-        if: github.event_name == 'check_run'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=pending \
-            -f context="Functional Tests" \
-            -f description="Running functional tests..." \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -354,23 +346,24 @@ jobs:
           IMAGE: openvino/model_server:latest
         run: |
           make test_functional
-      - name: Post success status to commit
-        if: github.event_name == 'check_run' && success()
+
+  # Post final status for functional tests
+  post-functional-tests-final-status:
+    name: Post Functional Tests Final Status
+    runs-on: ubuntu-latest
+    needs: [setup, functional-tests]
+    if: github.event_name == 'check_run' && needs.functional-tests.result != 'skipped'
+    permissions:
+      statuses: write
+    steps:
+      - name: Post final status to commit
         env:
           GH_TOKEN: ${{ github.token }}
+          STATE: ${{ needs.functional-tests.result == 'success' && 'success' || 'failure' }}
+          DESCRIPTION: ${{ needs.functional-tests.result == 'success' && 'Functional tests passed' || 'Functional tests failed' }}
         run: |
           gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=success \
+            -f state="$STATE" \
             -f context="Functional Tests" \
-            -f description="Functional tests passed" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      - name: Post failure status to commit
-        if: github.event_name == 'check_run' && failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ needs.setup.outputs.source_ref }} \
-            -f state=failure \
-            -f context="Functional Tests" \
-            -f description="Functional tests failed" \
+            -f description="$DESCRIPTION" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
