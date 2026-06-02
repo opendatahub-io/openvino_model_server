@@ -1,0 +1,34 @@
+name: Security Checks - PR Comment
+
+on:
+  workflow_run:
+    workflows: ["Security Checks"]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  comment:
+    name: Post SDL Check Result as PR Comment
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdl-check-result
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Read result
+        id: result
+        run: |
+          cat result.txt >> $GITHUB_OUTPUT
+      - name: PR comment on failure
+        if: steps.result.outputs.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "${{ steps.result.outputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --body "⚠️ **SDL Security Checks Failed** - Review recommended but not blocking merge."

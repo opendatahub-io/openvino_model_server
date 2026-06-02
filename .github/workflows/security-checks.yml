@@ -1,0 +1,39 @@
+name: Security Checks
+
+on:
+  pull_request:
+    branches:
+      - 'stable*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdl-security-checks:
+    name: SDL Security Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run SDL security checks
+        id: run-sdl-check
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: make sdl-check
+      - name: Save result
+        id: save-result
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "outcome=${{ steps.run-sdl-check.outcome }}" > result.txt
+          echo "pr_number=${{ github.event.pull_request.number }}" >> result.txt
+      - name: Upload result artifact
+        if: steps.save-result.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdl-check-result
+          path: result.txt
+          retention-days: 1

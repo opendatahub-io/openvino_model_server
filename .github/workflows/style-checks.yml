@@ -1,0 +1,25 @@
+name: Style Checks
+
+on:
+  pull_request:
+    branches:
+      - 'stable*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  style-checks:
+    name: Style Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run style checks
+        run: |
+          make style
