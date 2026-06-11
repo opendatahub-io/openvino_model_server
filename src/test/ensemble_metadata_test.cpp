@@ -25,7 +25,8 @@
 #include "../dags/pipelinedefinition.hpp"
 #include "../model_version_policy.hpp"
 #include "../modelinstance.hpp"
-#include "test_utils.hpp"
+#include "constructor_enabled_model_manager.hpp"
+#include "test_models_configs.hpp"
 
 using namespace ovms;
 
@@ -56,7 +57,7 @@ TEST(EnsembleMetadata, OneNode) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -104,7 +105,7 @@ TEST(EnsembleMetadata, OneModelNodeWithShapeRange) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -165,7 +166,7 @@ TEST(EnsembleMetadata, TwoParallelModelsShapeRangeIntersection) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -231,7 +232,7 @@ TEST(EnsembleMetadata, TwoParallelModelsOneShapeRangeOneStaticIntersection) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -296,7 +297,7 @@ TEST(EnsembleMetadata, TwoParallelModelsOneShapeAnyOneStaticIntersection) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -361,7 +362,7 @@ TEST(EnsembleMetadata, TwoParallelModelsLayoutIntersection) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -424,7 +425,7 @@ TEST(EnsembleMetadata, TwoParallelModelsDemultiplyEntryLayoutIntersection) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -492,7 +493,7 @@ TEST(EnsembleMetadata, MultipleNodesOnDifferentLevelsUsingTheSamePipelineInputs)
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -547,7 +548,7 @@ TEST(EnsembleMetadata, EmptyPipelineReturnsCorrectInputAndOutputInfo) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -637,7 +638,7 @@ TEST(EnsembleMetadata, ParallelDLModelNodesReferingToManyPipelineInputs) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -695,7 +696,7 @@ TEST(EnsembleMetadata, OneUnavailableNodeBeforeRevalidationShouldWork) {
     auto def = std::make_unique<PipelineDefinition>(
         "my_new_pipeline", info, connections);
 
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     config.setModelVersionPolicy(std::make_shared<SpecificModelVersionPolicy>(model_versions_t{UNAVAILABLE_DUMMY_VERSION}));
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
@@ -755,7 +756,7 @@ TEST(EnsembleMetadata, OneCustomNode) {
     ASSERT_EQ(def->validateNodes(manager), StatusCode::OK);
     ASSERT_EQ(def->validateForCycles(), StatusCode::OK);
     ASSERT_EQ(def->validateDemultiplexerGatherNodesOrder(), StatusCode::OK);
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -811,7 +812,7 @@ TEST(EnsembleMetadata, ParallelCustomNodes) {
     ASSERT_EQ(def->validateNodes(manager), StatusCode::OK);
     ASSERT_EQ(def->validateForCycles(), StatusCode::OK);
     ASSERT_EQ(def->validateDemultiplexerGatherNodesOrder(), StatusCode::OK);
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();
@@ -989,7 +990,7 @@ TEST(EnsembleMetadata, CustomNodeMultipleDemultiplexers) {
     ASSERT_EQ(def->validateNodes(manager), StatusCode::OK);
     ASSERT_EQ(def->validateForCycles(), StatusCode::OK);
     ASSERT_EQ(def->validateDemultiplexerGatherNodesOrder(), StatusCode::OK);
-    ASSERT_EQ(def->validate(manager), StatusCode::OK);
+    ASSERT_EQ(def->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = def->getInputsInfo();
     auto outputs = def->getOutputsInfo();

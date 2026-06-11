@@ -13,12 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //*****************************************************************************
+#include <algorithm>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
 #include <openvino/genai/cache_eviction.hpp>
+#include <openvino/genai/sparse_attention.hpp>
 #include <openvino/genai/continuous_batching_pipeline.hpp>
 #include <openvino/openvino.hpp>
 #include <spdlog/spdlog.h>
@@ -31,15 +33,50 @@
 #pragma GCC diagnostic pop
 #pragma warning(pop)
 
+#include "../../../config.hpp"
 #include "../../../json_parser.hpp"
 #include "../../../logging.hpp"
 #include "../../../mediapipe_internal/mediapipe_utils.hpp"
+#include "../../../ov_utils.hpp"
 #include "../../../status.hpp"
+#include "../../../systeminfo.hpp"
 #include "llm_executor.hpp"
 #include "servable.hpp"
 #include "servable_initializer.hpp"
 
 namespace ovms {
+
+ov::genai::SparseAttentionConfig prepareSparseAttentionConfig(const mediapipe::LLMCalculatorOptions& nodeOptions) {
+    ov::genai::SparseAttentionMode mode;
+    if (nodeOptions.sparse_attention_config().mode() == mediapipe::LLMCalculatorOptions::SparseAttentionConfig::TRISHAPE) {
+        mode = ov::genai::SparseAttentionMode::TRISHAPE;
+    } else {
+        mode = ov::genai::SparseAttentionMode::XATTENTION;
+    }
+    // Use default constructor to rely on GenAI defined defaults if user did not set specific fields
+    ov::genai::SparseAttentionConfig sparseAttentionConfig;
+    sparseAttentionConfig.mode = mode;
+    if (nodeOptions.sparse_attention_config().has_num_last_dense_tokens_in_prefill()) {
+        sparseAttentionConfig.num_last_dense_tokens_in_prefill = nodeOptions.sparse_attention_config().num_last_dense_tokens_in_prefill();
+    }
+    if (nodeOptions.sparse_attention_config().has_num_retained_start_tokens_in_cache()) {
+        sparseAttentionConfig.num_retained_start_tokens_in_cache = nodeOptions.sparse_attention_config().num_retained_start_tokens_in_cache();
+    }
+    if (nodeOptions.sparse_attention_config().has_num_retained_recent_tokens_in_cache()) {
+        sparseAttentionConfig.num_retained_recent_tokens_in_cache = nodeOptions.sparse_attention_config().num_retained_recent_tokens_in_cache();
+    }
+    if (nodeOptions.sparse_attention_config().has_xattention_threshold()) {
+        sparseAttentionConfig.xattention_threshold = nodeOptions.sparse_attention_config().xattention_threshold();
+    }
+    if (nodeOptions.sparse_attention_config().has_xattention_block_size()) {
+        sparseAttentionConfig.xattention_block_size = nodeOptions.sparse_attention_config().xattention_block_size();
+    }
+    if (nodeOptions.sparse_attention_config().has_xattention_stride()) {
+        sparseAttentionConfig.xattention_stride = nodeOptions.sparse_attention_config().xattention_stride();
+    }
+
+    return sparseAttentionConfig;
+}
 
 ov::genai::CacheEvictionConfig prepareCacheEvictionConfig(const mediapipe::LLMCalculatorOptions& nodeOptions) {
     ov::genai::AggregationMode aggregationMode;
@@ -52,7 +89,36 @@ ov::genai::CacheEvictionConfig prepareCacheEvictionConfig(const mediapipe::LLMCa
     size_t recentSize = nodeOptions.cache_eviction_config().recent_size();
     size_t maxCacheSize = nodeOptions.cache_eviction_config().max_cache_size();
     bool applyRotation = nodeOptions.cache_eviction_config().apply_rotation();
-    return ov::genai::CacheEvictionConfig(startSize, recentSize, maxCacheSize, aggregationMode, applyRotation);
+    size_t snapkvWindowSize = nodeOptions.cache_eviction_config().snapkv_window_size();
+
+    ov::genai::KVCrushConfig kvCrushConfig;
+    if (nodeOptions.cache_eviction_config().has_kv_crush_config()) {
+        ov::genai::KVCrushAnchorPointMode anchorPointMode;
+        switch (nodeOptions.cache_eviction_config().kv_crush_config().anchor_point_mode()) {
+        case mediapipe::LLMCalculatorOptions::KVCrushConfig::RANDOM:
+            anchorPointMode = ov::genai::KVCrushAnchorPointMode::RANDOM;
+            break;
+        case mediapipe::LLMCalculatorOptions::KVCrushConfig::ZEROS:
+            anchorPointMode = ov::genai::KVCrushAnchorPointMode::ZEROS;
+            break;
+        case mediapipe::LLMCalculatorOptions::KVCrushConfig::ONES:
+            anchorPointMode = ov::genai::KVCrushAnchorPointMode::ONES;
+            break;
+        case mediapipe::LLMCalculatorOptions::KVCrushConfig::MEAN:
+            anchorPointMode = ov::genai::KVCrushAnchorPointMode::MEAN;
+            break;
+        case mediapipe::LLMCalculatorOptions::KVCrushConfig::ALTERNATING:
+            anchorPointMode = ov::genai::KVCrushAnchorPointMode::ALTERNATING;
+            break;
+        default:
+            anchorPointMode = ov::genai::KVCrushAnchorPointMode::RANDOM;
+            break;
+        }
+        size_t budget = nodeOptions.cache_eviction_config().kv_crush_config().budget();
+        size_t rngSeed = nodeOptions.cache_eviction_config().kv_crush_config().rng_seed();
+        kvCrushConfig = ov::genai::KVCrushConfig(budget, anchorPointMode, rngSeed);
+    }
+    return ov::genai::CacheEvictionConfig(startSize, recentSize, maxCacheSize, aggregationMode, applyRotation, snapkvWindowSize, kvCrushConfig);
 }
 
 ov::genai::SchedulerConfig ContinuousBatchingServableInitializer::prepareDraftPipelineSchedulerConfig(const mediapipe::LLMCalculatorOptions& nodeOptions) {
@@ -77,9 +143,11 @@ Status ContinuousBatchingServableInitializer::initialize(std::shared_ptr<GenAiSe
     if (std::filesystem::exists(modelGenerationConfigPath)) {
         properties->baseGenerationConfig = ov::genai::GenerationConfig(modelGenerationConfigPath.string());
     }
-
-    if (nodeOptions.has_response_parser()) {
-        properties->responseParserName = nodeOptions.response_parser();
+    if (nodeOptions.has_tool_parser()) {
+        properties->toolParserName = nodeOptions.tool_parser();
+    }
+    if (nodeOptions.has_reasoning_parser()) {
+        properties->reasoningParserName = nodeOptions.reasoning_parser();
     }
 
     properties->schedulerConfig.max_num_batched_tokens = nodeOptions.max_num_batched_tokens();
@@ -87,6 +155,9 @@ Status ContinuousBatchingServableInitializer::initialize(std::shared_ptr<GenAiSe
     properties->schedulerConfig.dynamic_split_fuse = nodeOptions.dynamic_split_fuse();
     properties->schedulerConfig.max_num_seqs = nodeOptions.max_num_seqs();
     properties->schedulerConfig.enable_prefix_caching = nodeOptions.enable_prefix_caching();
+    if (nodeOptions.has_cache_interval_multiplier()) {
+        properties->schedulerConfig.cache_interval_multiplier = nodeOptions.cache_interval_multiplier();
+    }
 
     if (nodeOptions.has_cache_eviction_config()) {
         properties->schedulerConfig.cache_eviction_config = prepareCacheEvictionConfig(nodeOptions);
@@ -95,9 +166,19 @@ Status ContinuousBatchingServableInitializer::initialize(std::shared_ptr<GenAiSe
         properties->schedulerConfig.use_cache_eviction = false;
     }
 
+    if (nodeOptions.has_sparse_attention_config()) {
+        properties->schedulerConfig.use_sparse_attention = true;
+        properties->schedulerConfig.sparse_attention_config = prepareSparseAttentionConfig(nodeOptions);
+    } else {
+        properties->schedulerConfig.use_sparse_attention = false;
+    }
+
     properties->device = nodeOptions.device();
+    properties->bestOfLimit = nodeOptions.best_of_limit();
+    properties->enableToolGuidedGeneration = nodeOptions.enable_tool_guided_generation();
 
     if (!nodeOptions.draft_models_path().empty()) {
+        // draft models
         auto fsDraftModelsPath = std::filesystem::path(nodeOptions.draft_models_path());
         std::string draftPipelinePath;
         if (fsDraftModelsPath.is_relative()) {
@@ -118,7 +199,7 @@ Status ContinuousBatchingServableInitializer::initialize(std::shared_ptr<GenAiSe
             SPDLOG_ERROR("Error during draft model initialization for draft models_path: {}", draftPipelinePath);
             return StatusCode::LLM_NODE_RESOURCE_STATE_INITIALIZATION_FAILED;
         }
-
+        properties->eagle3Mode = nodeOptions.draft_eagle3_mode();
     } else if (nodeOptions.has_draft_max_num_batched_tokens() || nodeOptions.has_draft_cache_size() || nodeOptions.has_draft_dynamic_split_fuse() || nodeOptions.has_draft_max_num_seqs() || nodeOptions.has_draft_block_size() || nodeOptions.has_draft_device()) {
         SPDLOG_ERROR("Draft model path is not provided, but draft scheduler options are set.");
         return StatusCode::LLM_NODE_RESOURCE_STATE_INITIALIZATION_FAILED;
@@ -130,7 +211,26 @@ Status ContinuousBatchingServableInitializer::initialize(std::shared_ptr<GenAiSe
         return status;
     }
 
-    properties->tokenizerPluginConfig = {{"PERFORMANCE_HINT", "THROUGHPUT"}};
+    if (properties->device == "CPU") {
+        status = applyDefaultCpuProperties(properties->pluginConfig);
+        if (!status.ok()) {
+            SPDLOG_ERROR("Failed to apply default CPU properties for LLM model: {}", status.string());
+            return status;
+        }
+    }
+
+    ov::AnyMap tokenProperties;
+    const uint32_t tokenizerNumStreams = std::min(static_cast<uint32_t>(Config::instance().restWorkers()), static_cast<uint32_t>(getCoreCount()));
+    tokenProperties[ov::num_streams.name()] = static_cast<int>(tokenizerNumStreams);
+    tokenProperties[ov::hint::performance_mode.name()] = ov::hint::PerformanceMode::THROUGHPUT;
+    SPDLOG_DEBUG("Setting tokenizer/detokenizer NUM_STREAMS to: {}", tokenizerNumStreams);
+    status = applyDefaultCpuProperties(tokenProperties);
+    if (!status.ok()) {
+        SPDLOG_ERROR("Failed to apply default CPU properties for tokenizer: {}", status.string());
+        return status;
+    }
+    properties->tokenizerPluginConfig = tokenProperties;
+
     try {
         properties->pipeline = std::make_shared<ov::genai::ContinuousBatchingPipeline>(parsedModelsPath,
             properties->schedulerConfig, properties->device,
@@ -143,20 +243,13 @@ Status ContinuousBatchingServableInitializer::initialize(std::shared_ptr<GenAiSe
         SPDLOG_ERROR("Error during llm node initialization for models_path: {}", parsedModelsPath);
         return StatusCode::LLM_NODE_RESOURCE_STATE_INITIALIZATION_FAILED;
     }
-
-#if (PYTHON_DISABLE == 0)
-    loadPyTemplateProcessor(properties, parsedModelsPath);
-#else
-    loadDefaultTemplateProcessorIfNeeded(properties);
-#endif
+    loadChatTemplate(properties, parsedModelsPath);
     if (nodeOptions.has_max_tokens_limit()) {
         properties->maxTokensLimit = nodeOptions.max_tokens_limit();
     }
-    properties->bestOfLimit = nodeOptions.best_of_limit();
     properties->maxModelLength = parseMaxModelLength(parsedModelsPath);
-    properties->enableToolGuidedGeneration = nodeOptions.enable_tool_guided_generation();
 
-    properties->llmExecutorWrapper = std::make_shared<LLMExecutorWrapper>(properties->pipeline);
+    properties->llmExecutorWrapper = std::make_shared<LLMExecutorWrapper>(properties->pipeline, properties->schedulerConfig.cache_size == 0);
 
     return StatusCode::OK;
 }

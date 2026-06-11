@@ -20,7 +20,10 @@
 #include <vector>
 
 #include "../../../logging.hpp"
+#include "../../../profiler.hpp"
 #include "../../../status.hpp"
+#include "../../apis/openai_completions.hpp"
+#include "../../apis/openai_responses.hpp"
 
 #pragma warning(push)
 #pragma warning(disable : 4005 4309 6001 6385 6386 6326 6011 4005 4456 6246)
@@ -32,7 +35,6 @@
 
 #include "../../../http_payload.hpp"
 #include "../../../mediapipe_internal/mediapipe_utils.hpp"
-#include "../../apis/openai_completions.hpp"
 #include "../../text_utils.hpp"
 #if (PYTHON_DISABLE == 0)
 #include "../../py_jinja_template_processor.hpp"
@@ -68,11 +70,21 @@ absl::Status LegacyServable::parseRequest(std::shared_ptr<GenAiServableExecution
     }
 
     legacyExecutionContext->baseGenerationConfig = properties->baseGenerationConfig;
-    legacyExecutionContext->apiHandler = std::make_shared<OpenAIChatCompletionsHandler>(*legacyExecutionContext->payload.parsedJson,
-        legacyExecutionContext->endpoint,
-        std::chrono::system_clock::now(),
-        getProperties()->tokenizer,
-        getProperties()->responseParserName);
+    if (legacyExecutionContext->endpoint == Endpoint::RESPONSES) {
+        legacyExecutionContext->apiHandler = std::make_shared<OpenAIResponsesHandler>(*legacyExecutionContext->payload.parsedJson,
+            legacyExecutionContext->endpoint,
+            std::chrono::system_clock::now(),
+            getProperties()->tokenizer,
+            getProperties()->toolParserName,
+            getProperties()->reasoningParserName);
+    } else {
+        legacyExecutionContext->apiHandler = std::make_shared<OpenAIChatCompletionsHandler>(*legacyExecutionContext->payload.parsedJson,
+            legacyExecutionContext->endpoint,
+            std::chrono::system_clock::now(),
+            getProperties()->tokenizer,
+            getProperties()->toolParserName,
+            getProperties()->reasoningParserName);
+    }
 
     auto status = executionContext->apiHandler->parseRequest(getProperties()->maxTokensLimit, getProperties()->bestOfLimit, getProperties()->maxModelLength);
     if (!status.ok()) {
@@ -82,19 +94,44 @@ absl::Status LegacyServable::parseRequest(std::shared_ptr<GenAiServableExecution
 
     if (legacyExecutionContext->apiHandler->isStream()) {
         legacyExecutionContext->lastStreamerCallbackOutput = "";  // initialize with empty string
-        auto callback = [& executionInProgress = legacyExecutionContext->executionInProgress, &mutex = legacyExecutionContext->mutex, &lastStreamerCallbackOutput = legacyExecutionContext->lastStreamerCallbackOutput](std::string text) {
-            SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Streamer callback executed with text: [{}]", text);
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                lastStreamerCallbackOutput += text;
-                executionInProgress.notify_one();
-            }
-            return ov::genai::StreamingStatus::RUNNING;
-        };
-        legacyExecutionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback);
     }
-    legacyExecutionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig, getProperties()->responseParserName, getProperties()->enableToolGuidedGeneration);
+    auto callback = [& executionInProgress = legacyExecutionContext->executionInProgress,
+                        &mutex = legacyExecutionContext->mutex,
+                        &lastStreamerCallbackOutput = legacyExecutionContext->lastStreamerCallbackOutput,
+                        &clientDisconnected = legacyExecutionContext->clientDisconnected,
+                        streamMode = legacyExecutionContext->apiHandler->isStream()](std::string text) {
+        SPDLOG_LOGGER_TRACE(llm_calculator_logger, "Streamer callback executed with text: [{}]", text);
+        if (clientDisconnected.load()) {
+            executionInProgress.notify_one();
+            return ov::genai::StreamingStatus::CANCEL;
+        }
+        if (streamMode) {
+            std::lock_guard<std::mutex> lock(mutex);
+            lastStreamerCallbackOutput += text;
+            executionInProgress.notify_one();
+        }
+        return ov::genai::StreamingStatus::RUNNING;
+    };
+    ov::AnyMap streamerConfig;
+    if (legacyExecutionContext->apiHandler->isStream() &&
+        ((legacyExecutionContext->apiHandler->getOutputParser() != nullptr &&
+             legacyExecutionContext->apiHandler->getOutputParser()->requiresStreamingWithSpecialTokens()) ||
+            !legacyExecutionContext->apiHandler->getRequest().skipSpecialTokens)) {
+        streamerConfig.insert(ov::genai::skip_special_tokens(false));
+    }
+    legacyExecutionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback, streamerConfig);
+    legacyExecutionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig,
+        getProperties()->toolParserName,
+        getProperties()->enableToolGuidedGeneration,
+        getProperties()->decodingMethod);
     legacyExecutionContext->generationConfigBuilder->parseConfigFromRequest(legacyExecutionContext->apiHandler->getRequest());
+    legacyExecutionContext->generationConfigBuilder->adjustConfigForDecodingMethod();
+    try {
+        legacyExecutionContext->generationConfigBuilder->validateStructuredOutputConfig(getProperties()->tokenizer);
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Tool guided generation will not be applied due to JSON schema validation failure: {}", e.what());
+        legacyExecutionContext->generationConfigBuilder->unsetStructuredOutputConfig();
+    }
     return absl::OkStatus();
 }
 
@@ -111,7 +148,14 @@ absl::Status LegacyServable::prepareInputs(std::shared_ptr<GenAiServableExecutio
 
 absl::Status LegacyServable::scheduleExecution(std::shared_ptr<GenAiServableExecutionContext>& executionContext) {
     auto legacyExecutionContext = std::static_pointer_cast<LegacyServableExecutionContext>(executionContext);
+    std::weak_ptr<LegacyServableExecutionContext> weakContext = legacyExecutionContext;
+    legacyExecutionContext->payload.client->registerDisconnectionCallback([weakContext]() {
+        if (auto context = weakContext.lock()) {
+            context->signalDisconnection();
+        }
+    });
     if (legacyExecutionContext->payload.client->isDisconnected()) {
+        legacyExecutionContext->signalDisconnection();
         return absl::CancelledError();
     }
     properties->legacyExecutor->addRequest(legacyExecutionContext);
@@ -155,19 +199,19 @@ absl::Status LegacyServable::preparePartialResponse(std::shared_ptr<GenAiServabl
         std::unique_lock lock(legacyExecutionContext->mutex);
         while (executionContext->lastStreamerCallbackOutput.size() == 0 && generationStatus != std::future_status::ready) {
             SPDLOG_LOGGER_TRACE(llm_executor_logger, "Waiting for partial data...");
-            legacyExecutionContext->executionInProgress.wait(lock);
+            auto executionInProgressStatus = legacyExecutionContext->executionInProgress.wait_for(lock, std::chrono::milliseconds(10));
             generationStatus = legacyExecutionContext->finished.wait_for(std::chrono::nanoseconds::zero());
+            if (executionInProgressStatus == std::cv_status::timeout && generationStatus == std::future_status::ready) {
+                SPDLOG_LOGGER_TRACE(llm_executor_logger, "Race condition avoided - notification was missed but recovered with timeout");
+            }
         }
         lastTextChunk = executionContext->lastStreamerCallbackOutput;
-        if (!lastTextChunk.empty()) {
-            auto tokensTensor = properties->tokenizer.encode(lastTextChunk, ov::genai::add_special_tokens(false)).input_ids;
-            auto numTokens = tokensTensor.get_size();
-            executionContext->apiHandler->incrementProcessedTokens(numTokens);
-        }
         executionContext->lastStreamerCallbackOutput = "";
     }
     if (generationStatus != std::future_status::ready) {  // continue
-        if (lastTextChunk.size() > 0) {
+        // For RESPONSES endpoint, always call serializeStreamingChunk so that
+        // output item initialization events are emitted even before the tokenizer produces text.
+        if (lastTextChunk.size() > 0 || executionContext->apiHandler->getEndpoint() == Endpoint::RESPONSES) {
             std::string serializedChunk = executionContext->apiHandler->serializeStreamingChunk(lastTextChunk, ov::genai::GenerationFinishReason::NONE);
             if (!serializedChunk.empty()) {
                 executionContext->response = wrapTextInServerSideEventMessage(serializedChunk);
@@ -185,14 +229,20 @@ absl::Status LegacyServable::preparePartialResponse(std::shared_ptr<GenAiServabl
         if (!executionContext->lastStreamerCallbackOutput.empty()) {
             lastTextChunk = lastTextChunk + executionContext->lastStreamerCallbackOutput;
         }
-        std::string serializedChunk = executionContext->apiHandler->serializeStreamingChunk(lastTextChunk, ov::genai::GenerationFinishReason::STOP);
+        if (legacyExecutionContext->results.finish_reasons.empty()) {
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Missing finish reason in legacy LM streaming generation result, defaulting to STOP");
+        }
+        // Legacy generation path always runs with batch=1, so we read the single finish reason at index 0.
+        ov::genai::GenerationFinishReason finishReason = legacyExecutionContext->results.finish_reasons.empty() ? ov::genai::GenerationFinishReason::STOP : legacyExecutionContext->results.finish_reasons[0];
+        std::string serializedChunk = executionContext->apiHandler->serializeStreamingChunk(lastTextChunk, finishReason);
         if (!serializedChunk.empty()) {
             executionContext->response = wrapTextInServerSideEventMessage(serializedChunk);
         }
-        // Disabling usage in streaming mode in legacy servable due to the issue with token counting.
+
+        executionContext->apiHandler->setPromptTokensUsage(legacyExecutionContext->results.perf_metrics.get_num_input_tokens());
+        executionContext->apiHandler->setCompletionTokensUsage(legacyExecutionContext->results.perf_metrics.get_num_generated_tokens());
         if (executionContext->apiHandler->getStreamOptions().includeUsage)
-            return absl::InvalidArgumentError("Usage is not supported in legacy servable in streaming mode.");
-        // executionContext->response += wrapTextInServerSideEventMessage(executionContext->apiHandler->serializeStreamingUsageChunk());
+            executionContext->response += wrapTextInServerSideEventMessage(executionContext->apiHandler->serializeStreamingUsageChunk());
 
         executionContext->response += wrapTextInServerSideEventMessage("[DONE]");
 

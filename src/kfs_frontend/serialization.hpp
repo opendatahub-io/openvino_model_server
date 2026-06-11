@@ -18,7 +18,8 @@
 #include <memory>
 #include <string>
 
-#include <openvino/openvino.hpp>
+#include <openvino/runtime/infer_request.hpp>
+#include <openvino/runtime/tensor.hpp>
 
 #include "kfs_utils.hpp"
 #include "../profiler.hpp"
@@ -29,6 +30,11 @@
 namespace ovms {
 Status serializeTensorToTensorProto(
     ::KFSResponse::InferOutputTensor& responseOutput,
+    const std::shared_ptr<const TensorInfo>& servableOutput,
+    ov::Tensor& tensor);
+Status serializeTensorToTensorProtoRaw(
+    ::KFSResponse::InferOutputTensor& responseOutput,
+    std::string* rawOutputContents,
     const std::shared_ptr<const TensorInfo>& servableOutput,
     ov::Tensor& tensor);
 

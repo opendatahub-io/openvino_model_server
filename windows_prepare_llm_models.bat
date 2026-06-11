@@ -30,28 +30,22 @@ IF /I EXIST c:\opt\llm_testing (
 
 set "EMBEDDING_MODEL=thenlper/gte-small"
 set "RERANK_MODEL=BAAI/bge-reranker-base"
-set "TEXT_GENERATION_MODEL=facebook/opt-125m"
-set "VLM_MODEL=OpenGVLab/InternVL2-1B"
+set "TEXT_GENERATION_MODEL=HuggingFaceTB/SmolLM2-360M-Instruct"
+set "FACEBOOK_MODEL=facebook/opt-125m"
+set "VLM_MODEL=OpenVINO/InternVL2-1B-int4-ov"
+set "TTS_MODEL=microsoft/speecht5_tts"
+set "STT_MODEL=openai/whisper-tiny"
 
 :: Models for tools testing. Only tokenizers are downloaded.
 set "QWEN3_MODEL=Qwen/Qwen3-8B"
-set "LLAMA3_MODEL=meta-llama/Llama-3.1-8B-Instruct"
+set "LLAMA3_MODEL=unsloth/Llama-3.1-8B-Instruct"
 set "HERMES3_MODEL=NousResearch/Hermes-3-Llama-3.1-8B"
 set "PHI4_MODEL=microsoft/Phi-4-mini-instruct"
-
-set MODELS_LIST=%TEXT_GENERATION_MODEL% %EMBEDDING_MODEL% %EMBEDDING_MODEL%\ov %RERANK_MODEL% %VLM_MODEL% %QWEN3_MODEL% %LLAMA3_MODEL% %HERMES3_MODEL% %PHI4_MODEL%
-
-set "ALL_EXIST=1"
-for %%M in ("%MODELS_LIST%") do (
-  if not exist "%~1\%%~M" (
-    set "ALL_EXIST=0"
-  )
-)
-
-if "!ALL_EXIST!"=="1" (
-  echo All required models exist in %~1. Skipping downloading models.
-  exit /b 0
-)
+set "MISTRAL_MODEL=mistralai/Mistral-7B-Instruct-v0.3"
+set "GPTOSS_MODEL=openai/gpt-oss-20b"
+set "DEVSTRAL_MODEL=unsloth/Devstral-Small-2507"
+set "LFM2_MODEL=LiquidAI/LFM2-2.6B"
+set "GEMMA4_MODEL=OpenVINO/gemma-4-E4B-it-int4-ov"
 
 echo Downloading LLM testing models to directory %~1
 set "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu https://storage.openvinotoolkit.org/simple/wheels/nightly"
@@ -60,7 +54,6 @@ C:\opt\Python312\python.exe -m venv .venv
 if !errorlevel! neq 0 exit /b !errorlevel!
 call .\.venv\Scripts\Activate.bat
 if !errorlevel! neq 0 exit /b !errorlevel!
-set
 python -m pip install --upgrade pip
 if !errorlevel! neq 0 exit /b !errorlevel!
 pip install -U -r demos\common\export_models\requirements.txt
@@ -68,88 +61,107 @@ if !errorlevel! neq 0 exit /b !errorlevel!
 
 if not exist "%~1" mkdir "%~1"
 
-if exist "%~1\%TEXT_GENERATION_MODEL%" (
-  echo Models directory %~1\%TEXT_GENERATION_MODEL% exists. Skipping downloading models.
-) else (
-  echo Downloading text generation model to %~1\%TEXT_GENERATION_MODEL% directory.
-  python demos\common\export_models\export_model.py text_generation --source_model "%TEXT_GENERATION_MODEL%" --weight-format int8 --model_repository_path %~1
-  if !errorlevel! neq 0 exit /b !errorlevel!
+
+:: Export models
+call :download_export_model_tts "%TTS_MODEL%" "text2speech" "--weight-format int4" "%~1"
+call :download_export_model "%STT_MODEL%" "speech2text" "--weight-format int4" "%~1"
+call :download_openvino "%VLM_MODEL%" "%~1" OpenGVLab/InternVL2-1B
+call :download_export_model "%TEXT_GENERATION_MODEL%" "text_generation" "--weight-format int8" "%~1"
+call :download_export_model "%FACEBOOK_MODEL%" "text_generation" "--weight-format int8" "%~1"
+call :download_export_model "%RERANK_MODEL%" "rerank_ov" "--weight-format int8 --model_name %RERANK_MODEL%\ov" "%~1"
+call :download_export_model "%EMBEDDING_MODEL%" "embeddings_ov" "--weight-format int8 --model_name %EMBEDDING_MODEL%\ov" "%~1"
+
+if not exist "%~1\%FACEBOOK_MODEL%\chat_template.jinja" (
+    echo Copying dummy chat template to %FACEBOOK_MODEL% model directory.
+    copy /Y "src\test\llm\dummy_facebook_template.jinja" "%~1\%FACEBOOK_MODEL%\chat_template.jinja"
+    if !errorlevel! neq 0 exit /b !errorlevel!
 )
 
-if exist "%~1\%EMBEDDING_MODEL%" (
-  echo Models directory %~1\%EMBEDDING_MODEL% exists. Skipping downloading models.
+:: Download tokenizers for tools testing
+call :download_tokenizer "%QWEN3_MODEL%" "%~1\%QWEN3_MODEL%"
+call :download_tokenizer "%LLAMA3_MODEL%" "%~1\%LLAMA3_MODEL%"
+call :download_tokenizer "%HERMES3_MODEL%" "%~1\%HERMES3_MODEL%"
+call :download_tokenizer "%PHI4_MODEL%" "%~1\%PHI4_MODEL%"
+call :download_tokenizer "%MISTRAL_MODEL%" "%~1\%MISTRAL_MODEL%"
+call :download_tokenizer "%GPTOSS_MODEL%" "%~1\%GPTOSS_MODEL%"
+call :download_tokenizer "%DEVSTRAL_MODEL%" "%~1\%DEVSTRAL_MODEL%"
+call :download_tokenizer "%LFM2_MODEL%" "%~1\%LFM2_MODEL%"
+call :download_openvino_tokenizer "%GEMMA4_MODEL%" "%~1"
+
+exit /b 0
+
+:: Helper subroutine to download export models
+:download_export_model
+set "model=%~1"
+set "model_type=%~2"
+set "export_args=%~3"
+set "repository=%~4"
+
+if not exist "%repository%\%model%\openvino_tokenizer.bin" (
+  echo Downloading %model_type% model to %repository%\%model% directory.
+  python demos\common\export_models\export_model.py %model_type% --source_model "%model%" %export_args% --model_repository_path %repository%
 ) else (
-  echo Downloading embeddings model to %~1\%EMBEDDING_MODEL% directory.
-  python demos\common\export_models\export_model.py embeddings --source_model "%EMBEDDING_MODEL%" --weight-format int8 --model_repository_path %~1
-  if !errorlevel! neq 0 exit /b !errorlevel!
+  echo Models file %repository%\%model%\openvino_tokenizer.bin exists. Skipping downloading models.
+)
+exit /b 0
+
+:download_export_model_tts
+set "model=%~1"
+set "model_type=%~2"
+set "export_args=%~3"
+set "repository=%~4"
+
+if not exist "%repository%\%model%\openvino_tokenizer.bin" (
+  echo Downloading %model_type% model to %repository%\%model% directory.
+  python demos\common\export_models\export_model.py %model_type% --source_model "%model%" %export_args% --vocoder microsoft/speecht5_hifigan --model_repository_path %repository%
+) else (
+  echo Models file %repository%\%model%\openvino_tokenizer.bin exists. Skipping downloading models.
+)
+exit /b 0
+
+:download_openvino
+set "model=%~1"
+set "repository=%~2"
+
+if not exist "%repository%\%model%\openvino_tokenizer.bin" (
+  echo Downloading model to %repository%\%model% directory.
+  hf download "%model%" --local-dir "%repository%\%model%"
+  :: WA to use newer tokenizer model format which supports padding.
+  convert_tokenizer "%~3" --with_detokenizer -o "%~2\%~1"
+) else (
+  echo Models file %repository%\%model%\openvino_tokenizer.bin exists. Skipping downloading models.
+)
+exit /b 0
+
+:download_openvino_tokenizer
+set "model=%~1"
+set "repository=%~2"
+
+if not exist "%repository%\%model%\openvino_tokenizer.bin" (
+  echo Downloading tokenizer and detokenizer for %model% model to %repository%\%model% directory.
+  mkdir "%repository%\%model%"
+  hf download "%model%" --local-dir "%repository%\%model%" --include *tokenizer*
+) else (
+  echo Models file %repository%\%model%\openvino_tokenizer.bin exists. Skipping downloading models.
 )
 
-if exist "%~1\%EMBEDDING_MODEL%\ov" (
-  echo Models directory %~1\%EMBEDDING_MODEL%\ov exists. Skipping downloading models.
-) else (
-  echo Downloading embeddings model to %~1\%EMBEDDING_MODEL%\ov directory.
-  python demos\common\export_models\export_model.py embeddings_ov --source_model "%EMBEDDING_MODEL%" --weight-format int8 --model_repository_path %~1 --model_name "%EMBEDDING_MODEL%\ov"
-  if !errorlevel! neq 0 exit /b !errorlevel!
-)
+:: Helper subroutine to download tokenizers
+:download_tokenizer
+set "model=%~1"
+set "check_path=%~2"
 
-if exist "%~1\%RERANK_MODEL%" (
-  echo Models directory %~1\%RERANK_MODEL% exists. Skipping downloading models.
+if exist "%check_path%" (
+  echo Models file %check_path% exists. Skipping downloading models.
 ) else (
-  echo Downloading rerank model to %~1\%RERANK_MODEL% directory.
-  python demos\common\export_models\export_model.py rerank --source_model "%RERANK_MODEL%" --weight-format int8 --model_repository_path %~1
+  echo Downloading tokenizer and detokenizer for %model% model to %check_path% directory.
+  mkdir "%check_path%"
+  convert_tokenizer "%model%" --with_detokenizer -o "%check_path%"
   if !errorlevel! neq 0 exit /b !errorlevel!
 )
-
-if exist "%~1\%RERANK_MODEL%\ov" (
-  echo Models directory %~1\%RERANK_MODEL%\ov exists. Skipping downloading models.
-) else (
-  echo Downloading rerank model to %~1\%RERANK_MODEL%\ov directory.
-  python demos\common\export_models\export_model.py rerank_ov --source_model "%RERANK_MODEL%" --weight-format int8 --model_repository_path %~1 --model_name "%RERANK_MODEL%\ov"
-  if !errorlevel! neq 0 exit /b !errorlevel!
+if not exist "%check_path%\openvino_tokenizer.bin" (
+  echo Models file %check_path%\openvino_tokenizer.bin does not exist.
+  exit /b 1
 )
-
-if exist "%~1\%VLM_MODEL%" (
-  echo Models directory %~1\%VLM_MODEL% exists. Skipping downloading models.
-) else (
-  echo Downloading visual language model to %~1\%VLM_MODEL% directory.
-  python demos\common\export_models\export_model.py text_generation --source_model "%VLM_MODEL%" --weight-format int4 --kv_cache_precision u8 --model_repository_path %~1
-  if !errorlevel! neq 0 exit /b !errorlevel!
-)
-
-if exist "%~1\%QWEN3_MODEL%" (
-  echo Models directory %~1\%QWEN3_MODEL% exists. Skipping downloading models.
-) else (
-  echo Downloading tokenizer and detokenizer for Qwen3 model to %~1\%QWEN3_MODEL% directory.
-  mkdir "%~1\%QWEN3_MODEL%"
-  convert_tokenizer "%QWEN3_MODEL%" --with_detokenizer -o "%~1\%QWEN3_MODEL%"
-  if !errorlevel! neq 0 exit /b !errorlevel!
-)
-
-if exist "%~1\%LLAMA3_MODEL%" (
-  echo Models directory %~1\%LLAMA3_MODEL% exists. Skipping downloading models.
-) else (
-  echo Downloading tokenizer and detokenizer for Llama3.1 model to %~1\%LLAMA3_MODEL% directory.
-  mkdir "%~1\%LLAMA3_MODEL%"
-  convert_tokenizer "%LLAMA3_MODEL%" --with_detokenizer -o "%~1\%LLAMA3_MODEL%"
-  if !errorlevel! neq 0 exit /b !errorlevel!
-)
-
-if exist "%~1\%HERMES3_MODEL%" (
-  echo Models directory %~1\%HERMES3_MODEL% exists. Skipping downloading models.
-) else (
-  echo Downloading tokenizer and detokenizer for Hermes3 model to %~1\%HERMES3_MODEL% directory.
-  mkdir "%~1\%HERMES3_MODEL%"
-  convert_tokenizer "%HERMES3_MODEL%" --with_detokenizer -o "%~1\%HERMES3_MODEL%"
-  if !errorlevel! neq 0 exit /b !errorlevel!
-)
-
-if exist "%~1\%PHI4_MODEL%" (
-  echo Models directory %~1\%PHI4_MODEL% exists. Skipping downloading models.
-) else (
-  echo Downloading tokenizer and detokenizer for Phi-4 model to %~1\%PHI4_MODEL% directory.
-  mkdir "%~1\%PHI4_MODEL%"
-  convert_tokenizer "%PHI4_MODEL%" --with_detokenizer -o "%~1\%PHI4_MODEL%"
-  if !errorlevel! neq 0 exit /b !errorlevel!
-)
+exit /b 0
 
 endlocal

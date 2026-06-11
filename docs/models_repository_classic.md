@@ -12,14 +12,14 @@ ovms_docs_cloud_storage
 Traditional AI models perform data analysis in a single inference operation. They can be used over KServe API or TensorFlow API. 
 
 The AI models served by OpenVINO&trade; Model Server must be in either of the five formats:
-- [OpenVINO IR](https://docs.openvino.ai/2025/documentation/openvino-ir-format.html), where the graph is represented in .bin and .xml files
+- [OpenVINO IR](https://docs.openvino.ai/2026/documentation/openvino-ir-format.html), where the graph is represented in .bin and .xml files
 - [ONNX](https://onnx.ai/), using the .onnx file
 - [PaddlePaddle](https://www.paddlepaddle.org.cn/en), using .pdiparams and .pdmodel files
 - [TensorFlow](https://www.tensorflow.org/), using SavedModel, MetaGraph or frozen Protobuf formats.
 - [TensorFlow Lite](https://www.tensorflow.org/lite), using the .tflite file
 
 To use models trained in other formats you need to convert them first. To do so, use
-OpenVINO’s [conversion tool](https://docs.openvino.ai/2025/openvino-workflow/model-preparation/convert-model-to-ir.html) for IR, or different
+OpenVINO’s [conversion tool](https://docs.openvino.ai/2026/openvino-workflow/model-preparation/convert-model-to-ir.html) for IR, or different
 [converters](https://onnx.ai/supported-tools.html) for ONNX.
 
 The models need to be placed and mounted in a particular directory structure and according to the following rules:
@@ -62,6 +62,7 @@ models/
 - Each model directory should include a sub-folder for each of its versions (1,2, etc). The versions and their folder names should be positive integer values.
 **Note:** In execution, the versions are enabled according to a pre-defined version policy. If the client does not specify
 the version number in parameters, by default, the latest version is served.
+- As an alternative for local filesystem only, `model_path` / `base_path` can point directly to a single model file (`.xml`, `.onnx`, `.pdmodel`, `.pdiparams`, `.pb`, `.tflite`). In this mode, Model Server exposes synthetic version `1`.
 - Every version folder _must_ include model files, that is, .bin and .xml for IR, .onnx for ONNX, .pdiparams and .pdmodel for Paddlepaddle. The file name can be arbitrary.
 - Each model defines input and output tensors in the AI graph. The client passes data to model input tensors by filling appropriate entries in the request input map.
 - Prediction results can be read from the response output map. By default, OpenVINO™ Model Server uses model tensor names as input and output names in prediction requests and responses. The client passes the input values to the request and reads the results by referring to the corresponding output names.

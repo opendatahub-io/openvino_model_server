@@ -29,6 +29,9 @@
 #include "../dags/exit_node.hpp"
 #include "../dags/gatherexitnodeinputhandler.hpp"
 #include "../dags/gathernodeinputhandler.hpp"
+#include "../capi_frontend/capi_dag_utils.hpp"
+#include "../kfs_frontend/kfs_utils.hpp"
+#include "../tfs_frontend/tfs_utils.hpp"
 #include "../dags/nodeinputhandler.hpp"
 #include "../dags/nodestreamidguard.hpp"
 #include "../dags/pipeline.hpp"
@@ -41,7 +44,12 @@
 #include "../ov_utils.hpp"
 #include "../prediction_service_utils.hpp"
 #include "../status.hpp"
+
+#include "constructor_enabled_model_manager.hpp"
+#include "platform_utils.hpp"
+#include "light_test_utils.hpp"
 #include "test_utils.hpp"
+#include "test_with_temp_dir.hpp"
 
 using namespace ovms;
 
@@ -192,9 +200,9 @@ static const char* configDummy1BsDummy2Bs = R"(
 
 class DLNodeSessionWithGetInputsExposed : public DLNodeSession {
 public:
-    DLNodeSessionWithGetInputsExposed(const NodeSessionMetadata& metadata, const std::string& nodeName, uint32_t inputsCount, const CollapseDetails& collapsingDetails, ModelManager& manager, const std::string& modelName, model_version_t modelVersion) :
+    DLNodeSessionWithGetInputsExposed(const NodeSessionMetadata& metadata, const std::string& nodeName, uint32_t inputsCount, const CollapseDetails& collapsingDetails, ModelInstanceProvider& manager, const std::string& modelName, model_version_t modelVersion) :
         DLNodeSession(metadata, nodeName, inputsCount, collapsingDetails, manager, modelName, modelVersion) {}
-    DLNodeSessionWithGetInputsExposed(const NodeSessionMetadata&& metadata, const std::string& nodeName, uint32_t inputsCount, const CollapseDetails& collapsingDetails, ModelManager& manager, const std::string& modelName, model_version_t modelVersion) :
+    DLNodeSessionWithGetInputsExposed(const NodeSessionMetadata&& metadata, const std::string& nodeName, uint32_t inputsCount, const CollapseDetails& collapsingDetails, ModelInstanceProvider& manager, const std::string& modelName, model_version_t modelVersion) :
         DLNodeSession(std::move(metadata), nodeName, inputsCount, collapsingDetails, manager, modelName, modelVersion) {}
 
     const auto& getInputs() const {

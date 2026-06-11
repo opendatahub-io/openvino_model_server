@@ -15,8 +15,10 @@
 // limitations under the License.
 //*****************************************************************************
 #pragma once
-#include <string>
+#include <filesystem>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include <assert.h>
 #include <fcntl.h>
@@ -27,8 +29,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "model_downloader.hpp"
+
 namespace ovms {
 class Status;
+namespace fs = std::filesystem;
 
 /*
  * libgit2 options. 0 is the default value
@@ -42,31 +47,42 @@ struct Libgit2Options {
 struct Libgt2InitGuard {
     int status;
     std::string errMsg;
+    bool countedAsInitialized = false;
     Libgt2InitGuard(const Libgit2Options& opts);
     ~Libgt2InitGuard();
 };
 
-class HfDownloader {
+class HfDownloader : public IModelDownloader {
 public:
     HfDownloader(const std::string& sourceModel, const std::string& downloadPath, const std::string& hfEndpoint, const std::string& hfToken, const std::string& httpProxy, bool inOverwrite);
-    Status cloneRepository();
-    std::string getGraphDirectory();
-    static std::string getGraphDirectory(const std::string& inDownloadPath, const std::string& inSourceModel);
+    Status downloadModel() override;
 
 protected:
-    std::string sourceModel;
-    std::string downloadPath;
-    std::string hfEndpoint;
-    std::string hfToken;
-    std::string httpProxy;
-    bool overwriteModels;
+    const std::string hfEndpoint;
+    const std::string hfToken;
+    const std::string httpProxy;
 
-    HfDownloader();
     std::string GetRepoUrl();
     std::string GetRepositoryUrlWithPassword();
     bool CheckIfProxySet();
-    Status checkIfOverwriteAndRemove(const std::string& path);
     Status RemoveReadonlyFileAttributeFromDir(const std::string& directoryPath);
-    Status checkRequiredToolsArePresent();
+    Status CheckRepositoryStatus(bool checkUntracked);
 };
+
+namespace libgit2 {
+inline constexpr size_t READ_FIRST_THREE_LINES_DEFAULT_MAX_LINE_BYTES = 8U * 1024U * 1024U;
+
+fs::path getLfsWipMarkerPath(const std::string& repositoryPath);
+bool createLfsWipMarker(const std::string& repositoryPath);
+bool hasLfsWipMarker(const std::string& repositoryPath);
+void removeLfsWipMarker(const std::string& repositoryPath);
+
+bool isCloneCancellationRequestedFromServer();
+void rtrimCrLfWhitespace(std::string& s);
+bool containsCaseInsensitive(const std::string& hay, const std::string& needle);
+bool readFirstThreeLines(const fs::path& p, std::vector<std::string>& outLines, size_t maxLineBytes = READ_FIRST_THREE_LINES_DEFAULT_MAX_LINE_BYTES);
+bool fileHasLfsKeywordsFirst3Positional(const fs::path& p);
+fs::path makeRelativeToBase(const fs::path& path, const fs::path& base);
+std::vector<fs::path> findLfsLikeFiles(const std::string& directory, bool recursive = true);
+}  // namespace libgit2
 }  // namespace ovms

@@ -14,22 +14,78 @@
 // limitations under the License.
 //*****************************************************************************
 
+#include "../../logging.hpp"
 #include <limits>
+#include <random>
+#include <string>
 #include <openvino/genai/generation_config.hpp>
 #include "base_generation_config_builder.hpp"
 
 namespace ovms {
-void BaseGenerationConfigBuilder::setStructuralTagsConfig(const ov::genai::StructuralTagsConfig& structuralTagsConfig) {
+
+void BaseGenerationConfigBuilder::adjustConfigForDecodingMethod() {
+    switch (decodingMethod) {
+    case DecodingMethod::STANDARD:
+        // No special adjustments needed for standard decoding
+        break;
+    case DecodingMethod::SPECULATIVE_DECODING:
+        // Set num_assistant_tokens to a default value if neither num_assistant_tokens nor assistant_confidence_threshold are set
+        if (config.num_assistant_tokens == 0 && config.assistant_confidence_threshold == 0) {
+            config.num_assistant_tokens = 5;  // default value for speculative decoding
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "WARNING: Overriding num_assistant_tokens to default value of 5 for speculative decoding as neither num_assistant_tokens nor assistant_confidence_threshold were set.");
+        }
+        break;
+    case DecodingMethod::EAGLE3:
+        // Set num_assistant_tokens to a default value if neither num_assistant_tokens nor assistant_confidence_threshold are set
+        if (config.num_assistant_tokens == 0 && config.assistant_confidence_threshold == 0) {
+            config.num_assistant_tokens = 5;  // default value for speculative decoding
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "WARNING: Overriding num_assistant_tokens to default value of 5 for eagle3 decoding as neither num_assistant_tokens nor assistant_confidence_threshold were set.");
+        }
+        // Enforce greedy decoding
+        config.do_sample = false;  // Eagle3 does not support random sampling
+        config.num_beams = 1;      // Eagle3 does not support beam search
+        SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "WARNING: Eagle3 greedy decoding enforced: setting do_sample to false and num_beams to 1.");
+        break;
+    case DecodingMethod::PROMPT_LOOKUP:
+        // Set num_assistant_tokens to a default value if not already set
+        if (config.num_assistant_tokens == 0) {
+            config.num_assistant_tokens = 5;  // default value for prompt lookup
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "WARNING: Overriding num_assistant_tokens to default value of 5 for prompt lookup as it was not set.");
+        }
+        // Set max_ngram_size to a default value if not already set
+        if (config.max_ngram_size == 0) {
+            config.max_ngram_size = 3;  // default value for prompt lookup
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "WARNING: Overriding max_ngram_size to default value of 3 for prompt lookup as it was not set.");
+        }
+        break;
+    }
+}
+
+void BaseGenerationConfigBuilder::setStructuralTagsConfig(const ov::genai::StructuredOutputConfig::StructuralTag& structuralTag) {
     if (config.structured_output_config) {
-        config.structured_output_config->structural_tags_config = structuralTagsConfig;
+        config.structured_output_config->structural_tags_config = structuralTag;
     } else {
         ov::genai::StructuredOutputConfig structuredOutputConfig;
-        structuredOutputConfig.structural_tags_config = structuralTagsConfig;
+        structuredOutputConfig.structural_tags_config = structuralTag;
         config.structured_output_config = structuredOutputConfig;
     }
 }
 
-void BaseGenerationConfigBuilder::parseConfigFromRequest(const OpenAIChatCompletionsRequest& request) {
+void BaseGenerationConfigBuilder::addStopString(const std::string& decodedStopString) {
+    config.stop_strings.insert(decodedStopString);
+}
+
+void BaseGenerationConfigBuilder::validateStructuredOutputConfig(ov::genai::Tokenizer& tokenizer) {
+    if (config.structured_output_config.has_value()) {
+        config.structured_output_config.value().validate(tokenizer);
+    }
+}
+
+void BaseGenerationConfigBuilder::unsetStructuredOutputConfig() {
+    config.structured_output_config.reset();
+}
+
+void BaseGenerationConfigBuilder::parseConfigFromRequest(const OpenAIRequest& request) {
     // Generic
     config.apply_chat_template = false;  // template is applied on the serving side
     if (request.maxTokens.has_value())
@@ -63,9 +119,11 @@ void BaseGenerationConfigBuilder::parseConfigFromRequest(const OpenAIChatComplet
     if (request.temperature.has_value())
         config.temperature = request.temperature.value();
     if (request.topK.has_value())
-        config.top_k = request.topK.value();
+        config.top_k = (request.topK.value() == -1) ? std::numeric_limits<size_t>::max() : static_cast<size_t>(request.topK.value());
     if (request.topP.has_value())
         config.top_p = request.topP.value();
+    if (request.minP.has_value())
+        config.min_p = request.minP.value();
     if (request.seed.has_value())
         config.rng_seed = request.seed.value();
     if (request.stop.has_value())
@@ -78,6 +136,26 @@ void BaseGenerationConfigBuilder::parseConfigFromRequest(const OpenAIChatComplet
         config.presence_penalty = request.presencePenalty.value();
     config.do_sample = config.temperature > 0.0f && config.num_beams == 1;
 
+    // Apply multinomial sampling defaults when not explicitly set
+    if (config.do_sample) {
+        if (!request.topK.has_value() && config.top_k == std::numeric_limits<size_t>::max()) {
+            config.top_k = 40;
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Defaulting top_k to 40 for multinomial sampling.");
+        }
+        // Use random seed for multinomial sampling to ensure non-deterministic behavior by default.
+        // Note: rng_seed from generation_config.json is not honoured — only an explicit per-request
+        // seed produces deterministic output.
+        // Use a thread_local mt19937 seeded once via std::random_device to avoid per-request overhead.
+        if (!request.seed.has_value()) {
+            static thread_local std::mt19937 rng{std::random_device{}()};
+            size_t seed = 0;
+            while (seed == 0)
+                seed = rng();
+            config.rng_seed = seed;
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Randomizing rng_seed for multinomial sampling: {}.", config.rng_seed);
+        }
+    }
+
     if (request.logprobschat || request.logprobs)
         config.logprobs = 1;
     // Assisted decoding specific
@@ -89,9 +167,9 @@ void BaseGenerationConfigBuilder::parseConfigFromRequest(const OpenAIChatComplet
         config.max_ngram_size = request.maxNgramSize.value();
 
     // Response format handling
-    if (request.responseSchema.has_value()) {
+    if (request.responseFormat.has_value()) {
         ov::genai::StructuredOutputConfig structuredOutputConfig;
-        structuredOutputConfig.json_schema = request.responseSchema.value();
+        structuredOutputConfig.structural_tags_config = request.responseFormat.value();
         config.structured_output_config = structuredOutputConfig;
         config.stop_strings.insert("#");
     }

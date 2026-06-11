@@ -15,6 +15,7 @@
 //*****************************************************************************
 #include "http_rest_api_handler.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <iomanip>
 #include <memory>
@@ -32,30 +33,28 @@
 #ifndef _WIN32
 #include <curl/curl.h>
 #endif
-#pragma warning(push)
-#pragma warning(disable : 6313)
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-#pragma warning(pop)
+#include "src/port/rapidjson_stringbuffer.hpp"
+#include "src/port/rapidjson_writer.hpp"
 
 #include "config.hpp"
 #include "dags/pipeline.hpp"
+#include "dags/pipeline_factory.hpp"
 #include "dags/pipelinedefinition.hpp"
-#include "dags/pipelinedefinitionunloadguard.hpp"
+#include "servable_definition_unload_guard.hpp"
 #include "execution_context.hpp"
-#include "filesystem.hpp"
+#include "filesystem/filesystem.hpp"
 #include "get_model_metadata_impl.hpp"
 #include "grpcservermodule.hpp"
 #include "kfs_frontend/kfs_grpc_inference_service.hpp"
 #include "kfs_frontend/kfs_utils.hpp"
-#include "metric_module.hpp"
-#include "metric_registry.hpp"
+#include "metrics/metric_config.hpp"
+#include "metrics/metric_module.hpp"
+#include "metrics/metric_registry.hpp"
 #include "model_metric_reporter.hpp"
 #include "model_service.hpp"
 #include "modelinstance.hpp"
 #include "modelinstanceunloadguard.hpp"
 #include "modelmanager.hpp"
-#include "prediction_service_utils.hpp"
 #include "profiler.hpp"
 #include "rest_parser.hpp"
 #include "rest_utils.hpp"
@@ -64,15 +63,21 @@
 #include "status.hpp"
 #include "stringutils.hpp"
 #include "timer.hpp"
+#include "utils/rapidjson_utils.hpp"
 
 #if (MEDIAPIPE_DISABLE == 0)
+#include "copyable_object_wrapper.hpp"
+#include "http_payload.hpp"
 #include "http_frontend/http_client_connection.hpp"
 #include "http_frontend/http_graph_executor_impl.hpp"
+#include "mediapipe_internal/mediapipefactory.hpp"
 #include "mediapipe_internal/mediapipegraphexecutor.hpp"
 #endif
 
 #include "tfs_frontend/tfs_utils.hpp"
+#include "tfs_frontend/tfs_request_utils.hpp"
 #include "tfs_frontend/deserialization.hpp"
+#include "kfs_frontend/kfs_request_utils.hpp"
 #include "deserialization_main.hpp"
 #include "inference_executor.hpp"
 
@@ -123,7 +128,8 @@ const std::string HttpRestApiHandler::v3_RegexExp =
 
 const std::string HttpRestApiHandler::metricsRegexExp = R"((.?)\/metrics(\?(.*))?)";
 
-HttpRestApiHandler::HttpRestApiHandler(ovms::Server& ovmsServer, int timeout_in_ms) :
+HttpRestApiHandler::HttpRestApiHandler(ovms::Server& ovmsServer, int timeout_in_ms, const std::string& apiKey) :
+    apiKey(apiKey),
     predictionRegex(predictionRegexExp),
     modelstatusRegex(modelstatusRegexExp),
     configReloadRegex(configReloadRegexExp),
@@ -224,7 +230,7 @@ void HttpRestApiHandler::registerAll() {
         return processV3(uri, request_components, response, request_body, std::move(serverReaderWriter), std::move(multiPartParser));
     });
     registerHandler(Metrics, [this](const std::string_view uri, const HttpRequestComponents& request_components, std::string& response, const std::string& request_body, HttpResponseComponents& response_components, std::shared_ptr<HttpAsyncWriter> serverReaderWriter, std::shared_ptr<MultiPartParser> multiPartParser) -> Status {
-        return processMetrics(request_components, response, request_body);
+        return processMetrics(request_components, response_components, response, request_body);
     });
     registerHandler(Options, [this](const std::string_view uri, const HttpRequestComponents& request_components, std::string& response, const std::string& request_body, HttpResponseComponents& response_components, std::shared_ptr<HttpAsyncWriter> serverReaderWriter, std::shared_ptr<MultiPartParser> multiPartParser) -> Status {
         return processOptions(request_components, response, request_body);
@@ -237,7 +243,7 @@ Status HttpRestApiHandler::processServerReadyKFSRequest(const HttpRequestCompone
     if (isReady) {
         return StatusCode::OK;
     }
-    return StatusCode::MODEL_NOT_LOADED;
+    return StatusCode::SERVER_NOT_READY;
 }
 
 Status HttpRestApiHandler::processServerLiveKFSRequest(const HttpRequestComponents& request_components, std::string& response, const std::string& request_body) {
@@ -506,17 +512,25 @@ static Status createV3HttpPayload(
         } else {
             SPDLOG_DEBUG("Model name from deduced from MultiPart field: {}", modelName);
         }
+        // Detect stream field in multipart form data (used by audio endpoints)
+        std::string streamField = multiPartParser->getFieldByName("stream");
+        if (streamField == "true") {
+            streamFieldVal = true;
+        }
         ensureJsonParserInErrorState(parsedJson);
     } else if (isApplicationJson) {
         {
             OVMS_PROFILE_SCOPE("rapidjson parse");
-            parsedJson->Parse(request_body.c_str());
+            auto status = parseJsonWithDepthLimit(*parsedJson, request_body.c_str());
+            if (!status.ok()) {
+                ensureJsonParserInErrorState(parsedJson);
+                if (status == StatusCode::JSON_NESTING_DEPTH_EXCEEDED) {
+                    return Status(StatusCode::JSON_INVALID, "JSON body exceeds maximum nesting depth");
+                }
+                return Status(StatusCode::JSON_INVALID, "Cannot parse JSON body");
+            }
         }
         OVMS_PROFILE_SCOPE("rapidjson validate");
-        if (parsedJson->HasParseError()) {
-            return Status(StatusCode::JSON_INVALID, "Cannot parse JSON body");
-        }
-
         if (!parsedJson->IsObject()) {
             return Status(StatusCode::JSON_INVALID, "JSON body must be an object");
         }
@@ -530,7 +544,7 @@ static Status createV3HttpPayload(
             return Status(StatusCode::JSON_INVALID, "model field is not a string");
         }
 
-        bool isTextGenerationEndpoint = uri.find("completions") != std::string_view::npos;
+        bool isTextGenerationEndpoint = (uri.find("completions") != std::string_view::npos) || (uri.find("responses") != std::string_view::npos);
         if (isTextGenerationEndpoint) {
             auto streamIt = parsedJson->FindMember("stream");
             if (streamIt != parsedJson->MemberEnd()) {
@@ -586,22 +600,36 @@ void parseModel(rapidjson::Writer<rapidjson::StringBuffer>& writer, const std::s
 }
 
 Status HttpRestApiHandler::processRetrieveModelRequest(const std::string& name, std::string& response) {
-    const std::map<std::string, std::shared_ptr<Model>>& models = modelManager.getModels();
-    bool exist = false;
-    auto it = models.find(name);
-    if (it != models.end())
-        exist = true;
-    const std::vector<std::string>& pipelinesNames = modelManager.getPipelineFactory().getPipelinesNames();
-    if (std::find(pipelinesNames.begin(), pipelinesNames.end(), name) != pipelinesNames.end())
-        exist = true;
+    bool available = false;
+
+    // MediaPipe first, it is most likely that anyone will check llms
 #if (MEDIAPIPE_DISABLE == 0)
-    auto mediapipes = modelManager.getMediapipeFactory().getMediapipePipelinesNames();
-    if (std::find(mediapipes.begin(), mediapipes.end(), name) != mediapipes.end())
-        exist = true;
+    if (!available) {
+        auto names = modelManager.getMediapipeFactory().getNamesOfAvailableMediapipePipelines();
+        if (std::find(names.begin(), names.end(), name) != names.end()) {
+            available = true;
+        }
+    }
 #endif
+
+    // Single Model
+    if (!available) {
+        auto availableModelNames = modelManager.getNamesOfAvailableModels();
+        if (std::find(availableModelNames.begin(), availableModelNames.end(), name) != availableModelNames.end()) {
+            available = true;
+        }
+    }
+    // DAG (deprecated)
+    if (!available) {
+        auto availableDagNames = modelManager.getPipelineFactory().getNamesOfAvailablePipelines();
+        if (std::find(availableDagNames.begin(), availableDagNames.end(), name) != availableDagNames.end()) {
+            available = true;
+        }
+    }
+
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    if (!exist) {
+    if (!available) {
         writer.StartObject();
         writer.String("error");
         writer.String("Model not found");
@@ -611,39 +639,36 @@ Status HttpRestApiHandler::processRetrieveModelRequest(const std::string& name, 
     }
     time_t timestamp;
     time(&timestamp);
-    writer.StartObject();
-    writer.String("object");
-    writer.String("list");
-    writer.String("data");
-    writer.StartArray();
     parseModel(writer, name, timestamp);
-    writer.EndArray();
-    writer.EndObject();
     response = buffer.GetString();
     return StatusCode::OK;
 }
 
 Status HttpRestApiHandler::processListModelsRequest(std::string& response) {
-    const std::map<std::string, std::shared_ptr<Model>>& models = modelManager.getModels();
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     time_t timestamp;
     time(&timestamp);
     writer.StartObject();
-    writer.String("object");
-    writer.String("list");
     writer.String("data");
     writer.StartArray();
-    for (auto const& model : models) {
-        parseModel(writer, model.first, timestamp);
+
+    // Single Model
+    auto availableModelNames = modelManager.getNamesOfAvailableModels();
+    for (auto const& name : availableModelNames) {
+        parseModel(writer, name, timestamp);
     }
-    const std::vector<std::string>& pipelinesNames = modelManager.getPipelineFactory().getPipelinesNames();
-    for (auto const& pipelineName : pipelinesNames) {
-        parseModel(writer, pipelineName, timestamp);
+
+    // DAG
+    auto availableModels = modelManager.getPipelineFactory().getNamesOfAvailablePipelines();
+    for (auto const& name : availableModels) {
+        parseModel(writer, name, timestamp);
     }
+
+    // MediaPipe
 #if (MEDIAPIPE_DISABLE == 0)
-    auto mediapipes = modelManager.getMediapipeFactory().getMediapipePipelinesNames();
-    for (auto const& graphName : mediapipes) {
+    auto availableMediapipes = modelManager.getMediapipeFactory().getNamesOfAvailableMediapipePipelines();
+    for (auto const& graphName : availableMediapipes) {
         parseModel(writer, graphName, timestamp);
     }
 #endif
@@ -655,36 +680,121 @@ Status HttpRestApiHandler::processListModelsRequest(std::string& response) {
     return StatusCode::OK;
 }
 
+bool HttpRestApiHandler::isAuthorized(const std::unordered_map<std::string, std::string>& headers, const std::string& apiKey) {
+    std::unordered_map<std::string, std::string> lowercaseHeaders;
+    for (const auto& [key, value] : headers) {
+        std::string lowercaseKey = key;
+        std::transform(lowercaseKey.begin(), lowercaseKey.end(), lowercaseKey.begin(), ::tolower);
+        if (lowercaseKey == "authorization") {
+            if (value == "Bearer " + apiKey) {
+                return true;
+            } else {
+                SPDLOG_DEBUG("Unauthorized request - invalid API key provided.");
+                return false;
+            }
+        }
+    }
+    SPDLOG_DEBUG("Unauthorized request - missing API key");
+    return false;
+}
+
+#if (MEDIAPIPE_DISABLE == 0)
+struct V3StreamCallbackResourceGuard {
+    CopyableObjectWrapper<MediapipeGraphExecutor>& executorWrapper;
+    CopyableObjectWrapper<HttpPayload>& requestWrapper;
+    std::shared_ptr<HttpAsyncWriter>& serverReaderWriter;
+
+    V3StreamCallbackResourceGuard() = delete;
+    V3StreamCallbackResourceGuard(const V3StreamCallbackResourceGuard&) = delete;
+    V3StreamCallbackResourceGuard& operator=(const V3StreamCallbackResourceGuard&) = delete;
+    V3StreamCallbackResourceGuard& operator=(V3StreamCallbackResourceGuard&&) = delete;
+    V3StreamCallbackResourceGuard(V3StreamCallbackResourceGuard&&) = delete;
+
+    V3StreamCallbackResourceGuard(
+        CopyableObjectWrapper<MediapipeGraphExecutor>& executorWrapper,
+        CopyableObjectWrapper<HttpPayload>& requestWrapper,
+        std::shared_ptr<HttpAsyncWriter>& serverReaderWriter) :
+        executorWrapper(executorWrapper),
+        requestWrapper(requestWrapper),
+        serverReaderWriter(serverReaderWriter) {}
+
+    ~V3StreamCallbackResourceGuard() {
+        auto& executor = executorWrapper.getObjectHolder()->get();
+        executor.reset();
+        if (serverReaderWriter) {
+            // This part must execute before request cleanup as request holds the client connection
+            serverReaderWriter->PartialReplyEnd();
+        }
+        auto& request = requestWrapper.getObjectHolder()->get();
+        if (request != nullptr) {
+            request->client.reset();
+        }
+    }
+};
+#endif
+
 Status HttpRestApiHandler::processV3(const std::string_view uri, const HttpRequestComponents& request_components, std::string& response, const std::string& request_body, std::shared_ptr<HttpAsyncWriter> serverReaderWriter, std::shared_ptr<MultiPartParser> multiPartParser) {
 #if (MEDIAPIPE_DISABLE == 0)
     OVMS_PROFILE_FUNCTION();
 
-    HttpPayload request;
+    CopyableObjectWrapper<HttpPayload> requestWrapper;
+    auto& request = requestWrapper.getObjectHolder()->get();
+    request = std::make_unique<HttpPayload>();
     std::string modelName;
     bool streamFieldVal = false;
+    if (!this->apiKey.empty()) {
+        if (!isAuthorized(request_components.headers, this->apiKey)) {
+            return StatusCode::UNAUTHORIZED;
+        }
+    }
 
-    auto status = createV3HttpPayload(uri, request_components, response, request_body, serverReaderWriter, std::move(multiPartParser), request, modelName, streamFieldVal);
+    auto status = createV3HttpPayload(uri, request_components, response, request_body, serverReaderWriter, std::move(multiPartParser), *request, modelName, streamFieldVal);
     if (!status.ok()) {
-        SPDLOG_DEBUG("Failed to create V3 payload: {}", status.string());
+        SPDLOG_DEBUG("Failed to create V3 payload: {} [{}]", status.string(), request_body);
         return status;
     }
 
-    std::shared_ptr<MediapipeGraphExecutor> executor;
+    CopyableObjectWrapper<MediapipeGraphExecutor> executorWrapper;
+    auto& executor = executorWrapper.getObjectHolder()->get();
     status = this->modelManager.createPipeline(executor, modelName);
     if (!status.ok()) {
         return status;
     }
 
+    if (!executorWrapper.getObjectHolder()->valid()) {
+        SPDLOG_ERROR("Failed to acquire MediaPipe graph executor for model: {}", modelName);
+        return StatusCode::INTERNAL_ERROR;
+    }
+
     if (streamFieldVal == false) {
         ExecutionContext executionContext{ExecutionContext::Interface::REST, ExecutionContext::Method::V3Unary};
-        return executor->infer(&request, &response, executionContext);
+        return executor->infer(request.get(), &response, executionContext);
     } else {
         serverReaderWriter->OverwriteResponseHeader("Content-Type", "text/event-stream");
         serverReaderWriter->OverwriteResponseHeader("Cache-Control", "no-cache");
         serverReaderWriter->OverwriteResponseHeader("Connection", "keep-alive");
-        serverReaderWriter->PartialReplyBegin([executor = std::move(executor), serverReaderWriter, request = std::move(request)] {
+
+        serverReaderWriter->PartialReplyBegin([executorWrapper = executorWrapper, weakWriter = std::weak_ptr<HttpAsyncWriter>(serverReaderWriter), requestWrapper = requestWrapper]() mutable {
+            // Lock the weak_ptr to get shared_ptr - this keeps the object alive during execution
+            auto serverReaderWriter = weakWriter.lock();
+            // Create guard to clean up resources after streaming is done
+            auto resourceGuard = V3StreamCallbackResourceGuard(executorWrapper, requestWrapper, serverReaderWriter);
+
+            if (!serverReaderWriter) {
+                SPDLOG_DEBUG("Connection was closed before streaming could begin");
+                return;
+            }
+
+            auto& request = requestWrapper.getObjectHolder()->get();
+            auto& executor = executorWrapper.getObjectHolder()->get();
+
+            if (request == nullptr || executor == nullptr) {  // should not happen
+                throw std::runtime_error("Not all resources for streaming inference have been properly initialized");
+            }
+
             ExecutionContext executionContext{ExecutionContext::Interface::REST, ExecutionContext::Method::V3Stream};
-            auto status = executor->inferStream(request, *serverReaderWriter, executionContext);
+            auto status = executor->inferStream(*request, *serverReaderWriter, executionContext);
+
             if (!status.ok()) {
                 rapidjson::StringBuffer buffer;
                 rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -694,7 +804,6 @@ Status HttpRestApiHandler::processV3(const std::string_view uri, const HttpReque
                 writer.EndObject();
                 serverReaderWriter->PartialReplyWithStatus(buffer.GetString(), HTTPStatusCode::BAD_REQUEST);
             }
-            serverReaderWriter->PartialReplyEnd();
         });
         return StatusCode::PARTIAL_END;
     }
@@ -704,13 +813,15 @@ Status HttpRestApiHandler::processV3(const std::string_view uri, const HttpReque
 #endif
 }
 
-Status HttpRestApiHandler::processMetrics(const HttpRequestComponents& request_components, std::string& response, const std::string& request_body) {
+Status HttpRestApiHandler::processMetrics(const HttpRequestComponents& request_components, HttpResponseComponents& response_components, std::string& response, const std::string& request_body) {
     auto module = this->ovmsServer.getModule(METRICS_MODULE_NAME);
     if (nullptr == module) {
         SPDLOG_ERROR("Failed to process metrics - metrics module is missing");
         return StatusCode::INTERNAL_ERROR;
     }
     auto& metricConfig = this->modelManager.getMetricConfig();
+
+    response_components.contentType = ContentType::PLAIN_TEXT;  // Prometheus exposition format, since v3 does not ignore quietly
 
     if (!metricConfig.metricsEnabled) {
         return StatusCode::REST_INVALID_URL;
@@ -1053,7 +1164,7 @@ Status HttpRestApiHandler::processPredictRequest(
     if (this->modelManager.modelExists(modelName)) {
         SPDLOG_DEBUG("Found model with name: {}. Searching for requested version...", modelName);
         status = processSingleModelRequest(modelName, modelVersion, request, requestOrder, responseProto, reporterOut);
-    } else if (this->modelManager.pipelineDefinitionExists(modelName)) {
+    } else if (this->modelManager.servableExists(modelName, ServableQueryType::Pipeline)) {
         SPDLOG_DEBUG("Found pipeline with name: {}", modelName);
         status = processPipelineRequest(modelName, request, requestOrder, responseProto, reporterOut);
     } else {
@@ -1147,7 +1258,7 @@ Status HttpRestApiHandler::getPipelineInputsAndReporter(const std::string& model
     if (!pipelineDefinition) {
         return StatusCode::MODEL_MISSING;
     }
-    std::unique_ptr<PipelineDefinitionUnloadGuard> unloadGuard;
+    std::unique_ptr<ServableDefinitionUnloadGuard> unloadGuard;
     Status status = pipelineDefinition->waitForLoaded(unloadGuard);
     if (!status.ok()) {
         return status;
@@ -1188,7 +1299,7 @@ Status HttpRestApiHandler::processPipelineRequest(const std::string& modelName,
 
     tensorflow::serving::PredictRequest& requestProto = requestParser.getProto();
     requestProto.mutable_model_spec()->set_name(modelName);
-    status = this->modelManager.createPipeline(pipelinePtr, modelName, &requestProto, &responseProto);
+    status = this->modelManager.getPipelineFactory().create(pipelinePtr, modelName, &requestProto, &responseProto, this->modelManager);
     if (!status.ok()) {
         INCREMENT_IF_ENABLED(reporterOut->getInferRequestMetric(executionContext, false));
         return status;

@@ -15,6 +15,8 @@
 //*****************************************************************************
 #include "multi_part_parser_drogon_impl.hpp"
 
+#include <vector>
+
 namespace ovms {
 
 bool DrogonMultiPartParser::parse() {
@@ -30,14 +32,46 @@ std::string DrogonMultiPartParser::getFieldByName(const std::string& name) const
     return this->parser->getParameter<std::string>(name);
 }
 
+std::vector<std::string> DrogonMultiPartParser::getArrayFieldByName(const std::string& name) const {
+    const auto& paramsVector = this->parser->getParametersVector();
+    auto it = paramsVector.find(name);
+    if (it == paramsVector.end()) {
+        return {};
+    }
+    return it->second;
+}
+
 std::string_view DrogonMultiPartParser::getFileContentByFieldName(const std::string& name) const {
     auto fileMap = this->parser->getFilesMap();
-
     auto it = fileMap.find(name);
     if (it == fileMap.end()) {
         return "";
     }
     return it->second.fileContent();
+}
+
+std::vector<std::string_view> DrogonMultiPartParser::getFilesArrayByFieldName(const std::string& name) const {
+    const std::vector<drogon::HttpFile>& files = this->parser->getFiles();
+    std::vector<std::string_view> result;
+    for (const drogon::HttpFile& file : files) {
+        if (file.getItemName() == name) {
+            result.push_back(file.fileContent());
+        }
+    }
+    return result;
+}
+
+std::set<std::string> DrogonMultiPartParser::getAllFieldNames() const {
+    std::set<std::string> fieldNames;
+    auto fileMap = this->parser->getFilesMap();
+    for (const auto& [name, _] : fileMap) {
+        fieldNames.insert(name);
+    }
+    auto params = this->parser->getParameters();
+    for (const auto& [name, _] : params) {
+        fieldNames.insert(name);
+    }
+    return fieldNames;
 }
 
 }  // namespace ovms

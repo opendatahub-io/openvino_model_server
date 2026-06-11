@@ -28,7 +28,7 @@
 #pragma warning(pop)
 #include <rapidjson/error/en.h>
 
-#include "../../filesystem.hpp"
+#include "src/filesystem/filesystem.hpp"
 #include "../../http_payload.hpp"
 #include "../../http_rest_api_handler.hpp"
 #include "../../httpservermodule.hpp"
@@ -37,6 +37,7 @@
 #include "../../llm/py_jinja_template_processor.hpp"
 #include "../../mediapipe_internal/mediapipegraphdefinition.hpp"
 #include "../../server.hpp"
+#include "../platform_utils.hpp"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -44,8 +45,10 @@
 #include "mediapipe/framework/calculator_runner.h"
 #pragma GCC diagnostic pop
 
-#include "../test_http_utils.hpp"
-#include "../test_utils.hpp"
+#include "src/test/test_http_utils.hpp"
+#include "src/test/test_utils.hpp"
+#include "src/test/light_test_utils.hpp"
+#include "src/test/test_with_temp_dir.hpp"
 
 using namespace ovms;
 
@@ -53,22 +56,46 @@ class LLMChatTemplateTest : public TestWithTempDir {
 protected:
     std::string tokenizerConfigFilePath;
     std::string jinjaConfigFilePath;
+    std::shared_ptr<GenAiServable> servable;
 
-    static void SetUpTestSuite() {
-        py::initialize_interpreter();
-    }
-
-    static void TearDownTestSuite() {
-        py::finalize_interpreter();
+    void LoadTemplateProcessor() {
+        servable = std::make_shared<ContinuousBatchingServable>();
+        servable->getProperties()->modelsPath = directoryPath;
+        servable->getProperties()->tokenizer = ov::genai::Tokenizer(directoryPath);
+        std::cout << "Chat template to be used: \n"
+                  << servable->getProperties()->tokenizer.get_original_chat_template() << std::endl;
+        ExtraGenerationInfo extraGenInfo = GenAiServableInitializer::readExtraGenerationInfo(servable->getProperties(), directoryPath);
+        GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), extraGenInfo);
     }
 
     void SetUp() {
         TestWithTempDir::SetUp();
         tokenizerConfigFilePath = directoryPath + "/tokenizer_config.json";
-        jinjaConfigFilePath = directoryPath + "/template.jinja";
+        jinjaConfigFilePath = directoryPath + "/chat_template.jinja";
+
+        // We need real model tokenizer and detokenizer as we rely on them to load chat template properly
+        std::string realModelPath = getGenericFullPathForSrcTest("/ovms/src/test/llm_testing/facebook/opt-125m");
+
+        std::string srcTokenizerPath = ovms::FileSystem::joinPath({realModelPath, "openvino_tokenizer.xml"});
+        std::string dstTokenizerPath = ovms::FileSystem::joinPath({directoryPath, "openvino_tokenizer.xml"});
+        std::filesystem::copy_file(srcTokenizerPath, dstTokenizerPath, std::filesystem::copy_options::overwrite_existing);
+
+        std::string srcTokenizerBinPath = ovms::FileSystem::joinPath({realModelPath, "openvino_tokenizer.bin"});
+        std::string dstTokenizerBinPath = ovms::FileSystem::joinPath({directoryPath, "openvino_tokenizer.bin"});
+        std::filesystem::copy_file(srcTokenizerBinPath, dstTokenizerBinPath, std::filesystem::copy_options::overwrite_existing);
+
+        std::string srcDetokenizerPath = ovms::FileSystem::joinPath({realModelPath, "openvino_detokenizer.xml"});
+        std::string dstDetokenizerPath = ovms::FileSystem::joinPath({directoryPath, "openvino_detokenizer.xml"});
+        std::filesystem::copy_file(srcDetokenizerPath, dstDetokenizerPath, std::filesystem::copy_options::overwrite_existing);
+
+        std::string srcDetokenizerBinPath = ovms::FileSystem::joinPath({realModelPath, "openvino_detokenizer.bin"});
+        std::string dstDetokenizerBinPath = ovms::FileSystem::joinPath({directoryPath, "openvino_detokenizer.bin"});
+        std::filesystem::copy_file(srcDetokenizerBinPath, dstDetokenizerBinPath, std::filesystem::copy_options::overwrite_existing);
     }
 
     void TearDown() {
+        servable.reset();
+        std::filesystem::remove_all(directoryPath);
         TestWithTempDir::TearDown();
     }
 
@@ -79,15 +106,16 @@ public:
     bool CreateJinjaConfig(std::string& fileContents) {
         return createConfigFileWithContent(fileContents, jinjaConfigFilePath);
     }
+    void CopyDefaultChatTemplate() {
+        std::string srcFilePath = getGenericFullPathForSrcTest("/ovms/src/test/llm_testing/facebook/opt-125m/chat_template.jinja");
+        std::string dstFilePath = ovms::FileSystem::joinPath({directoryPath, "chat_template.jinja"});
+        std::filesystem::copy_file(srcFilePath, dstFilePath, std::filesystem::copy_options::overwrite_existing);
+    }
 };
 
 TEST_F(LLMChatTemplateTest, ChatTemplateEmptyBody) {
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    // default_chat_template = "{% if messages|length != 1 %} {{ raise_exception('This servable accepts only single message requests') }}{% endif %}{{ messages[0]['content'] }}"
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
+    CopyDefaultChatTemplate();
+    LoadTemplateProcessor();
     std::string finalPrompt = "";
     std::string payloadBody = "";
     ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), false);
@@ -96,12 +124,8 @@ TEST_F(LLMChatTemplateTest, ChatTemplateEmptyBody) {
 }
 
 TEST_F(LLMChatTemplateTest, ChatTemplateEmptyMessage) {
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    // default_chat_template = "{% if messages|length != 1 %} {{ raise_exception('This servable accepts only single message requests') }}{% endif %}{{ messages[0]['content'] }}"
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
+    CopyDefaultChatTemplate();
+    LoadTemplateProcessor();
     std::string finalPrompt = "";
     std::string payloadBody = R"(
         {
@@ -110,18 +134,13 @@ TEST_F(LLMChatTemplateTest, ChatTemplateEmptyMessage) {
             "messages": []
         }
     )";
-    std::string errorOutput = "This servable accepts only single message requests";
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), false);
-    ASSERT_EQ(finalPrompt, errorOutput);
+    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
+    ASSERT_TRUE(finalPrompt.empty());
 }
 
 TEST_F(LLMChatTemplateTest, ChatTemplateMessageWithEmptyObject) {
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    // default_chat_template = "{% if messages|length != 1 %} {{ raise_exception('This servable accepts only single message requests') }}{% endif %}{{ messages[0]['content'] }}"
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
+    CopyDefaultChatTemplate();
+    LoadTemplateProcessor();
     std::string finalPrompt = "";
     std::string payloadBody = R"(
         {
@@ -135,48 +154,36 @@ TEST_F(LLMChatTemplateTest, ChatTemplateMessageWithEmptyObject) {
 }
 
 TEST_F(LLMChatTemplateTest, ChatTemplateDefault) {
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    // default_chat_template = "{% if messages|length != 1 %} {{ raise_exception('This servable accepts only single message requests') }}{% endif %}{{ messages[0]['content'] }}"
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
+    CopyDefaultChatTemplate();
+    LoadTemplateProcessor();
     std::string finalPrompt = "";
     std::string payloadBody = R"(
         {
-            "messages": [{ "content": "How can I help you?" }]
+            "messages": [{ "role": "user", "content": "How can I help you?" }]
         }
     )";
-    std::string expectedOutput = "How can I help you?";
+    std::string expectedOutput = "User: How can I help you?";
     ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
     ASSERT_EQ(finalPrompt, expectedOutput);
 }
 
 TEST_F(LLMChatTemplateTest, ChatTemplateMultiMessage) {
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    // default_chat_template = "{% if messages|length != 1 %} {{ raise_exception('This servable accepts only single message requests') }}{% endif %}{{ messages[0]['content'] }}"
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
+    CopyDefaultChatTemplate();
+    LoadTemplateProcessor();
     std::string finalPrompt = "";
     std::string payloadBody = R"(
         {
-            "messages": [{ "content": "How can I help you?" }, { "content": "2How can I help you?" }]
+            "messages": [{ "role": "user", "content": "How can I help you?" }, { "role": "user", "content": "2How can I help you?" }]
         }
     )";
-    std::string errorOutput = "This servable accepts only single message requests";
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), false);
-    ASSERT_EQ(finalPrompt, errorOutput);
+    std::string expectedOutput = "User: How can I help you?User: 2How can I help you?";
+    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
+    ASSERT_EQ(finalPrompt, expectedOutput);
 }
 
 TEST_F(LLMChatTemplateTest, ChatTemplateComplexMessage) {
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    // default_chat_template = "{% if messages|length != 1 %} {{ raise_exception('This servable accepts only single message requests') }}{% endif %}{{ messages[0]['content'] }}"
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
+    CopyDefaultChatTemplate();
+    LoadTemplateProcessor();
     std::string finalPrompt = "";
     std::string payloadBody = R"(
         {
@@ -185,7 +192,7 @@ TEST_F(LLMChatTemplateTest, ChatTemplateComplexMessage) {
             "messages": [{"role": "user", "content": "hello"}]
         }
     )";
-    std::string expectedOutput = "hello";
+    std::string expectedOutput = "User: hello";
     ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
     ASSERT_EQ(finalPrompt, expectedOutput);
 }
@@ -193,10 +200,7 @@ TEST_F(LLMChatTemplateTest, ChatTemplateComplexMessage) {
 TEST_F(LLMChatTemplateTest, ChatTemplateJinjaUppercase) {
     std::string jinjaTemplate = R"( {{ "Hi, " + messages[0]['content'] | upper }} )";
     ASSERT_EQ(CreateJinjaConfig(jinjaTemplate), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
+    LoadTemplateProcessor();
 
     std::string finalPrompt = "";
     std::string payloadBody = R"(
@@ -214,11 +218,7 @@ TEST_F(LLMChatTemplateTest, ChatTemplateJinjaUppercase) {
 TEST_F(LLMChatTemplateTest, ChatTemplateJinjaException) {
     std::string jinjaTemplate = R"( {{ "Hi, " + messages[3]['content'] | upper }} )";
     ASSERT_EQ(CreateJinjaConfig(jinjaTemplate), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
+    LoadTemplateProcessor();
     std::string finalPrompt = "";
     std::string payloadBody = R"(
         {
@@ -232,232 +232,6 @@ TEST_F(LLMChatTemplateTest, ChatTemplateJinjaException) {
     ASSERT_EQ(finalPrompt, errorOutput);
 }
 
-TEST_F(LLMChatTemplateTest, ChatTemplateTokenizerDefault) {
-    std::string tokenizerJson = R"({
-    "bos_token": "</s>",
-    "eos_token": "</s>"
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
-    std::string finalPrompt = "";
-    std::string payloadBody = R"(
-        {
-            "model": "gpt",
-            "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
-        }
-    )";
-    std::string expectedOutput = "hello";
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
-    ASSERT_EQ(finalPrompt, expectedOutput);
-}
-
-TEST_F(LLMChatTemplateTest, ChatTemplateTokenizerBosNull) {
-    std::string tokenizerJson = R"({
-    "bos_token": null,
-    "eos_token": "</s>"
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
-    std::string finalPrompt = "";
-    std::string payloadBody = R"(
-        {
-            "model": "gpt",
-            "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
-        }
-    )";
-    std::string expectedOutput = "hello";
-    // Expect no issues with chat template since non string bos token is ignored
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
-    ASSERT_EQ(finalPrompt, expectedOutput);
-}
-
-TEST_F(LLMChatTemplateTest, ChatTemplateTokenizerBosDict) {
-    std::string tokenizerJson = R"({
-    "bos_token": {"bos" : "INVALID"},
-    "eos_token": "</s>"
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
-    std::string finalPrompt = "";
-    std::string payloadBody = R"(
-        {
-            "model": "gpt",
-            "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
-        }
-    )";
-    std::string expectedError = "Error: Chat template not loaded correctly, so it cannot be applied";
-    // Expect no issues with chat template since non string bos token is ignored
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), false);
-    ASSERT_EQ(finalPrompt, expectedError);
-}
-
-TEST_F(LLMChatTemplateTest, ChatTemplateTokenizerEosNull) {
-    std::string tokenizerJson = R"({
-    "bos_token": "</s>",
-    "eos_token": null
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
-    std::string finalPrompt = "";
-    std::string payloadBody = R"(
-        {
-            "model": "gpt",
-            "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
-        }
-    )";
-    std::string expectedOutput = "hello";
-    // Expect no issues with chat template since non string eos token is ignored
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
-    ASSERT_EQ(finalPrompt, expectedOutput);
-}
-
-TEST_F(LLMChatTemplateTest, ChatTemplateTokenizerException) {
-    std::string tokenizerJson = R"({
-    "bos_token": "</s>",
-    "eos_token": "</s>",
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
-    std::string finalPrompt = "";
-    std::string payloadBody = R"(
-        {
-            "model": "gpt",
-            "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
-        }
-    )";
-    std::string expectedOutput = "Error: Chat template not loaded correctly, so it cannot be applied";
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), false);
-    ASSERT_EQ(finalPrompt, expectedOutput);
-}
-
-TEST_F(LLMChatTemplateTest, ChatTemplateTokenizerUpperCase) {
-    std::string tokenizerJson = R"({
-    "bos_token": "</s>",
-    "eos_token": "</s>",
-    "chat_template": "{{ \"Hi, \" + messages[0]['content'] | upper }}"
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
-    std::string finalPrompt = "";
-    std::string payloadBody = R"(
-        {
-            "model": "gpt",
-            "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
-        }
-    )";
-    std::string expectedOutput = "Hi, HELLO";
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
-    ASSERT_EQ(finalPrompt, expectedOutput);
-}
-
-TEST_F(LLMChatTemplateTest, ChatTemplateTokenizerTemplateException) {
-    std::string tokenizerJson = R"({
-    "bos_token": "</s>",
-    "eos_token": "</s>",
-    "chat_template": "{{ \"Hi, \" + messages[3]['content'] | upper }}"
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
-    std::string finalPrompt = "";
-    std::string payloadBody = R"(
-        {
-            "model": "gpt",
-            "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
-        }
-    )";
-    std::string expectedOutput = "list object has no element 3";
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), false);
-    ASSERT_EQ(finalPrompt, expectedOutput);
-}
-
-TEST_F(LLMChatTemplateTest, ChatTemplateTokenizerTemplateBadVariable) {
-    std::string tokenizerJson = R"({
-    "bos_token": "</s>",
-    "eos_token": "</s>",
-    "chat_template": {}
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
-    std::string finalPrompt = "";
-    std::string payloadBody = R"(
-        {
-            "model": "gpt",
-            "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
-        }
-    )";
-    std::string expectedError = "Error: Chat template not loaded correctly, so it cannot be applied";
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), false);
-    ASSERT_EQ(finalPrompt, expectedError);
-}
-
-TEST_F(LLMChatTemplateTest, ChatTemplateTwoConfigs) {
-    std::string tokenizerJson = R"({
-    "bos_token": "</s>",
-    "eos_token": "</s>",
-    "chat_template": "{{ \"Hi, \" + messages[0]['content'] | lower }}"
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::string jinjaTemplate = R"( {{ "Hi, " + messages[0]['content'] | upper }} )";
-    ASSERT_EQ(CreateJinjaConfig(jinjaTemplate), true);
-
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
-    std::string finalPrompt = "";
-    std::string payloadBody = R"(
-        {
-            "model": "gpt",
-            "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
-        }
-    )";
-    std::string expectedOutput = " Hi, HELLO ";
-    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
-    ASSERT_EQ(finalPrompt, expectedOutput);
-}
-
 TEST_F(LLMChatTemplateTest, ChatTemplateComparePythonAndGenAiProcessors) {
     GTEST_SKIP() << "Skipping test due to GenAI template processor not being able to compare values of different types (no implicit conversion). Enable when resolved.";
     // Using modified Llama2 template to work with limited tokenizer object (with no models loaded)
@@ -465,9 +239,6 @@ TEST_F(LLMChatTemplateTest, ChatTemplateComparePythonAndGenAiProcessors) {
     "chat_template": "{% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'] %}{% else %}{% set loop_messages = messages %}{% set system_message = false %}{% endif %}{% for message in loop_messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if loop.index0 == 0 and system_message != false %}{% set content = '<<SYS>>\\n' + system_message + '\\n<</SYS>>\\n\\n' + message['content'] %}{% else %}{% set content = message['content'] %}{% endif %}{% if message['role'] == 'user' %}{{ '<s>' + '[INST] ' + content.strip() + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' '  + content.strip() + ' </s>' }}{% endif %}{% endfor %}"
     })";
     ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
 
     std::string pythonProcessorOutput = "";
     std::string payloadBody = R"(
@@ -527,15 +298,10 @@ std::string CreatePayloadBodyWithChatTemplateKwargs(const std::string& chat_temp
 }
 
 TEST_F(LLMChatTemplateTest, ChatTemplateKwargsPositive) {
-    std::string tokenizerJson = R"({
-    "chat_template": "{% if enable_thinking %}Thinking is on{% else %}Thinking is off{% endif %}"
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
+    std::string templateJinja = R"({% if enable_thinking %}Thinking is on{% else %}Thinking is off{% endif %})";
 
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
+    ASSERT_EQ(CreateJinjaConfig(templateJinja), true);
+    LoadTemplateProcessor();
     std::string finalPrompt = "";
     std::string payloadBody;
     std::string expectedOutput;
@@ -584,15 +350,9 @@ TEST_F(LLMChatTemplateTest, ChatTemplateKwargsPositive) {
 }
 
 TEST_F(LLMChatTemplateTest, ChatTemplateKwargsNegative) {
-    std::string tokenizerJson = R"({
-    "chat_template": "{% if enable_thinking %}Thinking is on{% else %}Thinking is off{% endif %}"
-    })";
-    ASSERT_EQ(CreateTokenizerConfig(tokenizerJson), true);
-    std::shared_ptr<GenAiServable> servable = std::make_shared<ContinuousBatchingServable>();
-
-    servable->getProperties()->modelsPath = directoryPath;
-    GenAiServableInitializer::loadPyTemplateProcessor(servable->getProperties(), servable->getProperties()->modelsPath);
-
+    std::string templateJinja = R"({% if enable_thinking %}Thinking is on{% else %}Thinking is off{% endif %})";
+    ASSERT_EQ(CreateJinjaConfig(templateJinja), true);
+    LoadTemplateProcessor();
     // chat_template_kwargs must be an object
     // This is a negative test case to ensure that the template processor correctly handles invalid chat_template
     std::string finalPrompt = "";
@@ -606,6 +366,87 @@ TEST_F(LLMChatTemplateTest, ChatTemplateKwargsNegative) {
     expectedOutput = "jinja2.environment.Template.render() got multiple values for keyword argument 'messages'";
     ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), false);
     ASSERT_EQ(finalPrompt, expectedOutput);
+}
+
+TEST_F(LLMChatTemplateTest, ChatTemplateTojsonNoHtmlEscaping) {
+    // Simulates Granite/DeepSeek-R1 style tool_call templates that use tojson
+    // The tojson filter must return plain JSON, not HTML-escaped Markup.
+    // Without the override, Jinja2's default tojson wraps output in Markup,
+    // causing < > & " to be escaped as &lt; &gt; &amp; &quot; when
+    // concatenated with plain strings via + in {% set %} blocks.
+    //
+    // Key: the bug only manifests when tojson output (Markup) is concatenated
+    // with a plain str inside {% set %}, because Markup.__radd__ escapes the
+    // str operand. Direct {{ tojson }} rendering does NOT trigger the bug.
+    std::string jinjaTemplate =
+        "{%- set ns = namespace(tool_text='<tools>') %}"
+        "{%- if tools %}"
+        "  {%- for tool in tools %}"
+        "    {%- set ns.tool_text = ns.tool_text + '\\n' + (tool | tojson) %}"
+        "  {%- endfor %}"
+        "  {%- set ns.tool_text = ns.tool_text + '\\n</tools>' %}"
+        "{%- endif %}"
+        "{{ ns.tool_text }}";
+    ASSERT_EQ(CreateJinjaConfig(jinjaTemplate), true);
+    LoadTemplateProcessor();
+
+    std::string finalPrompt = "";
+    std::string payloadBody = R"(
+        {
+            "model": "gpt",
+            "stream": false,
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}]
+        }
+    )";
+    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
+    // Must contain literal <tools> tags, NOT &lt;tools&gt;
+    EXPECT_THAT(finalPrompt, ::testing::HasSubstr("<tools>"));
+    EXPECT_THAT(finalPrompt, ::testing::HasSubstr("</tools>"));
+    // Must not contain any HTML-escaped entities
+    EXPECT_THAT(finalPrompt, ::testing::Not(::testing::HasSubstr("&lt;")));
+    EXPECT_THAT(finalPrompt, ::testing::Not(::testing::HasSubstr("&gt;")));
+    EXPECT_THAT(finalPrompt, ::testing::Not(::testing::HasSubstr("&quot;")));
+    EXPECT_THAT(finalPrompt, ::testing::Not(::testing::HasSubstr("&amp;")));
+    EXPECT_THAT(finalPrompt, ::testing::HasSubstr("get_weather"));
+}
+
+TEST_F(LLMChatTemplateTest, ChatTemplateTojsonIndentWorks) {
+    // Verifies that tojson(indent=2) still produces indented JSON output
+    // after the tojson override that prevents HTML escaping.
+    std::string jinjaTemplate =
+        "{%- set ns = namespace(tool_text='<tools>') %}"
+        "{%- if tools %}"
+        "  {%- for tool in tools %}"
+        "    {%- set ns.tool_text = ns.tool_text + '\\n' + (tool | tojson(indent=2)) %}"
+        "  {%- endfor %}"
+        "  {%- set ns.tool_text = ns.tool_text + '\\n</tools>' %}"
+        "{%- endif %}"
+        "{{ ns.tool_text }}";
+    ASSERT_EQ(CreateJinjaConfig(jinjaTemplate), true);
+    LoadTemplateProcessor();
+
+    std::string finalPrompt = "";
+    std::string payloadBody = R"(
+        {
+            "model": "gpt",
+            "stream": false,
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}]
+        }
+    )";
+    ASSERT_EQ(PyJinjaTemplateProcessor::applyChatTemplate(servable->getProperties()->templateProcessor, servable->getProperties()->modelsPath, payloadBody, finalPrompt), true);
+    // Must contain literal <tools> tags, NOT &lt;tools&gt;
+    EXPECT_THAT(finalPrompt, ::testing::HasSubstr("<tools>"));
+    EXPECT_THAT(finalPrompt, ::testing::HasSubstr("</tools>"));
+    // Must not contain any HTML-escaped entities
+    EXPECT_THAT(finalPrompt, ::testing::Not(::testing::HasSubstr("&lt;")));
+    EXPECT_THAT(finalPrompt, ::testing::Not(::testing::HasSubstr("&gt;")));
+    EXPECT_THAT(finalPrompt, ::testing::Not(::testing::HasSubstr("&quot;")));
+    EXPECT_THAT(finalPrompt, ::testing::Not(::testing::HasSubstr("&amp;")));
+    EXPECT_THAT(finalPrompt, ::testing::HasSubstr("get_weather"));
+    // Verify indentation is present — indent=2 produces newlines and spaces inside JSON
+    EXPECT_THAT(finalPrompt, ::testing::HasSubstr("  \"type\": \"function\""));
 }
 
 std::string configTemplate = R"(
@@ -725,7 +566,7 @@ public:
         ON_CALL(*writer, PartialReplyBegin(::testing::_)).WillByDefault(testing::Invoke([](std::function<void()> fn) { fn(); }));
         TestWithTempDir::SetUp();
         tokenizerConfigFilePath = directoryPath + "/tokenizer_config.json";
-        jinjaConfigFilePath = directoryPath + "/template.jinja";
+        jinjaConfigFilePath = directoryPath + "/chat_template.jinja";
         ovmsConfigFilePath = directoryPath + "/ovms_config.json";
         graphConfigFilePath = directoryPath + "/graph_config.pbtxt";
 
@@ -751,10 +592,6 @@ public:
 std::unique_ptr<std::thread> LLMChatTemplateHttpTest::t;
 
 std::string fullResponse;
-
-// static void ConcatenateResponse(const std::string& partial) {
-//     fullResponse += partial;
-// }
 
 class LLMJinjaChatTemplateHttpTest : public LLMChatTemplateHttpTest {
 public:
@@ -826,12 +663,6 @@ TEST_F(LLMJinjaChatTemplateHttpTest, inferChatCompletionsUnary) {
     ASSERT_EQ(
         handler->dispatchToProcessor(endpointChatCompletions, requestBody, &response, comp, responseComponents, writer, multiPartParser),
         ovms::StatusCode::OK);
-    // Assertion split in two parts to avoid timestamp mismatch
-    // const size_t timestampLength = 10;
-    std::string expectedResponsePart1 = R"({"choices":[{"finish_reason":"stop","index":0,"logprobs":null,"message":{"content":"\nOpenVINO is","role":"assistant"}}],"created":)";
-    std::string expectedResponsePart2 = R"(,"model":"lm_cb_regular","object":"chat.completion"})";
-    // TODO: New output ASSERT_EQ(response.compare(0, expectedResponsePart1.length(), expectedResponsePart1), 0);
-    // TODO: New output ASSERT_EQ(response.compare(expectedResponsePart1.length() + timestampLength, expectedResponsePart2.length(), expectedResponsePart2), 0);
 }
 
 TEST_F(LLMJinjaChatTemplateHttpTest, inferCompletionsUnary) {
@@ -848,12 +679,6 @@ TEST_F(LLMJinjaChatTemplateHttpTest, inferCompletionsUnary) {
     ASSERT_EQ(
         handler->dispatchToProcessor(endpointCompletions, requestBody, &response, comp, responseComponents, writer, multiPartParser),
         ovms::StatusCode::OK);
-    // Assertion split in two parts to avoid timestamp mismatch
-    // const size_t timestampLength = 10;
-    std::string expectedResponsePart1 = R"({"choices":[{"finish_reason":"stop","index":0,"logprobs":null,"text":"\n\nThe first thing"}],"created":)";
-    std::string expectedResponsePart2 = R"(,"model":"lm_cb_regular","object":"text_completion"})";
-    // TODO: New output ASSERT_EQ(response.compare(0, expectedResponsePart1.length(), expectedResponsePart1), 0);
-    // TODO: New output ASSERT_EQ(response.compare(expectedResponsePart1.length() + timestampLength, expectedResponsePart2.length(), expectedResponsePart2), 0);
 }
 
 TEST_F(LLMJinjaChatTemplateHttpTest, inferChatCompletionsStream) {
@@ -867,33 +692,11 @@ TEST_F(LLMJinjaChatTemplateHttpTest, inferChatCompletionsStream) {
         }
     )";
 
-    // TODO: New output EXPECT_CALL(writer, PartialReplyEnd()).Times(1);
-    /* TODO: New output EXPECT_CALL(writer, PartialReply(::testing::_))
-        .WillRepeatedly([](std::string response) {
-            rapidjson::Document responseJson;
-            const int dataHeaderSize = 6;
-            std::string jsonResponse = response.substr(dataHeaderSize);
-            rapidjson::ParseResult ok = responseJson.Parse(jsonResponse.c_str());
-            if (response.find("[DONE]") == std::string::npos) {
-                ASSERT_EQ(ok.Code(), 0);
-                auto m = responseJson.FindMember("choices");
-                ASSERT_NE(m, responseJson.MemberEnd());
-                auto& choices = m->value.GetArray()[0];
-                auto modelOutput = choices.GetObject()["text"].GetString();
-                ConcatenateResponse(modelOutput);
-            }
-        });
-    */
-    // TODO: New output EXPECT_CALL(writer, WriteResponseString(::testing::_)).Times(0);
-    // TODO: New output EXPECT_CALL(writer, IsDisconnected()).Times(7);
-
     ASSERT_EQ(
         handler->dispatchToProcessor(endpointCompletions, requestBody, &response, comp, responseComponents, writer, multiPartParser),
         ovms::StatusCode::PARTIAL_END);
 
     ASSERT_EQ(response, "");
-
-    // TODO: New output ASSERT_EQ(fullResponse, "\n\nThe first thing ");
 }
 
 TEST_F(LLMJinjaChatTemplateHttpTest, inferCompletionsStream) {
@@ -907,33 +710,11 @@ TEST_F(LLMJinjaChatTemplateHttpTest, inferCompletionsStream) {
         }
     )";
 
-    // TODO: New output EXPECT_CALL(writer, PartialReplyEnd()).Times(1);
-    /* TODO: New output EXPECT_CALL(writer, PartialReply(::testing::_))
-        .WillRepeatedly([](std::string response) {
-            rapidjson::Document responseJson;
-            const int dataHeaderSize = 6;
-            std::string jsonResponse = response.substr(dataHeaderSize);
-            rapidjson::ParseResult ok = responseJson.Parse(jsonResponse.c_str());
-            if (response.find("[DONE]") == std::string::npos) {
-                ASSERT_EQ(ok.Code(), 0);
-                auto m = responseJson.FindMember("choices");
-                ASSERT_NE(m, responseJson.MemberEnd());
-                auto& choices = m->value.GetArray()[0];
-                auto modelOutput = choices.GetObject()["text"].GetString();
-                ConcatenateResponse(modelOutput);
-            }
-        });
-    */
-    // TODO: New output EXPECT_CALL(writer, WriteResponseString(::testing::_)).Times(0);
-    // TODO: New output EXPECT_CALL(writer, IsDisconnected()).Times(7);
-
     ASSERT_EQ(
         handler->dispatchToProcessor(endpointCompletions, requestBody, &response, comp, responseComponents, writer, multiPartParser),
         ovms::StatusCode::PARTIAL_END);
 
     ASSERT_EQ(response, "");
-
-    // ASSERT_EQ(fullResponse, "\n\nThe first thing ");
 }
 
 TEST_F(LLMJinjaChatTemplateHttpTest, inferDefaultChatCompletionsUnary) {
@@ -956,10 +737,4 @@ TEST_F(LLMJinjaChatTemplateHttpTest, inferDefaultChatCompletionsUnary) {
     ASSERT_EQ(
         handler->dispatchToProcessor(endpointChatCompletions, requestBody, &response, comp, responseComponents, writer, multiPartParser),
         ovms::StatusCode::OK);
-    // Assertion split in two parts to avoid timestamp mismatch
-    // const size_t timestampLength = 10;
-    std::string expectedResponsePart1 = R"({"choices":[{"finish_reason":"stop","index":0,"logprobs":null,"message":{"content":"\nOpenVINO is","role":"assistant"}}],"created":)";
-    std::string expectedResponsePart2 = R"(,"model":"lm_cb_regular","object":"chat.completion"})";
-    // TODO: New output ASSERT_EQ(response.compare(0, expectedResponsePart1.length(), expectedResponsePart1), 0);
-    // TODO: New output ASSERT_EQ(response.compare(expectedResponsePart1.length() + timestampLength, expectedResponsePart2.length(), expectedResponsePart2), 0);
 }

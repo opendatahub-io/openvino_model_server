@@ -22,6 +22,7 @@ const std::unordered_map<StatusCode, std::string> Status::statusMessageMap = {
     {StatusCode::OK, ""},
 
     {StatusCode::PATH_INVALID, "The provided base path is invalid or doesn't exists"},
+    {StatusCode::DIRECTORY_NOT_CREATED, "Directory could not be created"},
     {StatusCode::FILE_INVALID, "File not found or cannot open"},
     {StatusCode::CONFIG_FILE_INVALID, "Configuration file not found or cannot open"},
     {StatusCode::FILESYSTEM_ERROR, "Error during filesystem operation"},
@@ -29,12 +30,17 @@ const std::unordered_map<StatusCode, std::string> Status::statusMessageMap = {
     {StatusCode::NO_MODEL_VERSION_AVAILABLE, "Not a single model version directory has valid numeric name"},
     {StatusCode::MODEL_NOT_LOADED, "Error while loading a model"},
     {StatusCode::JSON_INVALID, "The file is not valid json"},
+    {StatusCode::JSON_NESTING_DEPTH_EXCEEDED, "JSON nesting depth exceeds the allowed limit"},
     {StatusCode::JSON_SERIALIZATION_ERROR, "Data serialization to json format failed"},
     {StatusCode::MODELINSTANCE_NOT_FOUND, "ModelInstance not found"},
     {StatusCode::SHAPE_WRONG_FORMAT, "The provided shape is in wrong format"},
     {StatusCode::LAYOUT_WRONG_FORMAT, "The provided layout is in wrong format"},
+    {StatusCode::FLOAT_WRONG_FORMAT, "The provided float is in wrong format"},
+    {StatusCode::COLOR_FORMAT_WRONG_FORMAT, "The provided color format is in wrong format"},
+    {StatusCode::PRECISION_WRONG_FORMAT, "The provided precision is in wrong format"},
     {StatusCode::DIM_WRONG_FORMAT, "The provided dimension is in wrong format"},
     {StatusCode::PLUGIN_CONFIG_WRONG_FORMAT, "Plugin config is in wrong format"},
+    {StatusCode::PLUGIN_CONFIG_CONFLICTING_PARAMETERS, "Tried to set the same key twice in plugin config"},
     {StatusCode::MODEL_VERSION_POLICY_WRONG_FORMAT, "Model version policy is in wrong format"},
     {StatusCode::MODEL_VERSION_POLICY_UNSUPPORTED_KEY, "Model version policy contains unsupported key"},
     {StatusCode::GRPC_CHANNEL_ARG_WRONG_FORMAT, "Grpc channel arguments passed in wrong format"},
@@ -65,11 +71,6 @@ const std::unordered_map<StatusCode, std::string> Status::statusMessageMap = {
     {StatusCode::INVALID_NIREQ, "Nireq parameter too high"},
     {StatusCode::REQUESTED_DYNAMIC_PARAMETERS_ON_SUBSCRIBED_MODEL, "Requested dynamic parameters but model is used in pipeline"},
     {StatusCode::PIPELINE_STREAM_ID_NOT_READY_YET, "Node is not ready for execution"},
-    {StatusCode::REQUESTED_DYNAMIC_PARAMETERS_ON_STATEFUL_MODEL, "Dynamic shape and dynamic batch size are not supported for stateful models"},
-    {StatusCode::REQUESTED_STATEFUL_PARAMETERS_ON_SUBSCRIBED_MODEL, "Stateful model cannot be subscribed to pipeline"},
-    {StatusCode::REQUESTED_MODEL_TYPE_CHANGE, "Model type cannot be changed after it is loaded"},
-    {StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER, "Stateful model config parameter used for non stateful model"},
-    {StatusCode::INVALID_MAX_SEQUENCE_NUMBER, "Sequence max number parameter too high"},
     {StatusCode::CANNOT_CONVERT_FLAT_SHAPE, "Cannot convert flat shape to Shape object"},
     {StatusCode::INVALID_BATCH_DIMENSION, "Invalid batch dimension in shape"},
     {StatusCode::LAYOUT_INCOMPATIBLE_WITH_SHAPE, "Layout incompatible with given shape"},
@@ -78,17 +79,6 @@ const std::unordered_map<StatusCode, std::string> Status::statusMessageMap = {
     {StatusCode::OV_NO_OUTPUTS, "Cannot load model with no outputs"},
     {StatusCode::ALLOW_CACHE_WITH_CUSTOM_LOADER, "allow_cache is set to true with custom loader usage"},
     {StatusCode::UNKNOWN_ERROR, "Unknown error"},
-
-    // Sequence management
-    {StatusCode::SEQUENCE_MISSING, "Sequence with provided ID does not exist"},
-    {StatusCode::SEQUENCE_ALREADY_EXISTS, "Sequence with provided ID already exists"},
-    {StatusCode::SEQUENCE_ID_NOT_PROVIDED, "Sequence ID has not been provided in request inputs"},
-    {StatusCode::INVALID_SEQUENCE_CONTROL_INPUT, "Unexpected value of sequence control input"},
-    {StatusCode::SEQUENCE_ID_BAD_TYPE, "Could not find sequence id in expected tensor proto field uint64_val"},
-    {StatusCode::SEQUENCE_CONTROL_INPUT_BAD_TYPE, "Could not find sequence control input in expected tensor proto field uint32_val"},
-    {StatusCode::SEQUENCE_TERMINATED, "Sequence last request is being processed and it's not available anymore"},
-    {StatusCode::SPECIAL_INPUT_NO_TENSOR_SHAPE, "Special input proto does not contain tensor shape information"},
-    {StatusCode::MAX_SEQUENCE_NUMBER_REACHED, "Max sequence number has been reached. Could not create new sequence."},
 
     // Predict request validation
     {StatusCode::INVALID_NO_OF_INPUTS, "Invalid number of inputs"},
@@ -132,6 +122,7 @@ const std::unordered_map<StatusCode, std::string> Status::statusMessageMap = {
     {StatusCode::UNKNOWN_REQUEST_COMPONENTS_TYPE, "Request components type not recognized"},
     {StatusCode::FAILED_TO_PARSE_MULTIPART_CONTENT_TYPE, "Request of multipart type but failed to parse"},
     {StatusCode::FAILED_TO_DEDUCE_MODEL_NAME_FROM_URI, "Failed to deduce model name from all possible ways"},
+    {StatusCode::UNAUTHORIZED, "Unauthorized request due to invalid or missing api-key"},
 
     // Rest parser failure
     {StatusCode::REST_BODY_IS_NOT_AN_OBJECT, "Request body should be JSON object"},
@@ -233,6 +224,7 @@ const std::unordered_map<StatusCode, std::string> Status::statusMessageMap = {
     // LLM Nodes
     {StatusCode::LLM_NODE_NAME_ALREADY_EXISTS, "The LLM Node name is already present in nodes list"},
     {StatusCode::LLM_NODE_DIRECTORY_DOES_NOT_EXIST, "The LLM Node workspace path does not exist"},
+    {StatusCode::LLM_NODE_PATH_DOES_NOT_EXIST_AND_NOT_GGUFFILE, "The LLM Node workspace path does not exist and not gguf model file"},
     {StatusCode::LLM_NODE_RESOURCE_STATE_INITIALIZATION_FAILED, "The LLM Node resource initialization failed"},
     {StatusCode::LLM_NODE_MISSING_OPTIONS, "The LLM Node is missing options definition"},
     {StatusCode::LLM_NODE_MISSING_NAME, "The LLM Node is missing name definition"},
@@ -337,11 +329,16 @@ const std::unordered_map<StatusCode, std::string> Status::statusMessageMap = {
 
     // Huggingface model download errors for libgit2
     {StatusCode::HF_FAILED_TO_INIT_LIBGIT2, "Failed to initialize libgit2 library"},
-    {StatusCode::HF_FAILED_TO_INIT_GIT, "Failed to run git executable"},
     {StatusCode::HF_FAILED_TO_INIT_OPTIMUM_CLI, "Failed to run optimum-cli executable"},
     {StatusCode::HF_RUN_OPTIMUM_CLI_EXPORT_FAILED, "Failed to run optimum-cli export command"},
-    {StatusCode::HF_FAILED_TO_INIT_GIT_LFS, "Failed to run git-lfs executable"},
+    {StatusCode::HF_RUN_CONVERT_TOKENIZER_EXPORT_FAILED, "Failed to run convert-tokenizer export command"},
+    {StatusCode::HF_GIT_CLONE_CANCELLED, "Libgit2 clone cancelled due to shutdown request"},
     {StatusCode::HF_GIT_CLONE_FAILED, "Failed in libgit2 execution of clone method"},
+    {StatusCode::HF_GIT_STATUS_FAILED, "Failed in libgit2 execution of status method"},
+    {StatusCode::HF_GIT_STATUS_FAILED_TO_RESOLVE_PATH, "Failed in libgit2 to check repository status for a given path"},
+    {StatusCode::HF_GIT_LIBGIT2_NOT_INITIALIZED, "Libgit2 was not initialized"},
+    {StatusCode::HF_GIT_LIBGIT2_LFS_DOWNLOAD_FAILED, "Libgit2 LFS download failed"},
+    {StatusCode::HF_GIT_STATUS_UNCLEAN, "Unclean status detected in libgit2 repository path"},
 
     {StatusCode::PARTIAL_END, "Request has finished and no further communication is needed"},
     {StatusCode::NONEXISTENT_PATH, "Nonexistent path"},

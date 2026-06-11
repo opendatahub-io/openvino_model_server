@@ -92,6 +92,7 @@ public:
          * @return bool
          */
     static bool check_hostname_or_ip(const std::string& input);
+    static bool is_ipv6(const std::string& input);
 
     /**
          * @brief Get the config path
@@ -199,6 +200,33 @@ public:
     const std::string& layout() const;
 
     /**
+         * @brief Get means
+         * 
+         * @return const std::string
+         */
+    const std::string means() const;
+    /**
+         * @brief Get scales  
+         * 
+         * @return const std::string
+         */
+    const std::string scales() const;
+
+    /**
+         * @brief Get color format  
+         * 
+         * @return const std::string
+         */
+    const std::string colorFormat() const;
+
+    /**
+         * @brief Get precision  
+         * 
+         * @return const std::string
+         */
+    const std::string precision() const;
+
+    /**
          * @brief Get the shape
          * 
          * @return const std::string&
@@ -227,13 +255,6 @@ public:
     const std::string& pluginConfig() const;
 
     /**
-         * @brief Get stateful flag
-         *
-         * @return bool
-         */
-    bool stateful() const;
-
-    /**
      * @brief Get metrics enabled flag
      *
      * @return bool
@@ -246,27 +267,6 @@ public:
         * @return std::string
         */
     std::string metricsList() const;
-
-    /**
-     * @brief Get idle sequence cleanup flag
-     *
-     * @return uint
-     */
-    bool idleSequenceCleanup() const;
-
-    /**
-         * @brief Get low latency transformation flag
-         *
-         * @return bool
-         */
-    bool lowLatencyTransformation() const;
-
-    /**
-     * @brief Get max number of sequences that can be processed concurrently 
-     *
-     * @return uint
-     */
-    uint32_t maxSequenceNumber() const;
 
     /**
         * @brief Get the log level
@@ -306,13 +306,6 @@ public:
     uint32_t filesystemPollWaitMilliseconds() const;
 
     /**
-     * @brief Get the sequence cleanup poll wait time in minutes
-     * 
-     * @return uint32_t
-     */
-    uint32_t sequenceCleanerPollWaitMinutes() const;
-
-    /**
      * @brief Get the resources cleanup poll wait time in seconds
      * 
      * @return uint32_t
@@ -323,6 +316,7 @@ public:
     const std::string& allowedOrigins() const;
     const std::string& allowedMethods() const;
     const std::string& allowedHeaders() const;
+    const std::string& apiKey() const;
 
     /**
          * @brief Model cache directory

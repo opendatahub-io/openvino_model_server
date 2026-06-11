@@ -1,0 +1,73 @@
+//*****************************************************************************
+// Copyright 2025 Intel Corporation
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//*****************************************************************************
+#pragma once
+
+#include "../sidepacket_servable.hpp"
+#include "src/embeddings/embeddings_calculator_ov.pb.h"
+#include "src/filesystem/filesystem.hpp"
+#include "src/port/rapidjson_istreamwrapper.hpp"
+#include "src/port/rapidjson_error.hpp"
+#include <memory>
+#include <string>
+#include <unordered_map>
+
+namespace ovms {
+
+struct EmbeddingsServable : public SidepacketServable {
+public:
+    EmbeddingsServable(
+        const std::string& modelDir,
+        const std::string& targetDevice,
+        const std::string& pluginConfig,
+        const std::string& graphPath,
+        mediapipe::EmbeddingsCalculatorOVOptions_Pooling pooling,
+        bool normalizeEmbeddings) :
+        SidepacketServable(modelDir, targetDevice, pluginConfig, graphPath),
+        pooling(pooling),
+        normalizeEmbeddings(normalizeEmbeddings) {}
+
+    int getTargetOutputIndex() const {
+        return targetOutputIndex;
+    }
+
+    bool isStatic() const {
+        return modelIsStatic;
+    }
+
+    const bool isNpuPostprocessingRequired() {
+        return npuPostprocessingRequired;
+    }
+
+    OVInferRequestsQueue& getPostProcInferRequestsQueue() {
+        return *postProcInferRequestsQueue;
+    }
+
+protected:
+    std::shared_ptr<ov::Model> applyPrePostProcessing(ov::Core& core, std::shared_ptr<ov::Model> model, ov::AnyMap& properties) override;
+
+private:
+    mediapipe::EmbeddingsCalculatorOVOptions_Pooling pooling;
+    bool normalizeEmbeddings;
+    bool npuPostprocessingRequired = false;
+    ov::CompiledModel postProcCompiledModel;
+    std::unique_ptr<OVInferRequestsQueue> postProcInferRequestsQueue;
+    bool modelIsStatic = false;
+
+    int targetOutputIndex = -1;
+};
+
+using EmbeddingsServableMap = std::unordered_map<std::string, std::shared_ptr<EmbeddingsServable>>;
+}  // namespace ovms

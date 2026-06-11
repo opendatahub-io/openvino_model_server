@@ -13,13 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //*****************************************************************************
-#ifndef SRC_JSON_PARSER_HPP_
-#define SRC_JSON_PARSER_HPP_
-#endif  // SRC_JSON_PARSER_HPP_
+
+#pragma once
 #include <map>
 #include <string>
 
-#include <openvino/openvino.hpp>
+#include <openvino/core/any.hpp>
 #pragma warning(push)
 #pragma warning(disable : 6313)
 #include <rapidjson/document.h>

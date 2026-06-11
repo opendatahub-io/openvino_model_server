@@ -22,6 +22,8 @@
 #include <CL/cl2.hpp>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
+#include <openvino/runtime/core.hpp>
 #include <opencv2/opencv.hpp>
 #include <openvino/core/type/element_type.hpp>
 #include <openvino/openvino.hpp>
@@ -33,7 +35,8 @@
 #include "../status.hpp"
 #include "c_api_test_utils.hpp"
 #include "gpuenvironment.hpp"
-#include "test_utils.hpp"
+#include "light_test_utils.hpp"
+#include "test_with_temp_dir.hpp"
 
 using namespace ov;
 

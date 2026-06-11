@@ -10,18 +10,11 @@ The picture below shows the execution flow in the graph.
 
 ![Mediapipe graph image](graph.png)
 
-## Build image
-
-```bash
-git clone https://github.com/openvinotoolkit/model_server.git
-cd model_server
-make python_image
-```
-
 ## Install client requirements
 
 ```bash
-cd demos/python_demos/clip_image_classification/
+git clone https://github.com/openvinotoolkit/model_server.git
+cd model_server/demos/python_demos/clip_image_classification/
 virtualenv .venv
 . .venv/bin/activate
 pip3 install -r requirements.txt
@@ -30,7 +23,7 @@ pip3 install -r requirements.txt
 ## Download and convert model
 
 ```bash
-pip3 install -r download_model_requirements.txt
+pip3 install --pre --extra-index-url "https://download.pytorch.org/whl/cpu" --extra-index-url "https://storage.openvinotoolkit.org/simple/wheels/nightly" "openvino==2026.1.*" "numpy<2.0" "pillow==12.2.0" "torch==2.8.0+cpu" "transformers<=4.53.0"
 ```
 
 ```bash
@@ -47,7 +40,7 @@ Mount the `./servable` which contains:
 - `graph.pbtxt` - which defines MediaPipe graph containing python nodes
 
 ```bash
-docker run -d --rm -p 9000:9000 -p 8000:8000 -v ${PWD}/servable:/workspace -v ${PWD}/model:/model/ openvino/model_server:py --config_path /workspace/config.json --port 9000 --rest_port 8000
+docker run -d --rm -p 9000:9000 -p 8000:8000 -v ${PWD}/servable:/workspace -v ${PWD}/model:/model/ openvino/model_server:latest-py --config_path /workspace/config.json --port 9000 --rest_port 8000
 ```
 
 ## Requesting detection name with grpc request

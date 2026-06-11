@@ -56,6 +56,7 @@ build --define=MEDIAPIPE_DISABLE_GPU=1
 build --define=MEDIAPIPE_DISABLE=0
 build --define=CLOUD_DISABLE=0
 build --define=PYTHON_DISABLE=0
+build --define=USE_DROGON=1  # 0=legacy net_http, available only on linux
 
 # Sets the default Apple platform to macOS.
 build --apple_platform_type=macos
@@ -91,7 +92,6 @@ build:linux --host_cxxopt=-std=c++17
 build:linux --action_env PYTHON_BIN_PATH="/usr/bin/python3"
 build:linux --define PYTHON_BIN_PATH=/usr/bin/python3
 
-build:linux --define=USE_DROGON=1  # 0=legacy net_http, available only on linux
 # Security options ######################################################################################################
 # TODO: Add equivalent windows flag
 build:linux --cxxopt=-fno-strict-overflow
@@ -102,7 +102,6 @@ build:linux --cxxopt=-fstack-clash-protection
 build:linux --cxxopt=-Wformat
 build:linux --cxxopt=-Wformat-security
 build:linux --cxxopt=-Werror=format-security
-
 # TODO: Add equivalent windows flag
 build:linux --force_pic
 
@@ -220,6 +219,10 @@ build:windows --host_linkopt=/OPT:REF
 build:windows --linkopt=/OPT:ICF
 build:windows --host_linkopt=/OPT:ICF
 
+# Optional build with INTEGRITYCHECK: bazel build --config=win_integritycheck //src:ovms
+build:win_integritycheck --linkopt=/INTEGRITYCHECK
+build:win_integritycheck --host_linkopt=/INTEGRITYCHECK
+
 build:windows --action_env PYTHON_BIN_PATH="C:/opt/Python312/python.exe"
 build:windows --action_env PYTHON_LIB_PATH="C:/opt/Python312/lib/site-packages"
 build:windows --repo_env PYTHON_BIN_PATH=C:/opt/Python312/python.exe
@@ -233,7 +236,6 @@ build:windows --deleted_packages=tensorflow/core/tfrt/stubs,tensorflow/compiler/
 
 # Windows build ssl headers for GRPC workaround
 build:windows --override_repository="boringssl=C:\\opt\\boringSSL-SwiftPM"
-
 #Add this parameter for windows local builds, its added on jenkins via windows_build.bat. Must be short path on C:\ for mediapipe to compile
 #startup --output_user_root=C:/b_tmp
 
@@ -244,11 +246,9 @@ build:windows --define=MEDIAPIPE_DISABLE=0
 
 # Change this path alongside WORKSPACE:"windows_openvino" path for model_api cmake compilation.
 build:windows --action_env OpenVINO_DIR="c:/opt/openvino/runtime/cmake"
-build:windows --action_env OpenCV_DIR="c:/opt/opencv"
+build:windows --action_env OpenCV_DIR="c:/opt/opencv_4.13.0"
 
 build:windows --repo_env=HERMETIC_PYTHON_VERSION=3.12
-build:windows --define=USE_DROGON=1
-build:windows --define=GENAI_USE_BINARY=1
 
 build:win_mp_on_py_on --config=windows
 build:win_mp_on_py_on --define=MEDIAPIPE_DISABLE=0
@@ -258,6 +258,7 @@ build:win_mp_on_py_off --define=MEDIAPIPE_DISABLE=0
 build:win_mp_on_py_off --define=PYTHON_DISABLE=1
 
 # Tests settings ############################################################################################################################
+test --test_timeout=1200
 # sometimes failed logs exceed this threshold
 test --experimental_ui_max_stdouterr_bytes=304857600
 
@@ -267,6 +268,7 @@ test:linux --test_env LD_LIBRARY_PATH=/opt/opencv/lib/:/opt/intel/openvino/runti
 test:linux --test_env OPENVINO_TOKENIZERS_PATH_GENAI=/opt/intel/openvino/runtime/lib/intel64/libopenvino_tokenizers.so
 test:linux --test_env PYTHONPATH=/opt/intel/openvino/python:/ovms/bazel-bin/src/python/binding
 test:linux --test_env no_proxy=localhost
+test:linux --test_env "OVMS_MEDIA_URL_ALLOW_REDIRECTS=1"
 
 # Bazelrc imports ############################################################################################################################
 # file below should contain sth like

@@ -15,13 +15,13 @@ You can download model server package in two configurations. One with Python sup
 :sync: ubuntu-22-04
 Download precompiled package (without python):
 ```{code} sh
-wget https://github.com/openvinotoolkit/model_server/releases/download/v2025.2/ovms_ubuntu22.tar.gz
-tar -xzvf ovms_ubuntu22.tar.gz
+wget https://github.com/openvinotoolkit/model_server/releases/download/v2026.2/ovms_ubuntu22_2026.2.0_python_off.tar.gz
+tar -xzvf ovms_ubuntu22_2026.2.0_python_off.tar.gz
 ```
 or precompiled package (with python):
 ```{code} sh
-wget https://github.com/openvinotoolkit/model_server/releases/download/v2025.2/ovms_ubuntu22_python_on.tar.gz
-tar -xzvf ovms_ubuntu22_python_on.tar.gz
+wget https://github.com/openvinotoolkit/model_server/releases/download/v2026.2/ovms_ubuntu22_2026.2.0_python_on.tar.gz
+tar -xzvf ovms_ubuntu22_2026.2.0_python_on.tar.gz
 ```
 Install required libraries:
 ```{code} sh
@@ -35,21 +35,28 @@ export PATH=$PATH:${PWD}/ovms/bin
 In case of the version with python run also:
 ```{code} sh
 export PYTHONPATH=${PWD}/ovms/lib/python
-sudo apt -y install libpython3.10
+sudo apt -y install python3-pip
 pip3 install "Jinja2==3.1.6" "MarkupSafe==3.0.2"
 ```
+and if you plan to use Python nodes with OpenVINO or OpenVINO GenAI, you will also need to install NumPy:
+```{code} sh
+pip3 install numpy
+```
+**Do not install openvino, openvino-tokenizers or openvino-genai via pip**.
+Model server version with Python is shipped with those packages and new installation with pip will likely result in broken dependencies.
+
 :::
 :::{tab-item} Ubuntu 24.04
 :sync: ubuntu-24-04
 Download precompiled package (without python):
 ```{code} sh
-wget https://github.com/openvinotoolkit/model_server/releases/download/v2025.2/ovms_ubuntu24.tar.gz
-tar -xzvf ovms_ubuntu24.tar.gz
+wget https://github.com/openvinotoolkit/model_server/releases/download/v2026.2/ovms_ubuntu24_2026.2.0_python_off.tar.gz
+tar -xzvf ovms_ubuntu24_2026.2.0_python_off.tar.gz
 ```
 or precompiled package (with python):
 ```{code} sh
-wget https://github.com/openvinotoolkit/model_server/releases/download/v2025.2/ovms_ubuntu24_python_on.tar.gz
-tar -xzvf ovms_ubuntu24_python_on.tar.gz
+wget https://github.com/openvinotoolkit/model_server/releases/download/v2026.2/ovms_ubuntu24_2026.2.0_python_on.tar.gz
+tar -xzvf ovms_ubuntu24_2026.2.0_python_on.tar.gz
 ```
 Install required libraries:
 ```{code} sh
@@ -63,21 +70,28 @@ export PATH=$PATH:${PWD}/ovms/bin
 In case of the version with python run also:
 ```{code} sh
 export PYTHONPATH=${PWD}/ovms/lib/python
-sudo apt -y install libpython3.12
+sudo apt -y install python3-pip
 pip3 install "Jinja2==3.1.6" "MarkupSafe==3.0.2"
 ```
+and if you plan to use Python nodes with OpenVINO or OpenVINO GenAI, you will also need to install NumPy:
+```{code} sh
+pip3 install numpy
+```
+**Do not install openvino, openvino-tokenizers or openvino-genai via pip**.
+Model server version with Python is shipped with those packages and new installation with pip will likely result in broken dependencies.
+
 :::
 :::{tab-item} RHEL 9.6
 :sync: rhel-9.6
 Download precompiled package (without python):
 ```{code} sh
-wget https://github.com/openvinotoolkit/model_server/releases/download/v2025.2/ovms_redhat.tar.gz
-tar -xzvf ovms_redhat.tar.gz
+wget https://github.com/openvinotoolkit/model_server/releases/download/v2026.2/ovms_redhat_2026.2.0_python_off.tar.gz
+tar -xzvf ovms_redhat_2026.2.0_python_off.tar.gz
 ```
 or precompiled package (with python):
 ```{code} sh
-wget https://github.com/openvinotoolkit/model_server/releases/download/v2025.2/ovms_redhat_python_on.tar.gz
-tar -xzvf ovms_redhat_python_on.tar.gz
+wget https://github.com/openvinotoolkit/model_server/releases/download/v2026.2/ovms_redhat_2026.2.0_python_on.tar.gz
+tar -xzvf ovms_redhat_2026.2.0_python_on.tar.gz
 ```
 Install required libraries:
 ```{code} sh
@@ -91,9 +105,17 @@ export PATH=$PATH:${PWD}/ovms/bin
 In case of the version with python run also:
 ```{code} sh
 export PYTHONPATH=${PWD}/ovms/lib/python
-sudo yum install -y python39-libs
-pip3 install "Jinja2==3.1.6" "MarkupSafe==3.0.2"
+sudo yum install -y python3.12 python3.12-pip
+pip3.12 install "Jinja2==3.1.6" "MarkupSafe==3.0.2"
 ```
+
+and if you plan to use Python nodes with OpenVINO or OpenVINO GenAI, you will also need to install NumPy:
+```{code} sh
+pip3.12 install numpy
+```
+**Do not install openvino, openvino-tokenizers or openvino-genai via pip**.
+Model server version with Python is shipped with those packages and new installation with pip will likely result in broken dependencies.
+
 :::
 :::{tab-item} Windows
 :sync: windows
@@ -102,14 +124,14 @@ Make sure you have [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/r
 Download and unpack model server archive for Windows(with python):
 
 ```bat
-curl -L https://github.com/openvinotoolkit/model_server/releases/download/v2025.2/ovms_windows_python_on.zip -o ovms.zip
+curl -L https://github.com/openvinotoolkit/model_server/releases/download/v2026.2/ovms_windows_2026.2.0_python_on.zip -o ovms.zip
 tar -xf ovms.zip
 ```
 
 or archive without python:
 
 ```bat
-curl -L https://github.com/openvinotoolkit/model_server/releases/download/v2025.2/ovms_windows_python_off.zip -o ovms.zip
+curl -L https://github.com/openvinotoolkit/model_server/releases/download/v2026.2/ovms_windows_2026.2.0_python_off.zip -o ovms.zip
 tar -xf ovms.zip
 ```
 
@@ -125,14 +147,21 @@ Run `setupvars` script to set required environment variables.
 .\ovms\setupvars.ps1
 ```
 
-> **Note**: If package contains Python, running this script changes Python settings for the shell that runs it. Environment variables are set only for the current shell so make sure you rerun the script before using model server in a new shell. 
+Additionally you can install [ovms as a windows service](windows_service.md)
 
-> **Note**: If package contains Python, OVMS uses Python's Jinja package to apply chat template when serving LLMs. In such case, please ensure you have Windows "Beta Unicode UTF-8 for worldwide language support" enabled. [Instruction](llm_utf8_troubleshoot.png)
+**Windows install service**
+```bat
+.\ovms\install_ovms_service.bat
+```
+
+> **Note**: If package contains Python, running this script changes Python settings for the shell that runs it. Environment variables are set only for the current shell so make sure you rerun the script before using model server in a new shell. 
 
 You can also build model server from source by following the [developer guide](windows_developer_guide.md).
 
 :::
 ::::
+
+> **NOTE**: You can also access [public drops of the development version](https://storage.openvinotoolkit.org/repositories/openvino_model_server/packages/weekly/) of the model server, which are built from the main branch. These builds allow you to evaluate the latest features ahead of official releases.
 
 ## Test the Deployment
 
@@ -158,7 +187,7 @@ Learn more about model server [starting parameters](parameters.md).
 
 > **NOTE**:
 > When serving models on [AI accelerators](accelerators.md), some additional steps may be required to install device drivers and dependencies.
-> Learn more in the [Additional Configurations for Hardware](https://docs.openvino.ai/2025/get-started/install-openvino/configurations.html) documentation.
+> Learn more in the [Additional Configurations for Hardware](https://docs.openvino.ai/2026/get-started/install-openvino/configurations.html) documentation.
 
 
 ## Next Steps

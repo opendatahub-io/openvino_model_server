@@ -37,6 +37,8 @@
 #include <sysexits.h>
 #elif _WIN32
 #include <csignal>
+#include <cstdio>
+#include <io.h>
 
 #include <ntstatus.h>
 #include <winsock2.h>
@@ -51,12 +53,13 @@
 #include "capi_frontend/server_settings.hpp"
 #include "cli_parser.hpp"
 #include "config.hpp"
+#include "graph_export/graph_export.hpp"
 #include "grpcservermodule.hpp"
 #include "http_server.hpp"
 #include "httpservermodule.hpp"
 #include "kfs_frontend/kfs_grpc_inference_service.hpp"
 #include "logging.hpp"
-#include "metric_module.hpp"
+#include "metrics/metric_module.hpp"
 #include "model_service.hpp"
 #include "modelmanager.hpp"
 #include "ovms_exit_codes.hpp"
@@ -65,6 +68,7 @@
 #include "profilermodule.hpp"
 #include "pull_module/hf_pull_model_module.hpp"
 #include "servablemanagermodule.hpp"
+#include "shutdown_state.hpp"
 #include "servables_config_manager_module/servablesconfigmanagermodule.hpp"
 #include "stringutils.hpp"
 #include "version.hpp"
@@ -76,8 +80,30 @@
 using grpc::ServerBuilder;
 
 namespace ovms {
-namespace {
-volatile sig_atomic_t shutdown_request = 0;
+
+// On Windows the import declarations must be marked dllimport so MSVC binds
+// them to the git2.dll exports rather than (silently) to a duplicate
+// static-archive copy with its own backing storage for g_lfs_cancel_requested.
+#if defined(_WIN32)
+#define OVMS_LIBGIT2_LFS_IMPORT __declspec(dllimport)
+#else
+#define OVMS_LIBGIT2_LFS_IMPORT
+#endif
+extern "C" {
+OVMS_LIBGIT2_LFS_IMPORT void git_lfs_cancel_set(int value);
+OVMS_LIBGIT2_LFS_IMPORT int git_lfs_cancel_get(void);
+}
+
+static void setLfsCancelRequestedFromSignal(int value) {
+    git_lfs_cancel_set(value != 0 ? 1 : 0);
+}
+
+static void requestShutdownFromSignal(int value) {
+    // setShutdownRequestValue is an std::atomic store — async-signal-safe on POSIX
+    // and safe on Windows where CTRL_C_EVENT fires in a dedicated OS thread.
+    // git_lfs_cancel_set is likewise a single atomic store.
+    setShutdownRequestValue(value);
+    setLfsCancelRequestedFromSignal(value);
 }
 
 Server& Server::instance() {
@@ -89,7 +115,12 @@ static void logConfig(const Config& config) {
     std::string project_name(PROJECT_NAME);
     std::string project_version(PROJECT_VERSION);
     SPDLOG_INFO(project_name + " " + project_version);
-    SPDLOG_INFO("OpenVINO backend {}", OPENVINO_NAME);
+    SPDLOG_INFO("OpenVINO backend {}", ovms::getOpenVINOVersion());
+    const char* genaiVersion = ovms::getGenAIVersion();
+    if (genaiVersion[0] != '\0') {
+        SPDLOG_INFO("OpenVINO GenAI backend {}", genaiVersion);
+    }
+    SPDLOG_DEBUG("Bazel build flags: {}", BAZEL_BUILD_FLAGS);
     SPDLOG_DEBUG("CLI parameters passed to ovms server");
     if (config.getServerSettings().serverMode == HF_PULL_MODE) {
         SPDLOG_DEBUG("source_model: {}", config.getServerSettings().hfSettings.sourceModel);
@@ -105,12 +136,8 @@ static void logConfig(const Config& config) {
         SPDLOG_DEBUG("nireq: {}", config.nireq());
         SPDLOG_DEBUG("target_device: {}", config.targetDevice());
         SPDLOG_DEBUG("plugin_config: {}", config.pluginConfig());
-        SPDLOG_DEBUG("stateful: {}", config.stateful());
         SPDLOG_DEBUG("metrics_enabled: {}", config.metricsEnabled());
         SPDLOG_DEBUG("metrics_list: {}", config.metricsList());
-        SPDLOG_DEBUG("idle_sequence_cleanup: {}", config.idleSequenceCleanup());
-        SPDLOG_DEBUG("max_sequence_number: {}", config.maxSequenceNumber());
-        SPDLOG_DEBUG("low_latency_transformation: {}", config.lowLatencyTransformation());
     } else {
         SPDLOG_DEBUG("config_path: {}", config.configPath());
     }
@@ -123,21 +150,33 @@ static void logConfig(const Config& config) {
     SPDLOG_DEBUG("gRPC channel arguments: {}", config.grpcChannelArguments());
     SPDLOG_DEBUG("log level: {}", config.logLevel());
     SPDLOG_DEBUG("log path: {}", config.logPath());
+    SPDLOG_TRACE("API key: {}", config.getServerSettings().apiKey);
     SPDLOG_DEBUG("file system poll wait milliseconds: {}", config.filesystemPollWaitMilliseconds());
-    SPDLOG_DEBUG("sequence cleaner poll wait minutes: {}", config.sequenceCleanerPollWaitMinutes());
     SPDLOG_DEBUG("model_repository_path: {}", config.getServerSettings().hfSettings.downloadPath);
 }
 
 static void onInterrupt(int status) {
-    shutdown_request = 1;
+    requestShutdownFromSignal(1);
 }
 
 static void onTerminate(int status) {
-    shutdown_request = 1;
+    requestShutdownFromSignal(1);
 }
 
 static void onIllegal(int status) {
-    shutdown_request = 2;
+    requestShutdownFromSignal(2);
+    (void)status;
+    const char msg[] = "SIGILL received: illegal instruction. This may indicate an unsupported CPU or device or an internal error. Terminating.\n";
+#ifdef __linux__
+    ssize_t ret = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+#elif _WIN32
+    int ret = _write(_fileno(stderr), msg, sizeof(msg) - 1);
+#endif
+    (void)ret;
+    // Exit code 128+N is the standard shell convention for signal-terminated
+    // processes (bash, dash, Docker, Kubernetes all follow this).
+    // For SIGILL(4) this gives exit code 132.
+    std::_Exit(128 + SIGILL);
 }
 
 #ifdef __linux__
@@ -232,7 +271,56 @@ const Module* Server::getModule(const std::string& name) const {
 }
 
 void Server::setShutdownRequest(int i) {
-    shutdown_request = i;
+    std::unique_lock lock{Server::shutdownMtx, std::defer_lock};
+    int counter = 11;
+    // 2 seconds to try to lock exit mutex
+    while (counter-- && !lock.try_lock()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    if (counter) {
+        setShutdownRequestValue(i);
+        setLfsCancelRequestedFromSignal(i);
+        SPDLOG_TRACE("Ovms shutdown request set to: {}", i);
+    } else {
+        SPDLOG_ERROR("Server shutdown mutex lock failed.");
+    }
+}
+
+int Server::getShutdownStatus() {
+    std::unique_lock lock{Server::shutdownMtx, std::defer_lock};
+    auto locked = lock.try_lock();
+    // Wait in windows thread until we can get the lock and check if ovms exited
+    if (!locked) {
+        return 0;
+    }
+
+    return getShutdownRequestValue();
+}
+
+int Server::getExitStatus() {
+    std::unique_lock lock{Server::exitMtx, std::defer_lock};
+    auto locked = lock.try_lock();
+    // Wait in windows thread until we can get the lock and check if ovms exited
+    if (!locked) {
+        return 0;
+    }
+
+    return getExitStatusValue();
+}
+
+void Server::setExitStatus(int i) {
+    std::unique_lock lock{Server::exitMtx, std::defer_lock};
+    int counter = 11;
+    // 2 seconds to try to lock exit mutex
+    while (counter-- && !lock.try_lock()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    if (counter) {
+        setExitStatusValue(i);
+        SPDLOG_TRACE("Ovms exit status set to: {}", getExitStatusValue());
+    } else {
+        SPDLOG_ERROR("Server shutdown mutex lock failed.");
+    }
 }
 
 Server::~Server() {
@@ -313,17 +401,12 @@ Status Server::startModules(ovms::Config& config) {
         START_MODULE(it);
         return status;
     }
-    if (config.getServerSettings().serverMode == HF_PULL_MODE || config.getServerSettings().serverMode == HF_PULL_AND_START_MODE) {
+    if (config.getServerSettings().serverMode == HF_PULL_MODE) {
         INSERT_MODULE(HF_MODEL_PULL_MODULE_NAME, it);
         START_MODULE(it);
-        if (!status.ok()) {
-            return status;
-        }
-        auto hfModule = dynamic_cast<const HfPullModelModule*>(it->second.get());
+        auto hfModule = dynamic_cast<HfPullModelModule*>(it->second.get());
         status = hfModule->clone();
-        // Return from modules only in --pull mode or error, otherwise start the rest of modules
-        if (config.getServerSettings().serverMode == HF_PULL_MODE || !status.ok())
-            return status;
+        return status;
     }
 
 #if (PYTHON_DISABLE == 0)
@@ -352,13 +435,37 @@ Status Server::startModules(ovms::Config& config) {
         INSERT_MODULE(HTTP_SERVER_MODULE_NAME, it);
         START_MODULE(it);
     }
+    if (config.getServerSettings().serverMode == HF_PULL_AND_START_MODE) {
+        INSERT_MODULE(HF_MODEL_PULL_MODULE_NAME, it);
+        START_MODULE(it);
+        auto hfModule = dynamic_cast<HfPullModelModule*>(it->second.get());
+        status = hfModule->clone();
+        // Return only on clone error; otherwise start the rest of modules
+        if (!status.ok())
+            return status;
+    }
+    if (config.getServerSettings().serverMode == IN_MEMORY_GRAPH_MODE) {
+        // --task with --model_path: create graph in memory without HF download
+        GraphExport graphExporter;
+        const auto& hfSettings = config.getServerSettings().hfSettings;
+        status = graphExporter.createServableConfig(config.modelPath(), hfSettings, false);
+        if (!status.ok()) {
+            SPDLOG_ERROR("Failed to create in-memory graph config: {}", status.string());
+            return status;
+        }
+        SPDLOG_INFO("Graph config created in memory from model_path: {}", config.modelPath());
+    }
     GET_MODULE(SERVABLE_MANAGER_MODULE_NAME, it);
     START_MODULE(it);
 #if (PYTHON_DISABLE == 0)
     if (config.getServerSettings().withPython) {
         GET_MODULE(PYTHON_INTERPRETER_MODULE_NAME, it);
         auto pythonModule = dynamic_cast<const PythonInterpreterModule*>(it->second.get());
-        pythonModule->releaseGILFromThisThread();
+        if (pythonModule->ownsPythonInterpreter()) {
+            // Natively GIL is held by the thread that initialized interpreter, so we only need to release it, if we own the interpreter.
+            // If it was initialized externally, then the external thread shall release the GIL before launching that module.
+            pythonModule->releaseGILFromThisThread();
+        }
     }
 #endif
     return status;
@@ -380,6 +487,24 @@ public:
     ~ModulesShutdownGuard() {
         this->server.shutdownModules();
     }
+    ModulesShutdownGuard(const ModulesShutdownGuard&) = delete;
+    ModulesShutdownGuard& operator=(const ModulesShutdownGuard&) = delete;
+    ModulesShutdownGuard(ModulesShutdownGuard&&) = delete;
+    ModulesShutdownGuard& operator=(ModulesShutdownGuard&&) = delete;
+};
+
+class OvmsExitGuard {
+    Server& server;
+
+public:
+    OvmsExitGuard() = delete;
+    OvmsExitGuard(const OvmsExitGuard&) = delete;
+    OvmsExitGuard& operator=(const OvmsExitGuard&) = delete;
+    OvmsExitGuard& operator=(OvmsExitGuard&&) = delete;
+    OvmsExitGuard(OvmsExitGuard&&) = delete;
+    OvmsExitGuard(Server& server) :
+        server(server) { server.setExitStatus(0); }
+    ~OvmsExitGuard() { server.setExitStatus(1); }
 };
 
 void Server::shutdownModules() {
@@ -395,6 +520,7 @@ void Server::shutdownModules() {
         ensureModuleShutdown(PYTHON_INTERPRETER_MODULE_NAME);
     }
 #endif
+    GraphExport::clearInMemoryGraphContent();
     // we need to be able to quickly start grpc or start it without port
     // this is because the OS can have a delay between freeing up port before it can be requested and used again
     std::shared_lock lock(modulesMtx);
@@ -410,29 +536,38 @@ static int statusToExitCode(const Status& status) {
     return OVMS_EX_FAILURE;
 }
 
-// OVMS Start
-int Server::start(int argc, char** argv) {
-    installSignalHandlers();
-    int result = OVMS_EX_OK;
-
+std::variant<std::pair<ServerSettingsImpl, ModelsSettingsImpl>, std::pair<int, std::string>> Server::parseArgs(int argc, char** argv) {
     try {
         CLIParser parser;
         ServerSettingsImpl serverSettings;
         ModelsSettingsImpl modelsSettings;
-        parser.parse(argc, argv);
+        auto successOrExit = parser.parse(argc, argv);
+        // Check for error in parsing
+        if (!std::holds_alternative<bool>(successOrExit)) {
+            auto printAndExit = std::get<std::pair<int, std::string>>(successOrExit);
+            return printAndExit;
+        }
         parser.prepare(&serverSettings, &modelsSettings);
+        return std::make_pair(serverSettings, modelsSettings);
+    } catch (const std::exception& e) {
+        return std::make_pair(OVMS_EX_USAGE, e.what());
+    }
+}
 
-        Status ret = start(&serverSettings, &modelsSettings);
+int Server::startServerFromSettings(ServerSettingsImpl& serverSettings, ModelsSettingsImpl& modelsSettings) {
+    OvmsExitGuard exitStatusGuard(*this);
+    installSignalHandlers();
+    int result = OVMS_EX_OK;
+
+    try {
+        Status ret = startFromSettings(&serverSettings, &modelsSettings);
         ModulesShutdownGuard shutdownGuard(*this);
         if (!ret.ok()) {
             return statusToExitCode(ret);
         }
-        while (!shutdown_request &&
-               (serverSettings.serverMode == HF_PULL_AND_START_MODE || serverSettings.serverMode == SERVING_MODELS_MODE)) {
+        while (!getShutdownStatus() &&
+               (serverSettings.serverMode == HF_PULL_AND_START_MODE || serverSettings.serverMode == SERVING_MODELS_MODE || serverSettings.serverMode == IN_MEMORY_GRAPH_MODE)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        }
-        if (shutdown_request == 2) {
-            SPDLOG_ERROR("Illegal operation. OVMS started on unsupported device");
         }
     } catch (const std::exception& e) {
         SPDLOG_ERROR("Exception; {}", e.what());
@@ -443,8 +578,25 @@ int Server::start(int argc, char** argv) {
     return EXIT_SUCCESS;
 }
 
+// OVMS Start
+int Server::start(int argc, char** argv) {
+    auto paramsOrExit = parseArgs(argc, argv);
+    // Check for error in parsing
+    if (std::holds_alternative<std::pair<int, std::string>>(paramsOrExit)) {
+        auto printAndExit = std::get<std::pair<int, std::string>>(paramsOrExit);
+        if (printAndExit.first > 0) {
+            std::cerr << printAndExit.second;
+        } else {
+            std::cout << printAndExit.second;
+        }
+        exit(printAndExit.first);
+    }
+    std::pair<ovms::ServerSettingsImpl, ovms::ModelsSettingsImpl> parameters = std::get<std::pair<ovms::ServerSettingsImpl, ovms::ModelsSettingsImpl>>(paramsOrExit);
+    return startServerFromSettings(parameters.first, parameters.second);
+}
+
 // C-API Start
-Status Server::start(ServerSettingsImpl* serverSettings, ModelsSettingsImpl* modelsSettings) {
+Status Server::startFromSettings(ServerSettingsImpl* serverSettings, ModelsSettingsImpl* modelsSettings) {
     try {
         std::unique_lock lock{this->startMtx, std::defer_lock};
         auto locked = lock.try_lock();

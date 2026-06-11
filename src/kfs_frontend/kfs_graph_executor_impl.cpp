@@ -24,6 +24,7 @@
 
 #include "../kfs_frontend/kfs_utils.hpp"
 #include "../logging.hpp"
+#include "../mediapipe_internal/graph_executor_constants.hpp"
 #include "../mediapipe_internal/mediapipe_utils.hpp"
 #include "../mediapipe_internal/mediapipegraphdefinition.hpp"
 #include "../predict_request_validation_utils.hpp"
@@ -208,7 +209,7 @@ Status receiveAndSerializePacket<::mediapipe::Tensor>(const ::mediapipe::Packet&
 template <>
 Status receiveAndSerializePacket<ov::Tensor>(const ::mediapipe::Packet& packet, KFSResponse& response, const std::string& outputStreamName) {
     try {
-        const auto& received = packet.Get<ov::Tensor>();
+        const ov::Tensor& received = packet.Get<ov::Tensor>();  // packet is const, therefore tensor is const, therefore data underneath is const, that is why const cast for now
         auto* output = response.add_outputs();
         output->set_name(outputStreamName);
         output->set_datatype(
@@ -219,7 +220,7 @@ Status receiveAndSerializePacket<ov::Tensor>(const ::mediapipe::Packet& packet, 
         for (const auto& dim : received.get_shape()) {
             output->add_shape(dim);
         }
-        response.add_raw_output_contents()->assign(reinterpret_cast<char*>(received.data()), received.get_byte_size());
+        response.add_raw_output_contents()->assign(reinterpret_cast<const char*>(received.data()), received.get_byte_size());
         return StatusCode::OK;
     }
     HANDLE_PACKET_RECEIVAL_EXCEPTIONS();
@@ -925,6 +926,7 @@ static Status createPacketAndPushIntoGraph(const std::string& name, std::shared_
     }
     std::unique_ptr<T> inputTensor;
     OVMS_RETURN_ON_FAIL(deserializeTensor(name, *request, inputTensor, pythonBackend));
+    SPDLOG_TRACE("Current Timestamp before actual pushing:{}", timestamp.Value());
     MP_RETURN_ON_FAIL(graph.AddPacketToInputStream(
                           name,
                           ::mediapipe::packet_internal::Create(
@@ -1152,10 +1154,19 @@ Status createAndPushPacketsImpl(
     return StatusCode::OK;
 }
 
+bool requestHasInputSidePackets(const KFSRequest& request) {
+    static const std::string TIMESTAMP_PARAM{"OVMS_MP_TIMESTAMP"};
+    for (const auto& [name, valueChoice] : request.parameters()) {
+        if (name != TIMESTAMP_PARAM) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Status deserializeInputSidePacketsFromFirstRequestImpl(
     std::map<std::string, mediapipe::Packet>& inputSidePackets,
     const KFSRequest& request) {
-    static const std::string PYTHON_SESSION_SIDE_PACKET_TAG{"py"};
     for (const auto& [name, valueChoice] : request.parameters()) {
         SPDLOG_DEBUG("Found: {}; parameter in request for: {};", name, request.model_name());
         if (name == TIMESTAMP_PARAMETER_NAME) {

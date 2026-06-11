@@ -28,7 +28,7 @@
 
 #include "../executingstreamidguard.hpp"
 #include "../get_model_metadata_impl.hpp"
-#include "../localfilesystem.hpp"
+#include "src/filesystem/localfilesystem.hpp"
 #include "../model.hpp"
 #include "../model_service.hpp"
 #include "../modelinstance.hpp"
@@ -40,6 +40,8 @@
 #include "../sequence_processing_spec.hpp"
 #include "mockmodelinstancechangingstates.hpp"
 #include "test_utils.hpp"
+#include "light_test_utils.hpp"
+#include "platform_utils.hpp"
 
 using testing::_;
 using testing::ContainerEq;
@@ -55,7 +57,7 @@ using testing::UnorderedElementsAre;
 
 using namespace ovms;
 
-/* 
+/*
 ------------------------------------------------
 AFTER SAMPLE CUSTOM LOADER REMOVAL BELOW CONFIGURATIONS ARE NOT USED
 REMOVE THIS ENTIRE FILE ONCE THE FEATURE IS REMOVED
@@ -619,7 +621,7 @@ TEST_F(TestCustomLoader, CustomLoaderConfigMultiplePropertiesInCustomLoaderOptio
 }
 
 // Functional Validation
-/* 
+/*
 ------------------------------------------------
 AFTER SAMPLE CUSTOM LOADER REMOVAL BELOW TESTS ARE NOT VALID
 REMOVE THIS ENTIRE FILE ONCE THE FEATURE IS REMOVED

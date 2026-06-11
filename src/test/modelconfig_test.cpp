@@ -61,18 +61,6 @@ TEST(ModelConfig, getters_setters) {
     config.setVersion(ver);
     auto version = config.getVersion();
     EXPECT_EQ(version, ver);
-
-    config.setStateful(true);
-    auto is = config.isStateful();
-    EXPECT_EQ(is, true);
-
-    config.setLowLatencyTransformation(true);
-    is = config.isLowLatencyTransformationUsed();
-    EXPECT_EQ(is, true);
-
-    config.setMaxSequenceNumber(11);
-    auto seq = config.getMaxSequenceNumber();
-    EXPECT_EQ(seq, 11);
 }
 
 TEST(ModelConfig, layout_single) {
@@ -194,6 +182,183 @@ TEST(ModelConfig, parseLayoutParam_multi) {
         EXPECT_EQ(config.getLayout().getModelLayout(), "");
         EXPECT_EQ(config.getLayouts().size(), 0);
     }
+}
+
+TEST(ModelConfig, parseMeanParameter) {
+    using namespace ovms;
+    ModelConfig config;
+
+    std::string valid_str1 = "[123.675,116.28,103.53]";
+    std::string valid_str2 = "  [   0.0 , 255.0 ,128.5  ] ";
+    std::string valid_str3 = "1.0";
+    std::string valid_str4 = "(123.675,116.28,103.53)";
+
+    ASSERT_EQ(config.parseMean(valid_str1), StatusCode::OK);
+    EXPECT_EQ(std::get<std::vector<float>>(config.getMeans().value()), (std::vector<float>{123.675f, 116.28f, 103.53f}));
+    ASSERT_EQ(config.parseMean(valid_str2), StatusCode::OK);
+    EXPECT_EQ(std::get<std::vector<float>>(config.getMeans().value()), (std::vector<float>{0.0f, 255.0f, 128.5f}));
+    ASSERT_EQ(config.parseMean(valid_str3), StatusCode::OK);
+    EXPECT_EQ(std::get<float>(config.getMeans().value()), 1.0f);
+    ASSERT_EQ(config.parseMean(valid_str4), StatusCode::OK);
+    EXPECT_EQ(std::get<std::vector<float>>(config.getMeans().value()), (std::vector<float>{123.675f, 116.28f, 103.53f}));
+
+    std::string invalid_str1 = "[123.675;116.28;103.53]";
+    std::string invalid_str2 = "[123.675,abc,103.53]";
+    std::string invalid_str3 = "one.point.zero";
+    std::string invalid_str4 = "{123.675,116.28,103.53}";
+    std::string invalid_str5 = "123.675,116.28,103.53";
+    ASSERT_EQ(config.parseMean(invalid_str1), StatusCode::FLOAT_WRONG_FORMAT);
+    ASSERT_EQ(config.parseMean(invalid_str2), StatusCode::FLOAT_WRONG_FORMAT);
+    ASSERT_EQ(config.parseMean(invalid_str3), StatusCode::FLOAT_WRONG_FORMAT);
+    ASSERT_EQ(config.parseMean(invalid_str4), StatusCode::FLOAT_WRONG_FORMAT);
+    ASSERT_EQ(config.parseMean(invalid_str5), StatusCode::FLOAT_WRONG_FORMAT);
+}
+
+TEST(ModelConfig, parseScaleParameter) {
+    using namespace ovms;
+    ModelConfig config;
+
+    std::string valid_str1 = "[123.675,116.28,103.53]";
+    std::string valid_str2 = "  [   0.0 , 255.0 ,128.5  ] ";
+    std::string valid_str3 = "1.0";
+    std::string valid_str4 = "(123.675,116.28,103.53)";
+
+    ASSERT_EQ(config.parseScale(valid_str1), StatusCode::OK);
+    EXPECT_EQ(std::get<std::vector<float>>(config.getScales().value()), (std::vector<float>{123.675f, 116.28f, 103.53f}));
+    ASSERT_EQ(config.parseScale(valid_str2), StatusCode::OK);
+    EXPECT_EQ((std::get<std::vector<float>>(config.getScales().value())), (std::vector<float>{0.0f, 255.0f, 128.5f}));
+    ASSERT_EQ(config.parseScale(valid_str3), StatusCode::OK);
+    EXPECT_EQ(std::get<float>(config.getScales().value()), 1.0f);
+    ASSERT_EQ(config.parseScale(valid_str4), StatusCode::OK);
+    EXPECT_EQ(std::get<std::vector<float>>(config.getScales().value()), (std::vector<float>{123.675f, 116.28f, 103.53f}));
+    std::string invalid_str1 = "[123.675;116.28;103.53]";
+    std::string invalid_str2 = "[123.675,abc,103.53]";
+    std::string invalid_str3 = "one.point.zero";
+    std::string invalid_str4 = "{123.675,116.28,103.53}";
+    std::string invalid_str5 = "123.675,116.28,103.53";
+    ASSERT_EQ(config.parseScale(invalid_str1), StatusCode::FLOAT_WRONG_FORMAT);
+    ASSERT_EQ(config.parseScale(invalid_str2), StatusCode::FLOAT_WRONG_FORMAT);
+    ASSERT_EQ(config.parseScale(invalid_str3), StatusCode::FLOAT_WRONG_FORMAT);
+    ASSERT_EQ(config.parseScale(invalid_str4), StatusCode::FLOAT_WRONG_FORMAT);
+    ASSERT_EQ(config.parseScale(invalid_str5), StatusCode::FLOAT_WRONG_FORMAT);
+}
+
+TEST(ModelConfig, parseColorFormatParameter) {
+    using namespace ovms;
+    ModelConfig config;
+
+    std::string valid_str1 = "RGB:BGR";
+    std::string valid_str2 = "gray:nv12";
+    std::string valid_str3 = "NV12_2:RGB";
+    std::string valid_str4 = "I420:I420_3";
+
+    ASSERT_EQ(config.parseColorFormat(valid_str1), StatusCode::OK);
+    auto valid_cf1 = config.getColorFormat();
+    ASSERT_TRUE(valid_cf1.has_value());
+    EXPECT_EQ(valid_cf1.value().getTargetColorFormat(), ov::preprocess::ColorFormat::RGB);
+    EXPECT_EQ(valid_cf1.value().getSourceColorFormat(), ov::preprocess::ColorFormat::BGR);
+    ASSERT_EQ(config.parseColorFormat(valid_str2), StatusCode::OK);
+    auto valid_cf2 = config.getColorFormat();
+    ASSERT_TRUE(valid_cf2.has_value());
+    EXPECT_EQ(valid_cf2.value().getTargetColorFormat(), ov::preprocess::ColorFormat::GRAY);
+    EXPECT_EQ(valid_cf2.value().getSourceColorFormat(), ov::preprocess::ColorFormat::NV12_SINGLE_PLANE);
+    ASSERT_EQ(config.parseColorFormat(valid_str3), StatusCode::OK);
+    auto valid_cf3 = config.getColorFormat();
+    ASSERT_TRUE(valid_cf3.has_value());
+    EXPECT_EQ(valid_cf3.value().getTargetColorFormat(), ov::preprocess::ColorFormat::NV12_TWO_PLANES);
+    EXPECT_EQ(valid_cf3.value().getSourceColorFormat(), ov::preprocess::ColorFormat::RGB);
+    ASSERT_EQ(config.parseColorFormat(valid_str4), StatusCode::OK);
+    auto valid_cf4 = config.getColorFormat();
+    ASSERT_TRUE(valid_cf4.has_value());
+    EXPECT_EQ(valid_cf4.value().getTargetColorFormat(), ov::preprocess::ColorFormat::I420_SINGLE_PLANE);
+    EXPECT_EQ(valid_cf4.value().getSourceColorFormat(), ov::preprocess::ColorFormat::I420_THREE_PLANES);
+
+    std::string invalid_str1 = "INVALID_FORMAT";
+    auto status1 = config.parseColorFormat(invalid_str1);
+    EXPECT_EQ(status1, ovms::StatusCode::COLOR_FORMAT_WRONG_FORMAT);
+    std::string invalid_str2 = "RGB";
+    auto status2 = config.parseColorFormat(invalid_str2);
+    EXPECT_EQ(status2, ovms::StatusCode::COLOR_FORMAT_WRONG_FORMAT);
+    std::string invalid_str3 = "RGB:BGR:RGB";
+    auto status3 = config.parseColorFormat(invalid_str3);
+    EXPECT_EQ(status3, ovms::StatusCode::COLOR_FORMAT_WRONG_FORMAT);
+    std::string invalid_str4 = "RGB::BGR";
+    auto status4 = config.parseColorFormat(invalid_str4);
+    EXPECT_EQ(status4, ovms::StatusCode::COLOR_FORMAT_WRONG_FORMAT);
+    std::string invalid_str5 = ":RGB";
+    auto status5 = config.parseColorFormat(invalid_str5);
+    EXPECT_EQ(status5, ovms::StatusCode::COLOR_FORMAT_WRONG_FORMAT);
+    std::string invalid_str6 = "BGR:";
+    auto status6 = config.parseColorFormat(invalid_str6);
+    EXPECT_EQ(status6, ovms::StatusCode::COLOR_FORMAT_WRONG_FORMAT);
+}
+
+TEST(ModelConfig, parsePrecision) {
+    using namespace ovms;
+    ModelConfig config;
+
+    std::string valid_str1 = "FP32:FP64";
+    std::string valid_str2 = "FP16:FP16";
+    std::string valid_str3 = "INT8:FP16";
+    std::string valid_str4 = "UINT8:INT8";
+    std::string valid_str5 = "Int16:UInt16";
+    std::string valid_str6 = "UINT32:int64";
+    std::string valid_str7 = "INT32:INT4";
+    std::string valid_str8 = "uint64:uint4";
+    std::string valid_str9 = "UINT1:INT64";
+
+    ASSERT_EQ(config.parsePrecision(valid_str1), StatusCode::OK);
+    EXPECT_EQ(config.getPrecision().value().getTargetPrecision(), ov::element::f32);
+    EXPECT_EQ(config.getPrecision().value().getSourcePrecision(), ov::element::f64);
+    ASSERT_EQ(config.parsePrecision(valid_str2), StatusCode::OK);
+    EXPECT_EQ(config.getPrecision().value().getTargetPrecision(), ov::element::f16);
+    EXPECT_EQ(config.getPrecision().value().getSourcePrecision(), ov::element::f16);
+    ASSERT_EQ(config.parsePrecision(valid_str3), StatusCode::OK);
+    EXPECT_EQ(config.getPrecision().value().getTargetPrecision(), ov::element::i8);
+    EXPECT_EQ(config.getPrecision().value().getSourcePrecision(), ov::element::f16);
+    ASSERT_EQ(config.parsePrecision(valid_str4), StatusCode::OK);
+    EXPECT_EQ(config.getPrecision().value().getTargetPrecision(), ov::element::u8);
+    EXPECT_EQ(config.getPrecision().value().getSourcePrecision(), ov::element::i8);
+    ASSERT_EQ(config.parsePrecision(valid_str5), StatusCode::OK);
+    EXPECT_EQ(config.getPrecision().value().getTargetPrecision(), ov::element::i16);
+    EXPECT_EQ(config.getPrecision().value().getSourcePrecision(), ov::element::u16);
+    ASSERT_EQ(config.parsePrecision(valid_str6), StatusCode::OK);
+    EXPECT_EQ(config.getPrecision().value().getTargetPrecision(), ov::element::u32);
+    EXPECT_EQ(config.getPrecision().value().getSourcePrecision(), ov::element::i64);
+    ASSERT_EQ(config.parsePrecision(valid_str7), StatusCode::OK);
+    EXPECT_EQ(config.getPrecision().value().getTargetPrecision(), ov::element::i32);
+    EXPECT_EQ(config.getPrecision().value().getSourcePrecision(), ov::element::i4);
+    ASSERT_EQ(config.parsePrecision(valid_str8), StatusCode::OK);
+    EXPECT_EQ(config.getPrecision().value().getTargetPrecision(), ov::element::u64);
+    EXPECT_EQ(config.getPrecision().value().getSourcePrecision(), ov::element::u4);
+    ASSERT_EQ(config.parsePrecision(valid_str9), StatusCode::OK);
+    EXPECT_EQ(config.getPrecision().value().getTargetPrecision(), ov::element::u1);
+    EXPECT_EQ(config.getPrecision().value().getSourcePrecision(), ov::element::i64);
+
+    std::string invalid_str1 = "FLOAT32";
+    std::string invalid_str2 = "INVALID_PRECISION";
+    std::string invalid_str3 = "int8";
+    std::string invalid_str4 = "FP32-FP64";
+    std::string invalid_str5 = "FP32::FP64";
+    std::string invalid_str6 = "FP32:";
+    std::string invalid_str7 = ":FP64";
+    std::string invalid_str8 = "FP32:FP16:INT8";
+    auto status1 = config.parsePrecision(invalid_str1);
+    EXPECT_EQ(status1, ovms::StatusCode::PRECISION_WRONG_FORMAT);
+    auto status2 = config.parsePrecision(invalid_str2);
+    EXPECT_EQ(status2, ovms::StatusCode::PRECISION_WRONG_FORMAT);
+    auto status3 = config.parsePrecision(invalid_str3);
+    EXPECT_EQ(status3, ovms::StatusCode::PRECISION_WRONG_FORMAT);
+    auto status4 = config.parsePrecision(invalid_str4);
+    EXPECT_EQ(status4, ovms::StatusCode::PRECISION_WRONG_FORMAT);
+    auto status5 = config.parsePrecision(invalid_str5);
+    EXPECT_EQ(status5, ovms::StatusCode::PRECISION_WRONG_FORMAT);
+    auto status6 = config.parsePrecision(invalid_str6);
+    EXPECT_EQ(status6, ovms::StatusCode::PRECISION_WRONG_FORMAT);
+    auto status7 = config.parsePrecision(invalid_str7);
+    EXPECT_EQ(status7, ovms::StatusCode::PRECISION_WRONG_FORMAT);
+    auto status8 = config.parsePrecision(invalid_str8);
+    EXPECT_EQ(status8, ovms::StatusCode::PRECISION_WRONG_FORMAT);
 }
 
 TEST(ModelConfig, shape) {
@@ -528,7 +693,8 @@ TEST(ModelConfig, plugin_config_legacy_cpu_num) {
     auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
     auto actualPluginConfig = config.getPluginConfig();
     EXPECT_EQ(status, ovms::StatusCode::OK);
-    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"], (int64_t)5);
+    // NUM_STREAMS is kept as a string to satisfy OpenVINO's strict ov::streams::Num typing.
+    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"], std::string("5"));
 }
 
 TEST(ModelConfig, plugin_config_legacy_cpu_str) {
@@ -558,7 +724,136 @@ TEST(ModelConfig, plugin_config_legacy_gpu_num) {
     auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
     auto actualPluginConfig = config.getPluginConfig();
     EXPECT_EQ(status, ovms::StatusCode::OK);
-    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"], (int64_t)5);
+    // NUM_STREAMS is kept as a string to satisfy OpenVINO's strict ov::streams::Num typing.
+    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"], std::string("5"));
+}
+
+TEST(ModelConfig, plugin_config_device_properties_int) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"DEVICE_PROPERTIES\": { \"DEVICE\": {\"INT\": 2048}}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::OK);
+    auto devices = actualPluginConfig["DEVICE_PROPERTIES"].as<ov::AnyMap>();
+    auto properties = devices["DEVICE"].as<ov::AnyMap>();
+    EXPECT_EQ(properties["INT"], (int64_t)2048);
+}
+
+TEST(ModelConfig, plugin_config_device_properties_string) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"DEVICE_PROPERTIES\": { \"DEVICE\": {\"STRING\": \"STRING\"}}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::OK);
+    auto devices = actualPluginConfig["DEVICE_PROPERTIES"].as<ov::AnyMap>();
+    auto properties = devices["DEVICE"].as<ov::AnyMap>();
+    EXPECT_EQ(properties["STRING"], "STRING");
+}
+
+TEST(ModelConfig, plugin_config_device_properties_double) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"DEVICE_PROPERTIES\": { \"DEVICE\": {\"DOUBLE\": 2048.5}}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::OK);
+    auto devices = actualPluginConfig["DEVICE_PROPERTIES"].as<ov::AnyMap>();
+    auto properties = devices["DEVICE"].as<ov::AnyMap>();
+    EXPECT_EQ(properties["DOUBLE"], (double)2048.5);
+}
+
+TEST(ModelConfig, plugin_config_device_properties_bool) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"DEVICE_PROPERTIES\": { \"DEVICE\": {\"BOOL\": false}}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::OK);
+    auto devices = actualPluginConfig["DEVICE_PROPERTIES"].as<ov::AnyMap>();
+    auto properties = devices["DEVICE"].as<ov::AnyMap>();
+    EXPECT_EQ(properties["BOOL"], false);
+}
+
+TEST(ModelConfig, plugin_config_device_properties_invalid_1) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"DEVICE_PROPERTIES\": { \"DEVICE\": {\"MEMBER\": INVALID}}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::PLUGIN_CONFIG_WRONG_FORMAT);
+}
+
+TEST(ModelConfig, plugin_config_device_properties_invalid_2) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"DEVICE_PROPERTIES\": { \"DEVICE\": {\"MEMBER\": {}}}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::PLUGIN_CONFIG_WRONG_FORMAT);
+}
+
+TEST(ModelConfig, plugin_config_device_properties_invalid_3) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"DEVICE_PROPERTIES\": { \"DEVICE\": {\"MEMBER\": []}}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::PLUGIN_CONFIG_WRONG_FORMAT);
+}
+
+TEST(ModelConfig, plugin_config_device_properties_invalid_4) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"DEVICE_PROPERTIES\": { \"DEVICE\": \"INVALID\"}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::PLUGIN_CONFIG_WRONG_FORMAT);
+}
+
+TEST(ModelConfig, plugin_config_device_properties_invalid_5) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"DEVICE_PROPERTIES\": { \"DEVICE\": []}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::PLUGIN_CONFIG_WRONG_FORMAT);
+}
+
+// Regression for the LLM/GPU case: when NUM_STREAMS is provided as a JSON number,
+// OpenVINO's strict plugin_config (e.g. intel_gpu) rejects an int64_t value because
+// ov::streams::Num has no numeric conversion from ov::Any holding int64_t. The
+// parser must keep NUM_STREAMS as a string so the plugin's operator>> can parse it.
+TEST(ModelConfig, plugin_config_num_streams_int_kept_as_string) {
+    ovms::ModelConfig config;
+    std::string pluginConfig_str = "{\"NUM_STREAMS\": 32}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::OK);
+    ASSERT_EQ(actualPluginConfig.count("NUM_STREAMS"), 1);
+    ASSERT_TRUE(actualPluginConfig["NUM_STREAMS"].is<std::string>());
+    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"].as<std::string>(), "32");
+}
+
+TEST(ModelConfig, plugin_config_num_streams_in_device_properties_kept_as_string) {
+    ovms::ModelConfig config;
+    // Mirrors the LLM calculator pbtxt payload that originally triggered the GPU
+    // "Invalid value: 32 for property: NUM_STREAMS" error.
+    std::string pluginConfig_str =
+        "{\"ENABLE_CPU_PINNING\":true,"
+        "\"AUTO_BATCH_TIMEOUT\":30,"
+        "\"NUM_STREAMS\":32,"
+        "\"CACHE_DIR\":\".ov_cache\","
+        "\"DEVICE_PROPERTIES\":{\"GPU\":{\"NUM_STREAMS\":4}}}";
+    auto status = config.parsePluginConfig(pluginConfig_str, config.getPluginConfig());
+    auto actualPluginConfig = config.getPluginConfig();
+    EXPECT_EQ(status, ovms::StatusCode::OK);
+
+    ASSERT_TRUE(actualPluginConfig["NUM_STREAMS"].is<std::string>());
+    EXPECT_EQ(actualPluginConfig["NUM_STREAMS"].as<std::string>(), "32");
+    EXPECT_EQ(actualPluginConfig["AUTO_BATCH_TIMEOUT"].as<int64_t>(), (int64_t)30);
+    EXPECT_EQ(actualPluginConfig["ENABLE_CPU_PINNING"].as<bool>(), true);
+    EXPECT_EQ(actualPluginConfig["CACHE_DIR"].as<std::string>(), ".ov_cache");
+
+    ASSERT_TRUE(actualPluginConfig["DEVICE_PROPERTIES"].is<ov::AnyMap>());
+    auto devices = actualPluginConfig["DEVICE_PROPERTIES"].as<ov::AnyMap>();
+    ASSERT_EQ(devices.count("GPU"), 1);
+    auto gpuProperties = devices["GPU"].as<ov::AnyMap>();
+    ASSERT_EQ(gpuProperties.count("NUM_STREAMS"), 1);
+    ASSERT_TRUE(gpuProperties["NUM_STREAMS"].is<std::string>());
+    EXPECT_EQ(gpuProperties["NUM_STREAMS"].as<std::string>(), "4");
 }
 
 TEST(ModelConfig, mappingInputs) {
@@ -1050,149 +1345,3 @@ TEST(ModelConfig, ConfigParseNodeWithValidShapeFormatArray) {
     ASSERT_TRUE(shapes.find("input") != shapes.end());
     EXPECT_EQ(shapes["input"].shape, (ovms::Shape{1, 3, 600, 600}));
 }
-
-std::string config_low_latency_no_stateful = R"#(
-    {
-    "model_config_list": [
-        {
-            "config": {
-                "name": "config_low_latency",
-                "base_path": "/tmp/models/dummy1",
-                "low_latency_transformation": true
-            }
-        }
-    ]
-}
-)#";
-
-std::string config_low_latency_non_stateful = R"#(
-    {
-    "model_config_list": [
-        {
-            "config": {
-                "name": "config_low_latency_stateful",
-                "base_path": "/tmp/models/dummy1",
-                "stateful": false,
-                "low_latency_transformation": true
-            }
-        }
-    ]
-}
-)#";
-
-std::string config_idle_sequence_cleanup_non_stateful = R"#(
-    {
-    "model_config_list": [
-        {
-            "config": {
-                "name": "config_timeout_stateful",
-                "base_path": "/tmp/models/dummy1",
-                "stateful": false,
-                "idle_sequence_cleanup": true
-            }
-        }
-    ]
-}
-)#";
-
-std::string config_max_sequence_number_non_stateful = R"#(
-    {
-    "model_config_list": [
-        {
-            "config": {
-                "name": "config_max_sequence_number_stateful",
-                "stateful": false,
-                "base_path": "/tmp/models/dummy1",
-                "max_sequence_number": 1000
-            }
-        }
-    ]
-}
-)#";
-
-std::string config_max_sequence_number = R"#(
-        {
-        "model_config_list": [
-            {
-                "config": {
-                    "name": "config_max_sequence_number",
-                    "base_path": "/tmp/models/dummy1",
-                    "max_sequence_number": 1
-                }
-            }
-        ]
-    }
-    )#";
-
-std::string config_stateful_should_pass = R"#(
-    {
-    "model_config_list": [
-        {
-            "config": {
-                "name": "config_stateful_should_pass",
-                "base_path": "/tmp/models/dummy1",
-                "stateful": true,
-                "max_sequence_number": 1,
-                "low_latency_transformation": true
-            }
-        }
-    ]
-}
-)#";
-
-std::string config_low_invalid_max_seq = R"#(
-    {
-    "model_config_list": [
-        {
-            "config": {
-                "name": "config_low_invalid_max_seq",
-                "base_path": "/tmp/models/dummy1",
-                "stateful": true,
-                "max_sequence_number": 5294967295,
-                "low_latency_transformation": true
-            }
-        }
-    ]
-}
-)#";
-
-class ModelConfigParseModel : public ::testing::TestWithParam<std::pair<std::string, ovms::StatusCode>> {
-};
-
-TEST_P(ModelConfigParseModel, SetWithStateful) {
-    std::pair<std::string, ovms::StatusCode> testPair = GetParam();
-    std::string config = testPair.first;
-    rapidjson::Document configJson;
-    rapidjson::ParseResult parsingSucceeded = configJson.Parse(config.c_str());
-    ASSERT_EQ(parsingSucceeded.Code(), 0);
-
-    const auto modelConfigList = configJson.FindMember("model_config_list");
-    ASSERT_NE(modelConfigList, configJson.MemberEnd());
-    const auto& configs = modelConfigList->value.GetArray();
-    ASSERT_EQ(configs.Size(), 1);
-    ovms::ModelConfig modelConfig;
-    std::cout << "Testing config named: " << configs[0]["config"]["name"].GetString() << std::endl;
-
-    auto status = modelConfig.parseNode(configs[0]["config"]);
-
-    ASSERT_EQ(status, testPair.second);
-    if (testPair.second == ovms::StatusCode::OK) {
-        ASSERT_EQ(modelConfig.isLowLatencyTransformationUsed(), true);
-        ASSERT_EQ(modelConfig.isStateful(), true);
-        ASSERT_EQ(modelConfig.getMaxSequenceNumber(), 1);
-    }
-}
-
-std::vector<std::pair<std::string, ovms::StatusCode>> configs = {
-    {adjustConfigForTargetPlatformReturn(config_low_latency_no_stateful), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {adjustConfigForTargetPlatformReturn(config_max_sequence_number), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {adjustConfigForTargetPlatformReturn(config_max_sequence_number_non_stateful), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {adjustConfigForTargetPlatformReturn(config_idle_sequence_cleanup_non_stateful), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {adjustConfigForTargetPlatformReturn(config_low_latency_non_stateful), ovms::StatusCode::INVALID_NON_STATEFUL_MODEL_PARAMETER},
-    {adjustConfigForTargetPlatformReturn(config_low_invalid_max_seq), ovms::StatusCode::INVALID_MAX_SEQUENCE_NUMBER},
-    {adjustConfigForTargetPlatformReturn(config_stateful_should_pass), ovms::StatusCode::OK}};
-
-INSTANTIATE_TEST_SUITE_P(
-    Test,
-    ModelConfigParseModel,
-    ::testing::ValuesIn(configs));

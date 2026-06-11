@@ -14,10 +14,13 @@
 // limitations under the License.
 //*****************************************************************************
 #include "test_utils.hpp"
+#include "light_test_utils.hpp"
+#include "platform_utils.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <functional>
 #include <optional>
 #include <unordered_set>
@@ -49,6 +52,53 @@ void preparePredictRequest(ovms::InferenceRequest& request, inputs_info_t reques
     for (auto const& it : requestInputs) {
         prepareCAPIInferInputTensor(request, it.first, it.second, data, decrementBufferSize, bufferType, deviceId);
     }
+}
+
+void printTensor(const ov::Tensor& tensor) {
+    const auto& elementType = tensor.get_element_type();
+    // Get pointer to data
+    const void* dataPtr = tensor.data();
+
+    size_t limit = 20;
+    if (tensor.get_size() < limit) {
+        limit = tensor.get_size();
+    }
+    // Handle different data types (example for float)
+    if (elementType == ov::element::f32) {
+        const float* data = static_cast<const float*>(dataPtr);
+        std::cout << "Tensor data (f32): ";
+        for (size_t i = 0; i < limit; ++i) {
+            std::cout << data[i] << " ";
+        }
+        std::cout << std::endl;
+        return;
+    } else if (elementType == ov::element::i32) {
+        const int32_t* data = static_cast<const int32_t*>(dataPtr);
+        std::cout << "Tensor data (i32): ";
+        for (size_t i = 0; i < limit; ++i) {
+            std::cout << data[i] << " ";
+        }
+        std::cout << std::endl;
+        return;
+    } else if (elementType == ov::element::i64) {
+        const int64_t* data = static_cast<const int64_t*>(dataPtr);
+        std::cout << "Tensor data (i64): ";
+        for (size_t i = 0; i < limit; ++i) {
+            std::cout << data[i] << " ";
+        }
+        std::cout << std::endl;
+        return;
+    } else if (elementType == ov::element::f64) {
+        const double* data = static_cast<const double*>(dataPtr);
+        std::cout << "Tensor data (f64): ";
+        for (size_t i = 0; i < limit; ++i) {
+            std::cout << data[i] << " ";
+        }
+        std::cout << std::endl;
+        return;
+    }
+
+    std::cout << "[ERROR] Unsupported data type: " << elementType << std::endl;
 }
 
 void preparePredictRequest(tensorflow::serving::PredictRequest& request, inputs_info_t requestInputs, const std::vector<float>& data) {
@@ -104,16 +154,6 @@ void preparePredictRequest(tensorflow::serving::PredictRequest& request, inputs_
     }
 }
 
-std::string getOvmsTestExecutablePath() {
-#ifdef __linux__
-    return std::filesystem::canonical("/proc/self/exe").string();
-#elif _WIN32
-    char buffer[2000];
-    GetModuleFileNameA(NULL, buffer, 2000);
-    return std::filesystem::path(buffer).parent_path().string();
-#endif
-}
-
 void waitForOVMSConfigReload(ovms::ModelManager& manager) {
     // This is effectively multiplying by 5 to have at least 1 config reload in between
     // two test steps, but we check if config files changed to exit earlier if changes are already applied
@@ -137,25 +177,6 @@ void waitForOVMSResourcesCleanup(ovms::ModelManager& manager) {
     const uint32_t waitTime = WAIT_MULTIPLIER_FACTOR * manager.getResourcesCleanupIntervalMillisec();
     SPDLOG_DEBUG("waitForOVMSResourcesCleanup {} ms", waitTime);
     std::this_thread::sleep_for(std::chrono::milliseconds(waitTime));
-}
-
-bool createConfigFileWithContent(const std::string& content, std::string filename) {
-    std::ofstream configFile{filename};
-    // Check if the file was successfully opened
-    if (!configFile.is_open()) {
-        SPDLOG_ERROR("Failed to open file: {}", filename);
-        throw std::runtime_error("Failed to open file: " + filename);
-    }
-    SPDLOG_INFO("Creating config file: {}\n with content:\n{}", filename, content);
-    configFile << content << std::endl;
-    configFile.close();
-    if (configFile.fail()) {
-        SPDLOG_INFO("Closing configFile failed");
-        return false;
-    } else {
-        SPDLOG_INFO("Closing configFile succeed");
-    }
-    return true;
 }
 
 ovms::tensor_map_t prepareTensors(
@@ -384,22 +405,22 @@ bool isShapeTheSame(const KFSShapeType& actual, const std::vector<int64_t>&& exp
     return same;
 }
 
-void readImage(const std::string& path, size_t& filesize, std::unique_ptr<char[]>& image_bytes) {
+void readFile(const std::string& path, size_t& filesize, std::unique_ptr<char[]>& bytes) {
     std::ifstream DataFile;
     DataFile.open(path, std::ios::binary);
     DataFile.seekg(0, std::ios::end);
     filesize = DataFile.tellg();
     DataFile.seekg(0);
-    image_bytes = std::make_unique<char[]>(filesize);
-    DataFile.read(image_bytes.get(), filesize);
+    bytes = std::make_unique<char[]>(filesize);
+    DataFile.read(bytes.get(), filesize);
 }
 
 void readRgbJpg(size_t& filesize, std::unique_ptr<char[]>& image_bytes) {
-    return readImage(getGenericFullPathForSrcTest("/ovms/src/test/binaryutils/rgb.jpg"), filesize, image_bytes);
+    return readFile(getGenericFullPathForSrcTest("/ovms/src/test/binaryutils/rgb.jpg"), filesize, image_bytes);
 }
 
 void read4x4RgbJpg(size_t& filesize, std::unique_ptr<char[]>& image_bytes) {
-    return readImage(getGenericFullPathForSrcTest("/ovms/src/test/binaryutils/rgb4x4.jpg"), filesize, image_bytes);
+    return readFile(getGenericFullPathForSrcTest("/ovms/src/test/binaryutils/rgb4x4.jpg"), filesize, image_bytes);
 }
 
 void prepareInferStringTensor(::KFSRequest::InferInputTensor& tensor, const std::string& name, const std::vector<std::string>& data, bool putBufferInInputTensorContent, std::string* content) {
@@ -648,47 +669,6 @@ std::string* findKFSInferInputTensorContentInRawInputs(::KFSRequest& request, co
     return content;
 }
 
-std::string GetFileContents(const std::string& filePath) {
-    if (!std::filesystem::exists(filePath)) {
-        std::cout << "File does not exist: " << filePath << std::endl;
-        throw std::runtime_error("Failed to open file: " + filePath);
-    }
-
-    std::ifstream file(filePath, std::ios::in | std::ios::binary);
-    if (!file.is_open()) {
-        std::cout << "File could not be opened: " << filePath << std::endl;
-        throw std::runtime_error("Failed to open file: " + filePath);
-    }
-
-    std::string content{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-    file.close();
-    return content;
-}
-
-void SetEnvironmentVar(const std::string& var, const std::string& val) {
-    SPDLOG_INFO("Setting environment variable: {} to: {}", var, val);
-#ifdef _WIN32
-    _putenv_s(var.c_str(), val.c_str());
-#elif __linux__
-    ::setenv(var.c_str(), val.c_str(), 1);
-#endif
-}
-void UnSetEnvironmentVar(const std::string& var) {
-    SPDLOG_INFO("Unsetting environment variable: {}", var);
-#ifdef _WIN32
-    _putenv_s(var.c_str(), "");
-#elif __linux__
-    ::unsetenv(var.c_str());
-#endif
-}
-const std::string GetEnvVar(const std::string& var) {
-    std::string val = "";
-    const char* envCred = std::getenv(var.c_str());
-    if (envCred)
-        val = std::string(envCred);
-    return val;
-}
-
 void prepareCAPIInferInputTensor(ovms::InferenceRequest& request, const std::string& name, const std::tuple<ovms::signed_shape_t, const ovms::Precision>& inputInfo,
     const std::vector<float>& data, uint32_t decrementBufferSize, OVMS_BufferType bufferType, std::optional<uint32_t> deviceId) {
     auto [shape, type] = inputInfo;
@@ -753,6 +733,21 @@ void randomizeAndEnsureFrees(std::string& port1, std::string& port2) {
 
 const int64_t SERVER_START_FROM_CONFIG_TIMEOUT_SECONDS = 60;
 
+namespace {
+
+void startServerWithArgs(std::unique_ptr<std::thread>& t, ovms::Server& server, std::vector<std::string> args, int expectedCode) {
+    t.reset(new std::thread([args = std::move(args), &server, expectedCode]() mutable {
+        std::vector<char*> argv;
+        argv.reserve(args.size());
+        for (auto& arg : args) {
+            argv.push_back(const_cast<char*>(arg.c_str()));
+        }
+        EXPECT_EQ(expectedCode, server.start(static_cast<int>(argv.size()), argv.data()));
+    }));
+}
+
+}  // namespace
+
 void EnsureServerStartedWithTimeout(ovms::Server& server, int timeoutSeconds) {
     auto start = std::chrono::high_resolution_clock::now();
     int timestepMs = 20;
@@ -763,13 +758,49 @@ void EnsureServerStartedWithTimeout(ovms::Server& server, int timeoutSeconds) {
     ASSERT_EQ(server.getModuleState(ovms::SERVABLE_MANAGER_MODULE_NAME), ovms::ModuleState::INITIALIZED) << "OVMS did not fully load until allowed time:" << timeoutSeconds << "s. Check machine load";
 }
 
-void EnsureServerModelDownloadFinishedWithTimeout(ovms::Server& server, int timeoutSeconds) {
-    auto start = std::chrono::high_resolution_clock::now();
-    while ((server.getModuleState(ovms::HF_MODEL_PULL_MODULE_NAME) != ovms::ModuleState::SHUTDOWN) &&
-           (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count() < timeoutSeconds)) {
+void EnsureServerModelDownloadFinishedWithTimeout(ovms::Server& server, int completionTimeoutSeconds) {
+    const auto startupTimeout = std::chrono::seconds(10);
+    const auto completionTimeout = std::chrono::seconds(completionTimeoutSeconds);
+    const auto pollInterval = std::chrono::microseconds(200);
+    auto state = server.getModuleState(ovms::HF_MODEL_PULL_MODULE_NAME);
+
+    // Phase 1: yield until the HF pull module appears in the server's module map.
+    // Use a dedicated timeout window for startup detection and throttle polling to avoid
+    // starving the server thread under scheduler pressure.
+    const auto phase1Start = std::chrono::high_resolution_clock::now();
+    while (state == ovms::ModuleState::NOT_INITIALIZED &&
+           (std::chrono::high_resolution_clock::now() - phase1Start) < startupTimeout) {
+        std::this_thread::yield();
+        std::this_thread::sleep_for(pollInterval);
+        state = server.getModuleState(ovms::HF_MODEL_PULL_MODULE_NAME);
+    }
+    if (state == ovms::ModuleState::NOT_INITIALIZED) {
+        FAIL() << "HF pull module never started within 10s. Check machine load and network load";
+        return;
     }
 
-    ASSERT_EQ(server.getModuleState(ovms::HF_MODEL_PULL_MODULE_NAME), ovms::ModuleState::SHUTDOWN) << "OVMS did not download model in allowed time:" << timeoutSeconds << "s. Check machine load and network load";
+    const auto phase1Elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - phase1Start);
+    const auto remainingCompletionTimeout =
+        (phase1Elapsed < completionTimeout) ? (completionTimeout - phase1Elapsed) : std::chrono::seconds::zero();
+
+    // Phase 2: wait for the module to finish.
+    // Accept SHUTDOWN (normal) or NOT_INITIALIZED — the latter happens when the pull is so
+    // fast (e.g. model already cached, no download needed) that server.start() returns and
+    // shutdownModules() calls modules.clear() before this thread re-enters the check, making
+    // getModuleState return NOT_INITIALIZED rather than SHUTDOWN.
+    // Use a second timeout window for completion and keep the poll loop cooperative.
+    const auto phase2Start = std::chrono::high_resolution_clock::now();
+    while (state != ovms::ModuleState::SHUTDOWN &&
+           state != ovms::ModuleState::NOT_INITIALIZED &&
+           (std::chrono::high_resolution_clock::now() - phase2Start) < remainingCompletionTimeout) {
+        std::this_thread::yield();
+        std::this_thread::sleep_for(pollInterval);
+        state = server.getModuleState(ovms::HF_MODEL_PULL_MODULE_NAME);
+    }
+
+    const auto finalState = state;
+    ASSERT_TRUE(finalState == ovms::ModuleState::SHUTDOWN || finalState == ovms::ModuleState::NOT_INITIALIZED)
+        << "OVMS did not download model in allowed time:" << completionTimeoutSeconds << "s. Check machine load and network load";
 }
 
 // --pull --source_model OpenVINO/Phi-3-mini-FastDraft-50M-int8-ov --model_repository_path c:\download
@@ -785,6 +816,86 @@ void SetUpServerForDownload(std::unique_ptr<std::thread>& t, ovms::Server& serve
         (char*)task.c_str()};
 
     int argc = 8;
+    t.reset(new std::thread([&argc, &argv, &server, expected_code]() {
+        EXPECT_EQ(expected_code, server.start(argc, argv));
+    }));
+
+    EnsureServerModelDownloadFinishedWithTimeout(server, timeoutSeconds);
+}
+
+void SetUpServerForDownload(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& source_model, std::string& download_path, std::string& task, const std::string& logPath, int expected_code, int timeoutSeconds) {
+    server.setShutdownRequest(0);
+    std::vector<std::string> args = {"ovms",
+        "--pull",
+        "--source_model",
+        source_model,
+        "--model_repository_path",
+        download_path,
+        "--task",
+        task,
+        "--log_path",
+        logPath};
+    startServerWithArgs(t, server, std::move(args), expected_code);
+
+    EnsureServerModelDownloadFinishedWithTimeout(server, timeoutSeconds);
+}
+
+void SetUpServerForDownloadWithDraft(std::unique_ptr<std::thread>& t, ovms::Server& server,
+    std::string& draftModel, std::string& source_model, std::string& download_path, std::string& task, int expected_code, int timeoutSeconds) {
+    server.setShutdownRequest(0);
+    char* argv[] = {(char*)"ovms",
+        (char*)"--pull",
+        (char*)"--source_model",
+        (char*)source_model.c_str(),
+        (char*)"--model_repository_path",
+        (char*)download_path.c_str(),
+        (char*)"--task",
+        (char*)task.c_str(),
+        (char*)"--draft_source_model",
+        (char*)draftModel.c_str()};
+
+    int argc = 10;
+    t.reset(new std::thread([&argc, &argv, &server, expected_code]() {
+        EXPECT_EQ(expected_code, server.start(argc, argv));
+    }));
+
+    EnsureServerModelDownloadFinishedWithTimeout(server, timeoutSeconds);
+}
+
+void SetUpServerForDownloadWithDraft(std::unique_ptr<std::thread>& t, ovms::Server& server,
+    std::string& draftModel, std::string& source_model, std::string& download_path, std::string& task, const std::string& logPath, int expected_code, int timeoutSeconds) {
+    server.setShutdownRequest(0);
+    std::vector<std::string> args = {"ovms",
+        "--pull",
+        "--source_model",
+        source_model,
+        "--model_repository_path",
+        download_path,
+        "--task",
+        task,
+        "--draft_source_model",
+        draftModel,
+        "--log_path",
+        logPath};
+    startServerWithArgs(t, server, std::move(args), expected_code);
+
+    EnsureServerModelDownloadFinishedWithTimeout(server, timeoutSeconds);
+}
+
+void SetUpServerForDownloadWithLoras(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& source_model, std::string& download_path, std::string& task, std::string& source_loras, int expected_code, int timeoutSeconds) {
+    server.setShutdownRequest(0);
+    char* argv[] = {(char*)"ovms",
+        (char*)"--pull",
+        (char*)"--source_model",
+        (char*)source_model.c_str(),
+        (char*)"--model_repository_path",
+        (char*)download_path.c_str(),
+        (char*)"--task",
+        (char*)task.c_str(),
+        (char*)"--source_loras",
+        (char*)source_loras.c_str()};
+
+    int argc = 10;
     t.reset(new std::thread([&argc, &argv, &server, expected_code]() {
         EXPECT_EQ(expected_code, server.start(argc, argv));
     }));
@@ -814,31 +925,146 @@ void SetUpServerForDownloadAndStart(std::unique_ptr<std::thread>& t, ovms::Serve
     EnsureServerStartedWithTimeout(server, timeoutSeconds);
 }
 
-void SetUpServer(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& port, const char* configPath, int timeoutSeconds) {
+void SetUpServerForDownloadAndStart(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& source_model, std::string& download_path, std::string& task, std::string& restPort, int timeoutSeconds) {
+    server.setShutdownRequest(0);
+    std::string port = "9133";
+    randomizeAndEnsureFree(port);
+    randomizeAndEnsureFree(restPort);
+    char* argv[] = {(char*)"ovms",
+        (char*)"--port",
+        (char*)port.c_str(),
+        (char*)"--rest_port",
+        (char*)restPort.c_str(),
+        (char*)"--source_model",
+        (char*)source_model.c_str(),
+        (char*)"--model_repository_path",
+        (char*)download_path.c_str(),
+        (char*)"--task",
+        (char*)task.c_str()};
+
+    int argc = 11;
+    t.reset(new std::thread([&argc, &argv, &server]() {
+        EXPECT_EQ(EXIT_SUCCESS, server.start(argc, argv));
+    }));
+
+    EnsureServerStartedWithTimeout(server, timeoutSeconds);
+}
+
+void SetUpServerForDownloadAndStartWithLoras(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& source_model, std::string& download_path, std::string& task, std::string& source_loras, std::string& restPort, int timeoutSeconds) {
+    server.setShutdownRequest(0);
+    std::string port = "9133";
+    randomizeAndEnsureFree(port);
+    randomizeAndEnsureFree(restPort);
+    char* argv[] = {(char*)"ovms",
+        (char*)"--port",
+        (char*)port.c_str(),
+        (char*)"--rest_port",
+        (char*)restPort.c_str(),
+        (char*)"--source_model",
+        (char*)source_model.c_str(),
+        (char*)"--model_repository_path",
+        (char*)download_path.c_str(),
+        (char*)"--task",
+        (char*)task.c_str(),
+        (char*)"--source_loras",
+        (char*)source_loras.c_str()};
+
+    int argc = 13;
+    t.reset(new std::thread([&argc, &argv, &server]() {
+        EXPECT_EQ(EXIT_SUCCESS, server.start(argc, argv));
+    }));
+
+    EnsureServerStartedWithTimeout(server, timeoutSeconds);
+}
+
+void SetUpServerForDownloadAndStartGGUF(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& ggufFilename, std::string& sourceModel, std::string& downloadPath, std::string& task, int timeoutSeconds) {
+    server.setShutdownRequest(0);
+    std::string port = "9133";
+    randomizeAndEnsureFree(port);
+    char* argv[] = {
+        (char*)"ovms",
+        (char*)"--port",
+        (char*)port.c_str(),
+        (char*)"--source_model",
+        (char*)sourceModel.c_str(),
+        (char*)"--model_repository_path",
+        (char*)downloadPath.c_str(),
+        (char*)"--task",
+        (char*)task.c_str(),
+        (char*)"--gguf_filename",
+        (char*)ggufFilename.c_str(),
+    };
+
+    int argc = 11;
+    t.reset(new std::thread([&argc, &argv, &server]() {
+        EXPECT_EQ(EXIT_SUCCESS, server.start(argc, argv));
+    }));
+
+    EnsureServerStartedWithTimeout(server, timeoutSeconds);
+}
+
+void SetUpServer(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& port, const char* configPath, int timeoutSeconds, std::string api_key) {
     server.setShutdownRequest(0);
     randomizeAndEnsureFree(port);
+    if (!api_key.empty()) {
+        char* argv[] = {(char*)"ovms",
+            (char*)"--config_path",
+            (char*)configPath,
+            (char*)"--port",
+            (char*)port.c_str(),
+            (char*)"--api_key_file",
+            (char*)api_key.c_str()};
+        int argc = 7;
+        t.reset(new std::thread([&argc, &argv, &server]() {
+            EXPECT_EQ(EXIT_SUCCESS, server.start(argc, argv));
+        }));
+        EnsureServerStartedWithTimeout(server, timeoutSeconds);
+    } else {
+        char* argv[] = {(char*)"ovms",
+            (char*)"--config_path",
+            (char*)configPath,
+            (char*)"--port",
+            (char*)port.c_str()};
+        int argc = 5;
+        t.reset(new std::thread([&argc, &argv, &server]() {
+            EXPECT_EQ(EXIT_SUCCESS, server.start(argc, argv));
+        }));
+        EnsureServerStartedWithTimeout(server, timeoutSeconds);
+    }
+}
+
+void SetUpServer(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& port, const char* modelPath, const char* modelName, int timeoutSeconds) {
+    server.setShutdownRequest(0);
+    randomizeAndEnsureFree(port);
+    std::string fullModelPath = getGenericFullPathForSrcTest(modelPath);
     char* argv[] = {(char*)"ovms",
-        (char*)"--config_path",
-        (char*)configPath,
+        (char*)"--model_name",
+        (char*)modelName,
+        (char*)"--model_path",
+        (char*)fullModelPath.c_str(),
         (char*)"--port",
         (char*)port.c_str()};
-    int argc = 5;
+    int argc = 7;
     t.reset(new std::thread([&argc, &argv, &server]() {
         EXPECT_EQ(EXIT_SUCCESS, server.start(argc, argv));
     }));
     EnsureServerStartedWithTimeout(server, timeoutSeconds);
 }
-void SetUpServer(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& port, const char* modelPath, const char* modelName, int timeoutSeconds) {
+
+void SetUpServer(std::unique_ptr<std::thread>& t, ovms::Server& server, std::string& port, const char* modelPath, const char* modelName, int timeoutSeconds, const char* task) {
     server.setShutdownRequest(0);
     randomizeAndEnsureFree(port);
+    std::string fullModelPath = getGenericFullPathForSrcTest(modelPath);
     char* argv[] = {(char*)"ovms",
         (char*)"--model_name",
         (char*)modelName,
         (char*)"--model_path",
-        (char*)getGenericFullPathForSrcTest(modelPath).c_str(),
+        (char*)fullModelPath.c_str(),
         (char*)"--port",
-        (char*)port.c_str()};
-    int argc = 7;
+        (char*)port.c_str(),
+        (char*)"--task",
+        (char*)task};
+    int argc = 9;
     t.reset(new std::thread([&argc, &argv, &server]() {
         EXPECT_EQ(EXIT_SUCCESS, server.start(argc, argv));
     }));
@@ -854,212 +1080,9 @@ std::shared_ptr<const TensorInfo> createTensorInfoCopyWithPrecision(std::shared_
         src->getLayout());
 }
 
-// Static map workaround for char* pointers as paths
-const std::string& getPathFromMap(std::string inputPath, std::string outputPath) {
-    static std::mutex mtx;
-    std::unique_lock<std::mutex> lock(mtx);
-    static std::unordered_map<std::string, std::string> inputMap = {};
-    auto it = inputMap.find(inputPath);
-    if (it != inputMap.end()) {
-        // element exists
-        return inputMap.at(inputPath);
-    } else {
-        // element does not exist
-        inputMap.emplace(inputPath, outputPath);
-        return inputMap.at(inputPath);
-    }
-}
-
-// Function changes linux docker container path /ovms/src/test/dummy to windows workspace "C:\git\model_server\src\test\dummy"
-// Depending on the ovms_test.exe location after build
-const std::string& getGenericFullPathForSrcTest(const std::string& linuxPath, bool logChange) {
-#ifdef __linux__
-    return getPathFromMap(linuxPath, linuxPath);
-#elif _WIN32
-    // For ovms_test cwd = C:\git\model_server\bazel-out\x64_windows-opt\bin\src
-    std::filesystem::path cwd = std::filesystem::current_path();
-    std::size_t bazelOutIndex = cwd.string().find("bazel-out");
-
-    // Example linuxPath "/ovms/src/test/dummy"
-    std::size_t postOvmsIndex = linuxPath.find("/src/test");
-    if (postOvmsIndex != std::string::npos) {
-        // Setting winPath to "/src/test/dummy"
-        std::string winPath = linuxPath.substr(postOvmsIndex);
-        // Set basePath to "C:\git\model_server\"
-        std::string basePath = bazelOutIndex != std::string::npos ? cwd.string().substr(0, bazelOutIndex) : cwd.string();
-        // Combine "C:\git\model_server\" + "/src/test/dummy"
-        std::string finalWinPath = basePath + winPath;
-        // Change paths to linux separator for JSON parser compatybility in configs
-        std::replace(finalWinPath.begin(), finalWinPath.end(), '\\', '/');
-
-        if (logChange) {
-            std::cout << "[WINDOWS DEBUG] Changed path: " << linuxPath << " to path: " << finalWinPath << " for Windows" << std::endl;
-        }
-        return getPathFromMap(linuxPath, finalWinPath);
-    }
-#endif
-    return getPathFromMap(linuxPath, linuxPath);
-}
-
-// Function changes linux docker container path /ovms/bazel-out/src/lib_node_mock.so to windows workspace "C:\git\model_server\bazel-bin\src\lib_node_mock.so"
-// Depending on the ovms_test.exe location after build
-const std::string& getGenericFullPathForBazelOut(const std::string& linuxPath, bool logChange) {
-#ifdef __linux__
-    return getPathFromMap(linuxPath, linuxPath);
-#elif _WIN32
-    // For ovms_test cwd = C:\git\model_server\bazel-out\x64_windows-opt\bin\src
-    std::filesystem::path cwd = std::filesystem::current_path();
-    std::size_t bazelOutIndex = cwd.string().find("bazel-out");
-
-    // Example linuxPath "/ovms/bazel-bin/src/lib_node_mock.so"
-    std::size_t postOvmsIndex = linuxPath.find("/bazel-bin/src");
-    if (postOvmsIndex != std::string::npos) {
-        // Setting winPath to "/bazel-bin/src"
-        std::string winPath = linuxPath.substr(postOvmsIndex);
-        // Set basePath to "C:\git\model_server\"
-        std::string basePath = bazelOutIndex != std::string::npos ? cwd.string().substr(0, bazelOutIndex) : cwd.string();
-        // Combine "C:\git\model_server\" + "/bazel-bin/src"
-        std::string finalWinPath = basePath + winPath;
-        // Change paths to linux separator for JSON parser compatybility in configs
-        std::replace(finalWinPath.begin(), finalWinPath.end(), '\\', '/');
-
-        if (logChange) {
-            std::cout << "[WINDOWS DEBUG] Changed path: " << linuxPath << " to path: " << finalWinPath << " for Windows" << std::endl;
-        }
-        return getPathFromMap(linuxPath, finalWinPath);
-    }
-#endif
-    return getPathFromMap(linuxPath, linuxPath);
-}
-
-const std::string& getGenericFullPathForSrcTest(const char* linuxPath, bool logChange) {
-    return getGenericFullPathForSrcTest(std::string(linuxPath, strlen(linuxPath)), logChange);
-}
-
-// Function changes docker linux paths starting with /tmp: "/tmp/dummy" to windows C:\git\model_server\tmp\dummy
-const std::string& getGenericFullPathForTmp(const std::string& linuxPath, bool logChange) {
-#ifdef __linux__
-    return getPathFromMap(linuxPath, linuxPath);
-#elif _WIN32
-    // For ovms_test cwd = C:\git\model_server\bazel-out\x64_windows-opt\bin\src
-    std::filesystem::path cwd = std::filesystem::current_path();
-    size_t bazelOutIndex = cwd.string().find("bazel-out");
-
-    // Example linuxPath "/tmp/dummy"
-    const std::string tmpString = "/tmp";
-    const size_t tmpStringSize = 4;
-
-    size_t postTmpIndex = linuxPath.find(tmpString) + tmpStringSize;
-    if (postTmpIndex != std::string::npos) {
-        std::string winPath = linuxPath.substr(postTmpIndex);
-        // Set basePath to "C:\git\model_server\"
-        std::string basePath = bazelOutIndex != std::string::npos ? cwd.string().substr(0, bazelOutIndex) : cwd.string();
-        // Combine "C:\git\model_server\" + "tmp" "\dummy"
-        std::string finalWinPath = basePath + tmpString + winPath;
-        // Change paths to linux separator for JSON parser compatybility in configs
-        std::replace(finalWinPath.begin(), finalWinPath.end(), '\\', '/');
-
-        if (logChange) {
-            std::cout << "[WINDOWS DEBUG] Changed path: " << linuxPath << " to path: " << finalWinPath << " for Windows" << std::endl;
-        }
-        return getPathFromMap(linuxPath, finalWinPath);
-    }
-#endif
-    return getPathFromMap(linuxPath, linuxPath);
-}
-
-const std::string& getGenericFullPathForTmp(const char* linuxPath, bool logChange) {
-    return getGenericFullPathForTmp(std::string(linuxPath, strlen(linuxPath)), logChange);
-}
-
-#ifdef _WIN32
-const std::string getWindowsRepoRootPath() {
-    std::filesystem::path cwd = std::filesystem::current_path();
-    std::size_t bazelOutIndex = cwd.string().find("bazel-out");
-    std::string rootPath = cwd.string().substr(0, bazelOutIndex);
-    std::replace(rootPath.begin(), rootPath.end(), '\\', '/');
-    return rootPath;
-}
-#endif
-// Apply necessary changes so the graph config will comply with the platform
-// that tests are run on
-void adjustConfigForTargetPlatform(std::string& input) {
-#ifdef _WIN32
-    std::string repoTestPath = getWindowsRepoRootPath() + "/src/test";
-    std::string searchString = "\"/ovms/src/test";
-    std::string replaceString = "\"" + repoTestPath;
-    size_t pos = 0;
-    while ((pos = input.find(searchString, pos)) != std::string::npos) {
-        input.replace(pos, searchString.length(), replaceString);
-        pos += replaceString.length();
-    }
-
-    repoTestPath = getWindowsRepoRootPath() + "/tmp";
-    searchString = "\"/tmp";
-    replaceString = "\"" + repoTestPath;
-    pos = 0;
-    while ((pos = input.find(searchString, pos)) != std::string::npos) {
-        input.replace(pos, searchString.length(), replaceString);
-        pos += replaceString.length();
-    }
-
-    repoTestPath = getWindowsRepoRootPath() + "/bazel-bin/src";
-    searchString = "\"/ovms/bazel-bin/src";
-    replaceString = "\"" + repoTestPath;
-    pos = 0;
-    while ((pos = input.find(searchString, pos)) != std::string::npos) {
-        input.replace(pos, searchString.length(), replaceString);
-        pos += replaceString.length();
-    }
-#elif __linux__
-    // No changes needed for linux now, but keeping it as a placeholder
-#endif
-}
-
-// Apply necessary changes so the graph config will comply with the platform
-// that tests are run on
-const std::string& adjustConfigForTargetPlatformReturn(std::string& input) {
-    adjustConfigForTargetPlatform(input);
-    return input;
-}
-
-std::string adjustConfigForTargetPlatformCStr(const char* input) {
-    std::string inputString(input);
-    adjustConfigForTargetPlatform(inputString);
-    return inputString;
-}
-
 void adjustConfigToAllowModelFileRemovalWhenLoaded(ovms::ModelConfig& modelConfig) {
 #ifdef _WIN32
     modelConfig.setPluginConfig(ovms::plugin_config_t({{"ENABLE_MMAP", "NO"}}));
 #endif
     // on linux we can remove files from disk even if mmap is enabled
-}
-std::string dirTree(const std::string& path, const std::string& indent) {
-    if (!std::filesystem::exists(path)) {
-        SPDLOG_ERROR("Path does not exist: {}", path);
-        return "NON_EXISTENT_PATH";
-    }
-    std::stringstream tree;
-    // if is directory, add to stream its name followed by "/"
-    // if is file, add to stream its name
-
-    tree << indent;
-    if (!indent.empty()) {
-        tree << "|-- ";
-    }
-
-    tree << std::filesystem::path(path).filename().string();
-    if (std::filesystem::is_directory(path)) {
-        tree << "/";
-    }
-    tree << std::endl;
-    if (!std::filesystem::is_directory(path)) {
-        return tree.str();
-    }
-    for (const auto& entry : std::filesystem::directory_iterator(path)) {
-        std::string passDownIndent = indent.empty() ? "|   " : (indent + "    ");
-        tree << dirTree(entry.path().string(), passDownIndent);
-    }
-    return tree.str();
 }

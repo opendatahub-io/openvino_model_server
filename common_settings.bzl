@@ -28,6 +28,8 @@ load("//:distro.bzl", "distro_flag")
 def ovms_cc_library(**kwargs):
     """
     Wrapper for cc_library that sets default copts and linkopts if not provided.
+    Transitive defines (PYTHON_DISABLE, MEDIAPIPE_DISABLE) are always set via 'defines'
+    so that any target depending on an ovms_cc_library automatically gets these macros.
     """
     if "copts" not in kwargs:
         kwargs["copts"] = COMMON_STATIC_LIBS_COPTS + select({
@@ -41,10 +43,14 @@ def ovms_cc_library(**kwargs):
         })
     if "local_defines" not in kwargs:
         kwargs["local_defines"] = COMMON_LOCAL_DEFINES
+    if "defines" not in kwargs:
+        kwargs["defines"] = COMMON_DEFINES
     if "additional_copts" in kwargs:
         kwargs["copts"] += kwargs.pop("additional_copts")
     if "additional_linkopts" in kwargs:
         kwargs["linkopts"] += kwargs.pop("additional_linkopts")
+    if "additional_local_defines" in kwargs:
+        kwargs["local_defines"] += kwargs.pop("additional_local_defines")
 
     native.cc_library(
         **kwargs
@@ -62,17 +68,6 @@ def create_config_settings():
     more_selects.config_setting_negation(
         name = "not_disable_mediapipe",
         negate = ":disable_mediapipe",
-    )
-    native.config_setting(
-        name = "genai_bin",
-        define_values = {
-            "GENAI_USE_BINARY": "1",
-        },
-        visibility = ["//visibility:public"],
-    )
-    more_selects.config_setting_negation(
-        name = "not_genai_bin",
-        negate = ":genai_bin",
     )
     native.config_setting(
         name = "enable_drogon",
@@ -154,6 +149,7 @@ def create_config_settings():
 ###############################
 LINUX_COMMON_STATIC_LIBS_COPTS = [
                     "-Wall",
+                    # "-Wextra", Requires more cleanup in code
                     # TODO: was in ovms bin "-Wconversion",
                     "-Wno-unknown-pragmas", 
                     "-Wno-sign-compare",
@@ -170,13 +166,13 @@ LINUX_COMMON_STATIC_LIBS_COPTS = [
                     "-Wl,-z,noexecstack",
                     "-fPIC",
                     #"-D_GLIBCXX_ASSERTIONS", - causes errors on gpu
-                    "-Wl,-z,relro",
                     "-Wl,-z,relro,-z,now",
                     "-Wl,-z,nodlopen",
                     "-fstack-protector-strong",
 ]
 
 WINDOWS_COMMON_STATIC_LIBS_COPTS = [
+                        "/guard:cf",
                         "/W4",
                         "/WX",
                         "/external:anglebrackets",
@@ -187,6 +183,8 @@ WINDOWS_COMMON_STATIC_LIBS_COPTS = [
                         "/GS",
                         "/DYNAMICBASE",
                         "/Qspectre",
+                        "/wd4305",  # abseil after switch to build tools 22
+                        "/wd4324",  # genai after switch to build tools 22
                         "/wd4068",
                         "/wd4458",
                         "/wd4100",
@@ -199,7 +197,12 @@ WINDOWS_COMMON_STATIC_LIBS_COPTS = [
                         "/wd4702",
                         "/wd4267",
                         "/wd4996",
+                        "/wd6240", 
+                        "/wd6326",
+                        "/wd6385",
+                        "/wd6294",
                         "/guard:cf",
+                        "/utf-8",
 ]
 
 COMMON_STATIC_LIBS_COPTS = select({
@@ -212,8 +215,6 @@ COMMON_STATIC_TEST_COPTS = select({
                     "-Wall",
                     "-Wno-unknown-pragmas",
                     "-Werror",
-                    # ov::Tensor::data method call results in deprecated warning and we use it in multiple places
-                    "-Wno-deprecated-declarations",
                     "-Isrc",
                     "-fconcepts", # for gmock related utils
                     "-fvisibility=hidden",# Needed for pybind targets
@@ -222,22 +223,9 @@ COMMON_STATIC_TEST_COPTS = select({
                         "-W0",
                         "-Isrc",
                         "/wd4996",
+                        "/utf-8",
                     ],
                 })
-
-COMMON_STATIC_LIBS_COPTS_VISIBLE = select({
-                "//conditions:default": [
-                    "-Wall",
-                    # TODO: was in ovms bin "-Wconversion",
-                    "-Wno-unknown-pragmas", 
-                    "-Wno-sign-compare",
-                    "-Werror",
-                ],
-                "//src:windows" : [
-                        "-W0",
-                        "-Isrc",
-                    ],
-                }) 
 
 COMMON_STATIC_LIBS_LINKOPTS = select({
                 "//conditions:default": [
@@ -253,17 +241,17 @@ COMMON_STATIC_LIBS_LINKOPTS = select({
                     "/LTCG",
                 ],
                 })
-COPTS_PYTHON = select({
-    "//conditions:default": ["-DPYTHON_DISABLE=1"],
-    "//:not_disable_python" : ["-DPYTHON_DISABLE=0"],
-})
-COPTS_MEDIAPIPE = select({
-    "//conditions:default": ["-DMEDIAPIPE_DISABLE=1"],
-    "//:not_disable_mediapipe" : ["-DMEDIAPIPE_DISABLE=0"],
-})
 COPTS_DROGON = select({
     "//conditions:default": ["-DUSE_DROGON=0"],
     "//:enable_drogon" : ["-DUSE_DROGON=1"],
+})
+DEFINES_PYTHON = select({
+    "//conditions:default": ["PYTHON_DISABLE=1"],
+    "//:not_disable_python" : ["PYTHON_DISABLE=0"],
+})
+DEFINES_MEDIAPIPE = select({
+    "//conditions:default": ["MEDIAPIPE_DISABLE=1"],
+    "//:not_disable_mediapipe" : ["MEDIAPIPE_DISABLE=0"],
 })
 COMMON_FUZZER_COPTS = [
     "-fsanitize=address",
@@ -277,6 +265,7 @@ COMMON_FUZZER_LINKOPTS = [
     "-static-libasan",
 ]
 COMMON_LOCAL_DEFINES = ["SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE"]
+COMMON_DEFINES = DEFINES_PYTHON + DEFINES_MEDIAPIPE
 PYBIND_DEPS = [
     "//third_party:python3",
     "@pybind11//:pybind11_embed",

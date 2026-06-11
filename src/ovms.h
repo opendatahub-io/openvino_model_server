@@ -33,7 +33,7 @@ typedef struct OVMS_ServableMetadata_ OVMS_ServableMetadata;
 typedef struct OVMS_Metadata_ OVMS_Metadata;
 
 #define OVMS_API_VERSION_MAJOR 1
-#define OVMS_API_VERSION_MINOR 2
+#define OVMS_API_VERSION_MINOR 3
 
 // Function to retrieve OVMS API version.
 //
@@ -281,13 +281,12 @@ OVMS_Status* OVMS_ServerSettingsSetGrpcMemoryQuota(OVMS_ServerSettings* settings
 OVMS_Status* OVMS_ServerSettingsSetFileSystemPollWaitSeconds(OVMS_ServerSettings* settings,
     uint32_t seconds);
 
-// Set sequence cleaner interval server setting.
-// Equivalent of starting server with
-// --sequence_cleaner_poll_wait_minutes.
+// Deprecated: Stateful models are no longer supported.
+// This function is kept for ABI compatibility and always returns an error status.
 //
 // \param settings The server settings object to be set
 // \param minutes The value to be set
-// \return OVMS_Status object in case of failure
+// \return OVMS_Status object indicating the feature is not supported
 OVMS_Status* OVMS_ServerSettingsSetSequenceCleanerPollWaitMinutes(OVMS_ServerSettings* settings,
     uint32_t minutes);
 
@@ -336,6 +335,24 @@ OVMS_Status* OVMS_ServerSettingsSetLogLevel(OVMS_ServerSettings* settings,
 // \return OVMS_Status object in case of failure
 OVMS_Status* OVMS_ServerSettingsSetLogPath(OVMS_ServerSettings* settings,
     const char* log_path);
+
+// Set the server allowed_local_media_path setting. Equivalent of starting server with
+// --allowed_local_media_path.
+//
+// \param settings The server settings object to be set
+// \param allowed_local_media_path The value to be set
+// \return OVMS_Status object in case of failure
+OVMS_Status* OVMS_ServerSettingsSetAllowedLocalMediaPath(OVMS_ServerSettings* settings,
+    const char* allowed_local_media_path);
+
+// Set the server allowed_media_domains setting. Equivalent of starting server with
+// --allowed_media_domains.
+//
+// \param settings The server settings object to be set
+// \param allowed_media_domains The value to be set as comma separated string
+// \return OVMS_Status object in case of failure
+OVMS_Status* OVMS_ServerSettingsSetAllowedMediaDomains(OVMS_ServerSettings* settings,
+    const char* allowed_media_domains);
 
 ////
 //// OVMS_ModelsSettings

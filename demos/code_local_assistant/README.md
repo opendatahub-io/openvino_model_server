@@ -1,118 +1,143 @@
 # Visual Studio Code Local Assistant {#ovms_demos_code_completion_vsc}
 
 ## Intro
-With the rise of AI PC capabilities, hosting own Visual Studio code assistant is at your reach. In this demo, we will showcase how to deploy local LLM serving with OVMS and integrate it with Continue extension. It will employ iGPU or NPU acceleration.
+With the rise of AI PC capabilities, hosting own Visual Studio code assistant is at your reach. In this demo, we will showcase how to deploy local LLM serving with OVMS and integrate it with Continue extension. It will employ GPU acceleration.
 
 # Requirements
 - Windows (for standalone app) or Linux (using Docker)
 - Python installed (for model preparation only)
-- Intel Meteor Lake, Lunar Lake, Arrow Lake or newer Intel CPU.
-
-## Prepare Code Chat/Edit Model 
-We need to use medium size model in order to keep 50ms/word for human to feel the chat responsive.
-This will work in streaming mode, meaning we will see the chat response/code diff generation slowly roll out in real-time.
-
-Download export script, install its dependencies and create directory for the models:
-```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/2/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/2/demos/common/export_models/requirements.txt
-mkdir models
-```
-> **Note:** The users in China need to set environment variable HF_ENDPOINT="https://hf-mirror.com" before running the export script to connect to the HF Hub.
-
-Export `codellama/CodeLlama-7b-Instruct-hf`:
-```console
-python export_model.py text_generation --source_model codellama/CodeLlama-7b-Instruct-hf --weight-format int4 --config_file_path models/config_all.json --model_repository_path models --target_device NPU --overwrite_models
-```
-
-> **Note:** Use `--target_device GPU` for Intel GPU or omit this parameter to run on Intel CPU
-
-## Prepare Code Completion Model
-For this task we need smaller, lighter model that will produce code quicker than chat task.
-Since we do not want to wait for the code to appear, we need to use smaller model. It should be responsive enough to generate multi-line blocks of code ahead of time as we type.
-Code completion works in non-streaming, unary mode. Do not use instruct model, there is no chat involved in the process.
-
-Export `Qwen/Qwen2.5-Coder-1.5B`:
-```console
-python export_model.py text_generation --source_model Qwen/Qwen2.5-Coder-1.5B --weight-format int4 --config_file_path models/config_all.json --model_repository_path models --target_device NPU --overwrite_models
-```
-
-Examine that workspace is set up properly `models/config_all.json`:
-```
-{
-    "mediapipe_config_list": [
-        {
-            "name": "codellama/CodeLlama-7b-Instruct-hf",
-            "base_path": "codellama/CodeLlama-7b-Instruct-hf"
-        },
-        {
-            "name": "Qwen/Qwen2.5-Coder-1.5B",
-            "base_path": "Qwen/Qwen2.5-Coder-1.5B"
-        }
-    ],
-    "model_config_list": []
-}
-```
-
-```bash
-tree models
-models
-├── codellama
-│   └── CodeLlama-7b-Instruct-hf
-│       ├── config.json
-│       ├── generation_config.json
-│       ├── graph.pbtxt
-│       ├── openvino_detokenizer.bin
-│       ├── openvino_detokenizer.xml
-│       ├── openvino_model.bin
-│       ├── openvino_model.xml
-│       ├── openvino_tokenizer.bin
-│       ├── openvino_tokenizer.xml
-│       ├── special_tokens_map.json
-│       ├── tokenizer_config.json
-│       ├── tokenizer.json
-│       └── tokenizer.model
-├── config_all.json
-└── Qwen
-    └── Qwen2.5-Coder-1.5B
-        ├── added_tokens.json
-        ├── config.json
-        ├── generation_config.json
-        ├── graph.pbtxt
-        ├── merges.txt
-        ├── openvino_detokenizer.bin
-        ├── openvino_detokenizer.xml
-        ├── openvino_model.bin
-        ├── openvino_model.xml
-        ├── openvino_tokenizer.bin
-        ├── openvino_tokenizer.xml
-        ├── special_tokens_map.json
-        ├── tokenizer_config.json
-        ├── tokenizer.json
-        └── vocab.json
-
-4 directories, 29 files
-```
-
-## Set Up Server
-Run OpenVINO Model Server with both models loaded at the same time:
+- Intel Meteor Lake, Lunar Lake, Arrow Lake or Panther Lake.
+- Memory requirements depend on the model size
 
 ### Windows: deploying on bare metal
-Please refer to OpenVINO Model Server installation first: [link](../../docs/deploying_server_baremetal.md)
 
+::::{tab-set}
+:::{tab-item} OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov
+:sync: OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov
 ```bat
-ovms --rest_port 8000 --config_path ./models/config_all.json
+mkdir c:\models
+ovms --model_repository_path c:\models --source_model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov --task text_generation --target_device GPU --tool_parser qwen3coder --rest_port 8000 --cache_dir .ovcache --model_name Qwen3-Coder-30B-A3B-Instruct
 ```
+> **Note:** For deployment, the model requires ~16GB disk space and recommended 19GB+ of VRAM on the GPU.
+
+> **Note:** An int8 variant is also available: `OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int8-ov`. It offers higher accuracy but requires 34GB+ of VRAM on the GPU.
+:::
+
+:::{tab-item} OpenVINO/gpt-oss-20b-int4-ov
+:sync: OpenVINO/gpt-oss-20b-int4-ov
+```bat
+mkdir c:\models
+ovms --model_repository_path c:\models --source_model OpenVINO/gpt-oss-20b-int4-ov --task text_generation --target_device GPU --tool_parser gptoss --reasoning_parser gptoss --rest_port 8000 --cache_dir .ovcache --model_name gpt-oss-20b
+```
+> **Note:** For deployment, the model requires ~12GB disk space and recommended 16GB+ of VRAM on the GPU.
+:::
+
+:::{tab-item} OpenVINO/Qwen3-8B-int4-ov
+:sync: OpenVINO/Qwen3-8B-int4-ov
+```bat
+mkdir c:\models
+ovms --model_repository_path c:\models --source_model OpenVINO/Qwen3-8B-int4-ov --task text_generation --target_device GPU --tool_parser hermes3 --reasoning_parser qwen3 --rest_port 8000 --cache_dir .ovcache --model_name Qwen3-8B
+```
+> **Note:** For deployment, the model requires ~4GB disk space and recommended 6GB+ of VRAM on the GPU.
+:::
+:::{tab-item} OpenVINO/Qwen3-8B-int4-cw-ov
+:sync: OpenVINO/Qwen3-8B-int4-cw-ov
+```bat
+mkdir c:\models
+ovms --model_repository_path c:\models --source_model OpenVINO/Qwen3-8B-int4-cw-ov --task text_generation --target_device NPU --tool_parser hermes3 --rest_port 8000 --max_prompt_len 16384 --plugin_config "{\"NPUW_LLM_PREFILL_ATTENTION_HINT\":\"PYRAMID\"}" --cache_dir .ovcache --model_name Qwen3-8B
+```
+> **Note:** First model initialization might be long. With the compilation cache, sequential model loading will be fast.
+:::
+:::{tab-item} OpenVINO/Qwen3-VL-8B-Instruct-int4-ov
+:sync: OpenVINO/Qwen3-VL-8B-Instruct-int4-ov
+```bat
+mkdir c:\models
+ovms --model_repository_path c:\models --source_model OpenVINO/Qwen3-VL-8B-Instruct-int4-ov --task text_generation --target_device GPU --pipeline_type VLM_CB --rest_port 8000 --cache_dir .ovcache --model_name Qwen3-VL-8B-Instruct
+```
+> **Note:** This is a Vision Language Model (VLM) that supports image inputs. For deployment, recommended 7GB+ of VRAM on the GPU.
+:::
+::::
 
 ### Linux: via Docker
+
+::::{tab-set}
+:::{tab-item} OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov
+:sync: OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov
 ```bash
-docker run -d --rm --device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -u $(id -u):$(id -g) \
-  -p 8000:8000 -v $(pwd)/:/workspace/ openvino/model_server:2025.2 --rest_port 8000 --config_path /workspace/models/config_all.json
+mkdir -p models
+docker run -d -p 8000:8000 --rm --user $(id -u):$(id -g) -v $(pwd)/models:/models/:rw --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
+    openvino/model_server:weekly \
+    --model_repository_path /models --source_model OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int4-ov --task text_generation --target_device GPU --tool_parser qwen3coder --rest_port 8000 --model_name Qwen3-Coder-30B-A3B-Instruct
 ```
+> **Note:** For deployment, the model requires ~16GB disk space and recommended 19GB+ of VRAM on the GPU.
+
+> **Note:** An int8 variant is also available: `OpenVINO/Qwen3-Coder-30B-A3B-Instruct-int8-ov`. It offers higher accuracy but requires 34GB+ of VRAM on the GPU.
+:::
+
+:::{tab-item} OpenVINO/gpt-oss-20B-int4-ov
+:sync: OpenVINO/gpt-oss-20B-int4-ov
+```bash
+mkdir -p models
+docker run -d -p 8000:8000 --rm --user $(id -u):$(id -g) -v $(pwd)/models:/models/:rw --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
+    openvino/model_server:weekly \
+    --model_repository_path /models --source_model OpenVINO/gpt-oss-20b-int4-ov --task text_generation --target_device GPU --tool_parser gptoss --reasoning_parser gptoss --rest_port 8000 --model_name gpt-oss-20b
+```
+> **Note:** For deployment, the model requires ~12GB disk space and recommended 16GB+ of VRAM on the GPU.
+:::
+
+:::{tab-item} OpenVINO/Qwen3-8B-int4-ov
+:sync: OpenVINO/Qwen3-8B-int4-ov
+```bash
+mkdir c:\models
+docker run -d -p 8000:8000 --rm --user $(id -u):$(id -g) -v $(pwd)/models:/models/:rw --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
+    openvino/model_server:weekly \
+    --model_repository_path /models --source_model OpenVINO/Qwen3-8B-int4-ov --task text_generation --target_device GPU --tool_parser hermes3 --reasoning_parser qwen3 --rest_port 8000  --model_name Qwen3-8B
+```
+> **Note:** For deployment, the model requires ~4GB disk space and recommended 6GB+ of VRAM on the GPU.
+:::
+:::{tab-item} OpenVINO/Qwen3-8B-int4-cw-ov
+:sync: OpenVINO/Qwen3-8B-int4-cw-ov
+```bash
+mkdir -p models
+docker run -d -p 8000:8000 --rm --user $(id -u):$(id -g) -v $(pwd)/models:/models/:rw --device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
+    openvino/model_server:weekly \
+    --model_repository_path /models --source_model OpenVINO/Qwen3-8B-int4-cw-ov --task text_generation --target_device NPU --tool_parser hermes3 --rest_port 8000 --max_prompt_len 16384 --plugin_config '{"NPUW_LLM_PREFILL_ATTENTION_HINT":"PYRAMID"}' --model_name Qwen3-8B
+```
+> **Note:** First model initialization might be long. With the compilation cache, sequential model loading will be fast.
+:::
+:::{tab-item} OpenVINO/Qwen3-VL-8B-Instruct-int4-ov
+:sync: OpenVINO/Qwen3-VL-8B-Instruct-int4-ov
+```bash
+mkdir -p models
+docker run -d -p 8000:8000 --rm --user $(id -u):$(id -g) -v $(pwd)/models:/models/:rw --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) \
+    openvino/model_server:weekly \
+    --model_repository_path /models --source_model OpenVINO/Qwen3-VL-8B-Instruct-int4-ov --task text_generation --target_device GPU --pipeline_type VLM_CB --rest_port 8000 --model_name Qwen3-VL-8B-Instruct
+```
+> **Note:** This is a Vision Language Model (VLM) that supports image inputs. For deployment, recommended 7GB+ of VRAM on the GPU.
+:::
+::::
+
+
+## Custom models
+
+Models which are not published in OpenVINO format can be exported and quantized with custom parameters. Below is an example how to export and deploy model Devstral-Small-2507.
+
+```
+mkdir models
+python export_model.py text_generation --source_model unsloth/Devstral-Small-2507 --weight-format int4 --config_file_path models/config_all.json --model_repository_path models --tool_parser devstral --target_device GPU
+curl -L -o models/unsloth/Devstral-Small-2507/chat_template.jinja https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/extras/chat_template_examples/chat_template_devstral.jinja
+
+ovms --model_repository_path models --source_model unsloth/Devstral-Small-2507 --task text_generation --target_device GPU --tool_parser devstral --rest_port 8000 --cache_dir .ovcache
+```
+> **Note:** Exporting models is a one time operation but might consume RAM at least of the model size and might take a lot of time depending on the model size.
+
+
 
 ## Set Up Visual Studio Code
 
 ### Download [Continue plugin](https://www.continue.dev/)
+
+> **Note:** This demo has been tested with Continue plugin version `1.2.11`. While newer versions should work, some configuration options may vary.
 
 ![search_continue_plugin](search_continue_plugin.png)
 
@@ -123,30 +148,34 @@ Open configuration file:
 
 ![setup_local_assistant](setup_local_assistant.png)
 
-Add both models. Specify roles:
+Prepare a config:
+
+::::{tab-set}
+:::{tab-item} Qwen3-Coder-30B-A3B-Instruct
+:sync: Qwen3-Coder-30B-A3B-Instruct
 ```
 name: Local Assistant
 version: 1.0.0
 schema: v1
 models:
-  -
-    name: OVMS CodeLlama-7b-Instruct-hf
+  - name: OVMS Qwen3-Coder-30B-A3B-Instruct
     provider: openai
-    model: codellama/CodeLlama-7b-Instruct-hf
+    model: Qwen3-Coder-30B-A3B-Instruct
     apiKey: unused
-    apiBase: localhost:8000/v3
+    apiBase: http://localhost:8000/v3
     roles:
       - chat
       - edit
       - apply
-  -
-    name: OVMS Qwen2.5-Coder-1.5B
-    provider: openai
-    model: Qwen/Qwen2.5-Coder-1.5B
-    apiKey: unused
-    apiBase: localhost:8000/v3
-    roles:
       - autocomplete
+    capabilities:
+      - tool_use
+    autocompleteOptions:
+      maxPromptTokens: 500
+      debounceDelay: 124
+      modelTimeout: 400
+      onlyMyCode: true
+      useCache: true
 context:
   - provider: code
   - provider: docs
@@ -156,8 +185,158 @@ context:
   - provider: folder
   - provider: codebase
 ```
+:::
 
-## Have Fun
+:::{tab-item} gpt-oss-20b
+:sync: gpt-oss-20b
+```
+name: Local Assistant
+version: 1.0.0
+schema: v1
+models:
+  - name: OVMS gpt-oss-20b 
+    provider: openai
+    model: gpt-oss-20b
+    apiKey: unused
+    apiBase: http://localhost:8000/v3
+    roles:
+      - chat
+      - edit
+      - apply
+    capabilities:
+      - tool_use
+  - name: OVMS gpt-oss-20b autocomplete
+    provider: openai
+    model: gpt-oss-20b
+    apiKey: unused
+    apiBase: http://localhost:8000/v3
+    roles:
+      - autocomplete
+    capabilities:
+      - tool_use
+    requestOptions:
+      extraBodyProperties:
+        reasoning_effort:
+          none
+    autocompleteOptions:
+      maxPromptTokens: 500
+      debounceDelay: 124
+      useCache: true
+      onlyMyCode: true
+      modelTimeout: 400
+context:
+  - provider: code
+  - provider: docs
+  - provider: diff
+  - provider: terminal
+  - provider: problems
+  - provider: folder
+  - provider: codebase
+```
+:::
+:::{tab-item} unsloth/Devstral-Small-2507
+:sync: unsloth/Devstral-Small-2507
+```
+name: Local Assistant
+version: 1.0.0
+schema: v1
+models:
+  - name: OVMS unsloth/Devstral-Small-2507
+    provider: openai
+    model: unsloth/Devstral-Small-2507
+    apiKey: unused
+    apiBase: http://localhost:8000/v3
+    roles:
+      - chat
+      - edit
+      - apply
+      - autocomplete
+    capabilities:
+      - tool_use
+    autocompleteOptions:
+      maxPromptTokens: 500
+      debounceDelay: 124
+      useCache: true
+      onlyMyCode: true
+      modelTimeout: 400
+context:
+  - provider: code
+  - provider: docs
+  - provider: diff
+  - provider: terminal
+  - provider: problems
+  - provider: folder
+  - provider: codebase
+```
+:::
+:::{tab-item} Qwen3-8B
+:sync: Qwen3-8B
+```
+name: Local Assistant
+version: 1.0.0
+schema: v1
+models:
+  - name: OVMS Qwen3-8B
+    provider: openai
+    model: Qwen3-8B
+    apiKey: unused
+    apiBase: http://localhost:8000/v3
+    roles:
+      - chat
+      - edit
+      - apply
+    capabilities:
+      - tool_use
+    requestOptions:
+      extraBodyProperties:
+        chat_template_kwargs:
+          enable_thinking: false
+context:
+  - provider: code
+  - provider: docs
+  - provider: diff
+  - provider: terminal
+  - provider: problems
+  - provider: folder
+  - provider: codebase
+```
+:::
+:::{tab-item} Qwen3-VL-8B-Instruct
+:sync: Qwen3-VL-8B-Instruct
+```
+name: Local Assistant
+version: 1.0.0
+schema: v1
+models:
+  - name: OVMS Qwen3-VL-8B-Instruct
+    provider: openai
+    model: Qwen3-VL-8B-Instruct
+    apiKey: unused
+    apiBase: http://localhost:8000/v3
+    roles:
+      - chat
+      - edit
+      - apply
+    capabilities:
+      - tool_use
+      - image_input
+context:
+  - provider: code
+  - provider: docs
+  - provider: diff
+  - provider: terminal
+  - provider: problems
+  - provider: folder
+  - provider: codebase
+```
+:::
+::::
+
+> **Note:** For Vision Language Models (VLM) like Qwen3-VL-8B-Instruct, add `image_input` to the `capabilities` list in the Continue config. This enables the image modality, allowing you to send images in chat messages for the model to analyze.
+
+> **Note:** For more information about this config, see [configuration reference](https://docs.continue.dev/reference#models).
+
+## Chatting, code editing and autocompletion in action
 
 - to use chatting feature click continue button on the left sidebar
 - use `CTRL+I` to select and include source in chat message
@@ -167,8 +346,35 @@ context:
 ![final](final.png)
 
 
-## Troubleshooting
+## AI Agents in action
+Continue.dev plugin is shipped with multiple built-in tools. For full list please [visit Continue documentation](https://docs.continue.dev/features/agent/how-it-works#what-tools-are-available-in-plan-mode-read-only).
 
-OpenVINO Model Server uses python to apply chat templates. If you get an error during model loading, enable Unicode UTF-8 in your system settings:
+To use them, select Agent Mode:
 
-![utf8](utf8.png)
+![select agent](./select_agent.png)
+
+Select model that support tool calling from model list:
+
+![select model](./select_qwen.png)
+
+Example use cases for tools:
+
+* Run terminal commands
+
+![git log](./using_terminal.png)
+
+* Look up web links
+
+![wikipedia](./wikipedia.png)
+
+* Search files
+
+![glob](./glob.png)
+
+* Image input
+
+![vision](./image_input.png)
+
+* Extending VRAM allocation to iGPU to enable loading bigger models
+
+![xram](./vram.png)

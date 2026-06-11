@@ -19,8 +19,9 @@ set -exo pipefail
 # Option parsing
 
 os=${os:-auto}
-opencv_branch=${opencv_branch:-4.10.0}
+opencv_branch=${opencv_branch:-${OPENCV_VERSION:-4.13.0}}
 work_dir=${work_dir:-/opt}
+SDL_OPS="-Wl,-z,relro,-z,now,-z,noexecstack -Wall -Wextra -Wimplicit-fallthrough -fPIE -pie -fstack-protector-strong -fexceptions -fasynchronous-unwind-tables -fcf-protection -fpic -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 -fno-strict-overflow -Wall -Wno-unknown-pragmas -Wno-error=sign-compare -fno-delete-null-pointer-checks -fwrapv -fstack-clash-protection -Wformat -Wformat-security -Werror=format-security -s -D_GLIBCXX_USE_CXX11_ABI=1 -Wuninitialized"
 
 
 #===================================================================================================
@@ -63,7 +64,7 @@ git clone https://github.com/opencv/opencv_contrib.git --depth 1 -b $opencv_bran
 cd $work_dir/opencv_repo
 mkdir -p $work_dir/opencv_repo/build
 cd $work_dir/opencv_repo/build
-cmake $(cat $current_working_dir/opencv_cmake_flags.txt) $work_dir/opencv_repo && \
+cmake $(cat $current_working_dir/opencv_cmake_flags.txt) -DCMAKE_CXX_FLAGS="${SDL_OPS}" $work_dir/opencv_repo && \
     make "-j$(nproc)" && \
     make install
 

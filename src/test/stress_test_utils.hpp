@@ -40,7 +40,8 @@
 #include "../dags/pipelinedefinition.hpp"
 #include "../get_model_metadata_impl.hpp"
 #include "../kfs_frontend/kfs_utils.hpp"
-#include "../localfilesystem.hpp"
+#include "src/metrics/metric_config.hpp"
+#include "src/filesystem/localfilesystem.hpp"
 #include "../logging.hpp"
 #include "../model_service.hpp"
 #include "../modelconfig.hpp"
@@ -50,9 +51,13 @@
 #include "../server.hpp"
 #include "../status.hpp"
 #include "../stringutils.hpp"
+#include "src/timer.hpp"
 #include "../tfs_frontend/tfs_utils.hpp"
 #include "c_api_test_utils.hpp"
 #include "test_utils.hpp"
+#include "light_test_utils.hpp"
+#include "platform_utils.hpp"
+#include "test_with_temp_dir.hpp"
 #if (MEDIAPIPE_DISABLE == 0)
 #include "../mediapipe_internal/mediapipegraphexecutor.hpp"
 #endif
@@ -1064,19 +1069,111 @@ static const std::string basicMediapipeConfigWithNewGraphPath = R"({
     "mediapipe_config_list": [
     {
         "name":"pipeline1Dummy",
-        "graph_path":"/ovms/src/test/mediapipe/graphdummyadapterfull_dummyinputnames.pbtxt"
+        "graph_path":"/ovms/src/test/mediapipe/graphdummyadapterfull_dummyinputnames_newpath.pbtxt"
+    }
+    ]
+})";
+
+const std::string basicMediapipeQueueConfig = R"({
+    "model_config_list": [
+        {"config": {
+                "name": "dummy",
+                "base_path": "/ovms/src/test/dummy"
+        }
+        }
+    ],
+    "mediapipe_config_list": [
+    {
+        "name":"pipeline1Dummy",
+        "graph_path":"/ovms/src/test/mediapipe/graph_queue_dummyadapterfull_dummyinputnames.pbtxt"
+    }
+    ]
+})";
+
+static const std::string basicMediapipeQueueConfigWithAddedGraph = R"({
+    "model_config_list": [
+        {"config": {
+                "name": "dummy",
+                "base_path": "/ovms/src/test/dummy"
+        }
+        }
+    ],
+    "mediapipe_config_list": [
+    {
+        "name":"pipeline1Dummy",
+        "graph_path":"/ovms/src/test/mediapipe/graph_queue_dummyadapterfull_dummyinputnames.pbtxt"
+    },
+    {
+        "name":"pipeline2Dummy",
+        "graph_path":"/ovms/src/test/mediapipe/graph_queue_dummyadapterfull_dummyinputnames.pbtxt"
+    }
+    ]
+})";
+
+static const std::string basicMediapipeQueueConfigWithRemovedGraph = R"({
+    "model_config_list": [
+        {"config": {
+                "name": "dummy",
+                "base_path": "/ovms/src/test/dummy"
+        }
+        }
+    ],
+    "mediapipe_config_list": [
+    ]
+})";
+
+static const std::string basicMediapipeQueueConfigWithRemovedModel = R"({
+    "model_config_list": [
+    ],
+    "mediapipe_config_list": [
+    {
+        "name":"pipeline1Dummy",
+        "graph_path":"/ovms/src/test/mediapipe/graph_queue_dummyadapterfull_dummyinputnames.pbtxt"
+    }
+    ]
+})";
+
+static const std::string basicMediapipeQueueConfigWithReloadedModel = R"({
+    "model_config_list": [
+        {"config": {
+                "name": "dummy",
+                "base_path": "/ovms/src/test/dummy",
+                "nireq": 47
+        }
+        }
+    ],
+    "mediapipe_config_list": [
+    {
+        "name":"pipeline1Dummy",
+        "graph_path":"/ovms/src/test/mediapipe/graph_queue_dummyadapterfull_dummyinputnames.pbtxt"
+    }
+    ]
+})";
+
+static const std::string basicMediapipeQueueConfigWithNewGraphPath = R"({
+    "model_config_list": [
+        {"config": {
+                "name": "dummy",
+                "base_path": "/ovms/src/test/dummy"
+        }
+        }
+    ],
+    "mediapipe_config_list": [
+    {
+        "name":"pipeline1Dummy",
+        "graph_path":"/ovms/src/test/mediapipe/graph_queue_dummyadapterfull_dummyinputnames_newpath.pbtxt"
     }
     ]
 })";
 
 #if (MEDIAPIPE_DISABLE == 0)
 template <typename Request, typename Response>
-static void mediaexec(std::shared_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, Request&, Response&, ovms::Status& status) {
+static void mediaexec(std::unique_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, Request&, Response&, ovms::Status& status) {
     throw std::string("Unsupported");
 }
 
 template <typename Request, typename Response>
-static void mediacreate(std::shared_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, Request&, Response&, ovms::Status& status) {
+static void mediacreate(std::unique_ptr<MediapipeGraphExecutor>& executorPtr, ovms::ModelManager& manager, Request&, Response&, ovms::Status& status) {
     throw std::string("Unsupported");
 }
 #endif
@@ -1090,6 +1187,13 @@ static void mediacreate(std::shared_ptr<MediapipeGraphExecutor>& executorPtr, ov
     } else {                                                  \
         sc = static_cast<StatusCode>(code);                   \
     }
+
+enum StressTimerSlot : unsigned int {
+    STRESS_LOOP,
+    CREATE,
+    EXECUTE,
+    TIMER_END
+};
 
 class ConfigChangeStressTest : public TestWithTempDir {
 protected:
@@ -1154,16 +1258,8 @@ public:
         ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsNew(&modelsSettings));
         randomizeAndEnsureFrees(port, restPort);
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcPort(serverSettings, std::stoi(port)));
-#if (USE_DROGON == 0)                                                                                  // when jusing drogon we cannot start rest server multiple times within the same process
-        ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetRestPort(serverSettings, std::stoi(restPort)));  // required for metrics  - but disabled because drogon http server cannot be restarted
-#endif
-        // ideally we would want to have emptyConfigWithMetrics
-#if (USE_DROGON == 0)
-        ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/emptyConfigWithMetrics.json").c_str()));  // the content of config json is irrelevant - we just need server to be ready for C-API use in mediapipe
-#else
         ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(modelsSettings, getGenericFullPathForSrcTest("/ovms/src/test/configs/emptyConfig.json").c_str()));  // the content of config json is irrelevant - we just need server to be ready for C-API use in mediapipe
-#endif
-        ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetFileSystemPollWaitSeconds(serverSettings, 0));  // set to 0 to reload only through test and avoid races
+        ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetFileSystemPollWaitSeconds(serverSettings, 0));                                                                 // set to 0 to reload only through test and avoid races
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerStartFromConfigurationFile(cserver, serverSettings, modelsSettings));
         OVMS_ModelsSettingsDelete(modelsSettings);
@@ -1178,7 +1274,8 @@ public:
         OVMS_Server* cserver;
         ASSERT_CAPI_STATUS_NULL(OVMS_ServerNew(&cserver));
         ovms::Server& server = ovms::Server::instance();
-        manager->join();
+        if (manager)
+            manager->join();
         server.setShutdownRequest(1);
         OVMS_ServerDelete(cserver);
         server.setShutdownRequest(0);
@@ -1295,6 +1392,12 @@ public:
         createConfigFileWithContent(ovmsConfig, configFilePath);
         SPDLOG_INFO("{} end", __FUNCTION__);
     }
+    void addNewMediapipeQueueGraph() {
+        SPDLOG_INFO("{} start", __FUNCTION__);
+        SetUpConfig(basicMediapipeQueueConfigWithAddedGraph);
+        createConfigFileWithContent(ovmsConfig, configFilePath);
+        SPDLOG_INFO("{} end", __FUNCTION__);
+    }
     void removeMediapipeGraph() {
         SPDLOG_INFO("{} start", __FUNCTION__);
         SetUpConfig(basicMediapipeConfigWithRemovedGraph);
@@ -1316,6 +1419,30 @@ public:
     void reloadMediapipeGraph() {
         SPDLOG_INFO("{} start", __FUNCTION__);
         SetUpConfig(basicMediapipeConfigWithNewGraphPath);
+        createConfigFileWithContent(ovmsConfig, configFilePath);
+        SPDLOG_INFO("{} end", __FUNCTION__);
+    }
+    void removeMediapipeQueueGraph() {
+        SPDLOG_INFO("{} start", __FUNCTION__);
+        SetUpConfig(basicMediapipeQueueConfigWithRemovedGraph);
+        createConfigFileWithContent(ovmsConfig, configFilePath);
+        SPDLOG_INFO("{} end", __FUNCTION__);
+    }
+    void removeMediapipeQueueGraphUsedModel() {
+        SPDLOG_INFO("{} start", __FUNCTION__);
+        SetUpConfig(basicMediapipeQueueConfigWithRemovedModel);
+        createConfigFileWithContent(ovmsConfig, configFilePath);
+        SPDLOG_INFO("{} end", __FUNCTION__);
+    }
+    void reloadMediapipeQueueGraphUsedModel() {
+        SPDLOG_INFO("{} start", __FUNCTION__);
+        SetUpConfig(basicMediapipeQueueConfigWithReloadedModel);
+        createConfigFileWithContent(ovmsConfig, configFilePath);
+        SPDLOG_INFO("{} end", __FUNCTION__);
+    }
+    void reloadMediapipeQueueGraph() {
+        SPDLOG_INFO("{} start", __FUNCTION__);
+        SetUpConfig(basicMediapipeQueueConfigWithNewGraphPath);
         createConfigFileWithContent(ovmsConfig, configFilePath);
         SPDLOG_INFO("{} end", __FUNCTION__);
     }
@@ -1408,7 +1535,7 @@ public:
         std::for_each(workerThreads.begin(), workerThreads.end(), [](auto& t) { t->join(); });
 
         for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
-            SPDLOG_TRACE("Create:[{}]={} -- {}", static_cast<uint32_t>(retCode), counter, ovms::Status(retCode).string());
+            SPDLOG_TRACE("Create:[{}]={} -- {}", static_cast<uint32_t>(retCode), counter.load(), retCode);
             if (requiredLoadResults.find(retCode) != requiredLoadResults.end()) {
                 EXPECT_GT(counter, 0) << static_cast<uint32_t>(retCode) << ":" << ovms::Status(retCode).string() << " did not occur. This may indicate fail or fail in test setup";
                 continue;
@@ -1710,6 +1837,8 @@ public:
         auto stressIterationsCounter = stressIterationsLimit;
         bool breakLoop = false;
         while (stressIterationsCounter-- > 0) {
+            ovms::Timer<TIMER_END> timer;
+            timer.start(STRESS_LOOP);
             auto futureWaitResult = stopSignal.wait_for(std::chrono::milliseconds(0));
             if (true == breakLoop) {
                 SPDLOG_INFO("Ending Load");
@@ -1721,7 +1850,7 @@ public:
             }
             std::unique_ptr<Pipeline> pipelinePtr;
 #if (MEDIAPIPE_DISABLE == 0)
-            std::shared_ptr<MediapipeGraphExecutor> executorPtr;
+            std::unique_ptr<MediapipeGraphExecutor> executorPtr;
 #endif
             ResponseType response;
             // little hack - we can't use noninitializad object to call function
@@ -1729,13 +1858,16 @@ public:
             RequestType request2;
             RequestType request = preparePipelinePredictRequest(request2);
             ovms::Status createPipelineStatus = StatusCode::UNKNOWN_ERROR;
+            timer.start(CREATE);
             if (typeid(ServableType) == typeid(ovms::Pipeline)) {
-                createPipelineStatus = this->manager->createPipeline(pipelinePtr, pipelineName, &request, &response);
+                createPipelineStatus = this->manager->getPipelineFactory().create(pipelinePtr, pipelineName, &request, &response, *(this->manager));
 #if (MEDIAPIPE_DISABLE == 0)
             } else if (typeid(ServableType) == typeid(ovms::MediapipeGraphExecutor)) {
                 mediacreate(executorPtr, *(this->manager), request, response, createPipelineStatus);
 #endif
             }
+            timer.stop(CREATE);
+            SPDLOG_TRACE("Executor creation time: {} us", timer.elapsed<std::chrono::microseconds>(CREATE));
             // we need to make sure that expected status happened and still accept
             // some that could happen but we may not hit them
             EXPECT_TRUE((requiredLoadResults.find(createPipelineStatus.getCode()) != requiredLoadResults.end()) ||
@@ -1747,6 +1879,7 @@ public:
             }
 
             ovms::Status executePipelineStatus = StatusCode::UNKNOWN_ERROR;
+            timer.start(EXECUTE);
             if (typeid(ServableType) == typeid(ovms::Pipeline)) {
                 executePipelineStatus = pipelinePtr->execute(ovms::ExecutionContext(
                     ovms::ExecutionContext::Interface::GRPC,
@@ -1756,6 +1889,7 @@ public:
                 mediaexec(executorPtr, *(this->manager), request, response, executePipelineStatus);
 #endif
             }
+            timer.stop(EXECUTE);
             createPipelineRetCodesCounters[executePipelineStatus.getCode()]++;
             EXPECT_TRUE((requiredLoadResults.find(executePipelineStatus.getCode()) != requiredLoadResults.end()) ||
                         (allowedLoadResults.find(executePipelineStatus.getCode()) != allowedLoadResults.end()))
@@ -1767,10 +1901,12 @@ public:
                 SPDLOG_INFO("Earlier fail detected. Stopping execution");
                 break;
             }
+            timer.stop(STRESS_LOOP);
+            SPDLOG_TRACE("Execution time: {} us", timer.elapsed<std::chrono::microseconds>(CREATE));
         }
         for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
             if (counter > 0) {
-                SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter);
+                SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter.load());
             }
         }
         std::stringstream ss;
@@ -1948,7 +2084,7 @@ public:
             }
             for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
                 if (counter > 0) {
-                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter);
+                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter.load());
                 }
             }
 
@@ -2036,7 +2172,7 @@ public:
             }
             for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
                 if (counter > 0) {
-                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter);
+                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter.load());
                 }
             }
 
@@ -2096,7 +2232,7 @@ public:
             }
             for (auto& [retCode, counter] : createPipelineRetCodesCounters) {
                 if (counter > 0) {
-                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter);
+                    SPDLOG_DEBUG("Create:[{}]={}:{}", static_cast<uint32_t>(retCode), ovms::Status(retCode).string(), counter.load());
                 }
             }
 

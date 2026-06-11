@@ -749,6 +749,8 @@ node {
 
 When using generative mode, the `execute` method in [`OvmsPythonModel`](#ovmspythonmodel-class) class must `yield` value.
 
+> **Note:** Generative mode is not compatible with the [graph pool](../mediapipe.md#graph-pool-scalability-feature). Do not add `# OVMS_GRAPH_QUEUE_MAX_SIZE` directive to graphs that use generative Python nodes with LOOPBACK.
+
 ```python
 from pyovms import Tensor
 ...
@@ -945,7 +947,7 @@ That's why converter calculators exists. They work as adapters between nodes and
 
 #### PyTensorOvTensorConverterCalculator
 
-OpenVINO Model Server comes with a built-in `PyTensorOvTensorConverterCalculator` that provides conversion between [Python Tensor](#python-tensor) and [OV Tensor](https://docs.openvino.ai/2025/api/c_cpp_api/classov_1_1_tensor.html).
+OpenVINO Model Server comes with a built-in `PyTensorOvTensorConverterCalculator` that provides conversion between [Python Tensor](#python-tensor) and [OV Tensor](https://docs.openvino.ai/2026/api/c_cpp_api/classov_1_1_tensor.html).
 
 Currently `PyTensorOvTensorConverterCalculator` works with only one input and one output.
 - The stream that expects Python Tensor **must** have tag `OVMS_PY_TENSOR`
