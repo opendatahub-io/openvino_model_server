@@ -24,6 +24,8 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
+#include <openvino/runtime/core.hpp>
 #include <openvino/openvino.hpp>
 #include <openvino/runtime/tensor.hpp>
 #include <sys/stat.h>
@@ -36,6 +38,7 @@
 #pragma GCC diagnostic pop
 
 #include "../config.hpp"
+#include "../dags/pipeline_factory.hpp"
 #include "../dags/pipelinedefinition.hpp"
 #include "../grpcservermodule.hpp"
 #include "../http_rest_api_handler.hpp"
@@ -45,8 +48,9 @@
 #include "../mediapipe_internal/mediapipefactory.hpp"
 #include "../mediapipe_internal/mediapipegraphdefinition.hpp"
 #include "../mediapipe_internal/mediapipegraphexecutor.hpp"
-#include "../metric_config.hpp"
-#include "../metric_module.hpp"
+#include "src/metrics/metric_config.hpp"
+#include "src/metrics/metric_module.hpp"
+#include "../model.hpp"
 #include "../model_service.hpp"
 #include "../ovms_exit_codes.hpp"
 #include "../precision.hpp"
@@ -55,11 +59,16 @@
 #include "../shape.hpp"
 #include "../stringutils.hpp"
 #include "../tfs_frontend/tfs_utils.hpp"
+#include "constructor_enabled_model_manager.hpp"
 #include "c_api_test_utils.hpp"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/tensor.h"
 #include "opencv2/opencv.hpp"
+#include "platform_utils.hpp"
+#include "src/utils/env_guard.hpp"
 #include "test_utils.hpp"
+#include "light_test_utils.hpp"
+#include "test_with_temp_dir.hpp"
 
 #if (PYTHON_DISABLE == 0)
 #pragma warning(push)
@@ -228,9 +237,11 @@ protected:
     void SetUp() override {
     }
     void TearDown() {
-        server.setShutdownRequest(1);
-        t->join();
-        server.setShutdownRequest(0);
+        if (t) {
+            server.setShutdownRequest(1);
+            t->join();
+            server.setShutdownRequest(0);
+        }
     }
 };
 
@@ -334,7 +345,7 @@ TEST_F(MediapipeEmbeddingsTest, startup) {
     const ovms::Module* servableModule = server.getModule(ovms::SERVABLE_MANAGER_MODULE_NAME);
     ASSERT_TRUE(servableModule != nullptr);
     ModelManager* manager = &dynamic_cast<const ServableManagerModule*>(servableModule)->getServableManager();
-    auto mediapipeGraphDefinition = manager->getMediapipeFactory().findDefinitionByName("embeddings");
+    auto mediapipeGraphDefinition = manager->getMediapipeFactory().findDefinitionByName("embeddings_ov");
     ASSERT_TRUE(mediapipeGraphDefinition != nullptr);
     ASSERT_TRUE(mediapipeGraphDefinition->getStatus().isAvailable());
 }
@@ -345,7 +356,7 @@ TEST_F(MediapipeEmbeddingsTest, grpcInference) {
     KFSInferenceServiceImpl& impl = dynamic_cast<const ovms::GRPCServerModule*>(grpcModule)->getKFSGrpcImpl();
     ::KFSRequest request;
     ::KFSResponse response;
-    const std::string modelName = "embeddings";
+    const std::string modelName = "embeddings_ov";
     request.Clear();
     response.Clear();
     inputs_info_t inputsMeta{{"input", {DUMMY_MODEL_SHAPE, precision}}};
@@ -1483,8 +1494,6 @@ TEST_F(MediapipeStreamFlowAddTest, Infer) {
 TEST_F(MediapipeStreamFlowAddTest, InferOnUnloadedGraph) {
     const ovms::Module* grpcModule = server.getModule(ovms::GRPC_SERVER_MODULE_NAME);
     KFSInferenceServiceImpl& impl = dynamic_cast<const ovms::GRPCServerModule*>(grpcModule)->getKFSGrpcImpl();
-    const ServableManagerModule* smm = dynamic_cast<const ServableManagerModule*>(server.getModule(SERVABLE_MANAGER_MODULE_NAME));
-    ModelManager& modelManager = smm->getServableManager();
 
     auto* definition = this->getMPDefinitionByName(this->modelName);
     ASSERT_NE(definition, nullptr);
@@ -1528,10 +1537,10 @@ TEST_F(MediapipeStreamFlowAddTest, InferOnUnloadedGraph) {
             checkAddResponse("out", this->requestData1[2], this->requestData1[2], this->request[2], msg.infer_response(), 1, 1, this->modelName);
             return true;
         });
-    std::thread unloader([&startUnloading, &finishedUnloading, &definition, &modelManager]() {
+    std::thread unloader([&startUnloading, &finishedUnloading, &definition]() {
         // Wait till first response notifies that we should start unloading
         startUnloading.get_future().get();
-        definition->retire(modelManager);
+        definition->retire();
         // Notify second request to arrive because we unloaded the graph
         finishedUnloading.set_value();
     });
@@ -1650,11 +1659,9 @@ TEST_F(MediapipeStreamFlowAddTest, InferOnReloadedGraph) {
 TEST_F(MediapipeStreamFlowAddTest, NegativeShouldNotReachInferDueToRetiredGraph) {
     const ovms::Module* grpcModule = server.getModule(ovms::GRPC_SERVER_MODULE_NAME);
     KFSInferenceServiceImpl& impl = dynamic_cast<const ovms::GRPCServerModule*>(grpcModule)->getKFSGrpcImpl();
-    const ServableManagerModule* smm = dynamic_cast<const ServableManagerModule*>(server.getModule(SERVABLE_MANAGER_MODULE_NAME));
-    ModelManager& modelManager = smm->getServableManager();
     auto* definition = this->getMPDefinitionByName(this->modelName);
     ASSERT_NE(definition, nullptr);
-    definition->retire(modelManager);
+    definition->retire();
 
     // Opening new stream, expect graph to be unavailable
     MockedServerReaderWriter<::inference::ModelStreamInferResponse, ::inference::ModelInferRequest> stream;
@@ -1720,7 +1727,7 @@ TEST_F(MediapipeFlowTest, InferWithParams) {
         ASSERT_EQ(it->shape_size(), 1);
         ASSERT_EQ(it->shape(0), stringParamValue.size());
         const std::string& content = response.raw_output_contents(outputId);
-        SPDLOG_ERROR("Received output size:{} content:{}", content.size(), content);
+        SPDLOG_DEBUG("Received output size:{} content:{}", content.size(), content);
         EXPECT_EQ(content, stringParamValue);
         break;
     }
@@ -1739,7 +1746,7 @@ TEST_F(MediapipeFlowTest, InferWithParams) {
         const std::string& content = response.raw_output_contents(outputId);
         ASSERT_EQ(content.size(), sizeof(bool));
         const bool castContent = *((bool*)content.data());
-        SPDLOG_ERROR("Received output size:{} content:{}; castContent:{}", content.size(), content, castContent);
+        SPDLOG_DEBUG("Received output size:{} content:{}; castContent:{}", content.size(), content, castContent);
         EXPECT_EQ(castContent, boolParamValue);
         break;
     }
@@ -1758,7 +1765,7 @@ TEST_F(MediapipeFlowTest, InferWithParams) {
         const std::string& content = response.raw_output_contents(outputId);
         ASSERT_EQ(content.size(), sizeof(int64_t));
         const int64_t castContent = *((int64_t*)content.data());
-        SPDLOG_ERROR("Received output size:{} content:{}; castContent:{}", content.size(), content, castContent);
+        SPDLOG_DEBUG("Received output size:{} content:{}; castContent:{}", content.size(), content, castContent);
         EXPECT_EQ(castContent, int64ParamValue);
         break;
     }
@@ -1841,7 +1848,7 @@ public:
 class MockModel : public ovms::Model {
 public:
     MockModel(const std::string& name) :
-        Model(name, false /*stateful*/, nullptr) {}
+        Model(name) {}
     std::shared_ptr<ovms::ModelInstance> modelInstanceFactory(const std::string& modelName, const ovms::model_version_t, ov::Core& ieCore, ovms::MetricRegistry* registry = nullptr, const ovms::MetricConfig* metricConfig = nullptr) override {
         return std::make_shared<MockModelInstance>(ieCore);
     }
@@ -1851,7 +1858,7 @@ class MockModelManager : public ovms::ModelManager {
     ovms::MetricRegistry registry;
 
 public:
-    std::shared_ptr<ovms::Model> modelFactory(const std::string& name, const bool isStateful) override {
+    std::shared_ptr<ovms::Model> modelFactory(const std::string& name) override {
         return std::make_shared<MockModel>(name);
     }
 
@@ -1980,6 +1987,28 @@ TEST(Mediapipe, MetadataDummyInputTypes) {
             calculator: "OVMSOVCalculator"
             input_stream: "B:in"
             output_stream: "A:out"
+            node_options: {
+                [type.googleapis.com / mediapipe.OVMSCalculatorOptions]: {
+                  servable_name: "dummyUpper"
+                  servable_version: "1"
+                }
+            }
+        }
+        node {
+            calculator: "OVMSOVCalculator"
+            input_stream: "B:in2"
+            output_stream: "A:out2"
+            node_options: {
+                [type.googleapis.com / mediapipe.OVMSCalculatorOptions]: {
+                  servable_name: "dummyUpper"
+                  servable_version: "1"
+                }
+            }
+        }
+        node {
+            calculator: "OVMSOVCalculator"
+            input_stream: "B:in2"
+            output_stream: "A:out3"
             node_options: {
                 [type.googleapis.com / mediapipe.OVMSCalculatorOptions]: {
                   servable_name: "dummyUpper"
@@ -2435,7 +2464,7 @@ public:
     static const std::string pbtxtContentNonexistentCalc;
     template <typename Request, typename Response>
     static void checkStatus(ModelManager& manager, ovms::StatusCode code) {
-        std::shared_ptr<MediapipeGraphExecutor> executor;
+        std::unique_ptr<MediapipeGraphExecutor> executor;
         Request request;
         Response response;
         auto status = manager.createPipeline(executor, mgdName);
@@ -2677,13 +2706,17 @@ class MediapipeSerialization : public ::testing::Test {
             stream_types_mapping_t inputTypes,
             stream_types_mapping_t outputTypes,
             std::vector<std::string> inputNames, std::vector<std::string> outputNames,
-            const PythonNodeResourcesMap& pythonNodeResourcesMap,
-            MediapipeServableMetricReporter* mediapipeServableMetricReporter) :
-            MediapipeGraphExecutor(name, version, config, inputTypes, outputTypes, inputNames, outputNames, pythonNodeResourcesMap, {}, {}, {}, nullptr, mediapipeServableMetricReporter) {}
+            const GraphSidePackets& sidePackets,
+            MediapipeServableMetricReporter* mediapipeServableMetricReporter, GraphIdGuard&& guard) :
+            MediapipeGraphExecutor(name, version, config, inputTypes, outputTypes, inputNames, outputNames,
+                sidePackets,
+                nullptr, mediapipeServableMetricReporter, std::move(guard)) {}
     };
 
 protected:
     std::unique_ptr<MediapipeServableMetricReporter> reporter;
+    std::shared_ptr<GraphSidePackets> sidePackets;
+    std::shared_ptr<GraphQueue> queue;
     std::unique_ptr<MockedMediapipeGraphExecutor> executor;
     ::inference::ModelInferResponse mp_response;
     void SetUp() {
@@ -2696,9 +2729,11 @@ protected:
         const std::vector<std::string> inputNames;
         const std::vector<std::string> outputNames;
         const ::mediapipe::CalculatorGraphConfig config;
-        PythonNodeResourcesMap pythonNodeResourcesMap;
         this->reporter = std::make_unique<MediapipeServableMetricReporter>(nullptr, nullptr, "");  // disabled reporter
-        executor = std::make_unique<MockedMediapipeGraphExecutor>("", "", config, mapping, mapping, inputNames, outputNames, pythonNodeResourcesMap, this->reporter.get());
+        sidePackets = std::make_shared<GraphSidePackets>();
+        queue = std::make_shared<GraphQueue>(config, sidePackets, 1);
+        GraphIdGuard guard(queue);
+        executor = std::make_unique<MockedMediapipeGraphExecutor>("", "", config, mapping, mapping, inputNames, outputNames, *sidePackets, this->reporter.get(), std::move(guard));
     }
 };
 
@@ -3095,7 +3130,7 @@ protected:
         auto start = std::chrono::high_resolution_clock::now();
         while (!isMpReady(waitForServable) &&
                (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count() < SERVER_START_FROM_CONFIG_TIMEOUT_SECONDS)) {
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
+            std::this_thread::sleep_for(std::chrono::microseconds(1000));
         }
         const ovms::Module* grpcModule = server.getModule(ovms::GRPC_SERVER_MODULE_NAME);
         if (!grpcModule) {
@@ -3318,7 +3353,7 @@ protected:
         }
         const ServableManagerModule* smm = dynamic_cast<const ServableManagerModule*>(this->server.getModule(SERVABLE_MANAGER_MODULE_NAME));
         ModelManager& modelManager = smm->getServableManager();
-        std::shared_ptr<MediapipeGraphExecutor> executor;
+        std::unique_ptr<MediapipeGraphExecutor> executor;
         ASSERT_EQ(modelManager.createPipeline(executor, this->request.model_name()), ovms::StatusCode::OK);
         using ovms::ExecutionContext;
         ExecutionContext executionContext{ExecutionContext::Interface::GRPC, ExecutionContext::Method::ModelInfer};
@@ -3712,10 +3747,10 @@ TEST(WhitelistRegistered, MediapipeCalculatorsList) {
         // Expected when building with python
         "CalculatorRunnerSinkCalculator",
         "CalculatorRunnerSourceCalculator",
-        "PyTensorOvTensorConverterCalculator",   // integral OVMS calculator
-        "PythonExecutorCalculator",  // integral OVMS calculator
+        "PyTensorOvTensorConverterCalculator",  // integral OVMS calculator
+        "PythonExecutorCalculator",             // integral OVMS calculator
 #endif
-        "HttpLLMCalculator",  // integral OVMS calculator
+        "HttpLLMCalculator",                    // integral OVMS calculator
         "OpenAIChatCompletionsMockCalculator",  // OVMS test calculator
         "AddHeaderCalculator",
         "AddNumbersMultiInputsOutputsTestCalculator",
@@ -3792,9 +3827,7 @@ TEST(WhitelistRegistered, MediapipeCalculatorsList) {
         "DetectionSerializationCalculator",
         "DetectionsToRectsCalculator",
         "DetectionsToRenderDataCalculator",
-        "EmbeddingsCalculator",
         "EmbeddingsCalculatorOV",
-        "RerankCalculator",
         "RerankCalculatorOV",
         "EmptyLabelCalculator",
         "EmptyLabelClassificationCalculator",
@@ -3928,6 +3961,8 @@ TEST(WhitelistRegistered, MediapipeCalculatorsList) {
         "SerializationCalculator",
         "SetLandmarkVisibilityCalculator",
         "SidePacketToStreamCalculator",
+        "S2tCalculator",
+        "T2sCalculator",
         "SplitAffineMatrixVectorCalculator",
         "SplitClassificationListVectorCalculator",
         "SplitDetectionVectorCalculator",
@@ -4030,4 +4065,245 @@ TEST(WhitelistRegistered, MediapipeSubgraphList) {
         "TensorsToPoseLandmarksAndSegmentation"});
 
     ASSERT_THAT(mediapipe::SubgraphRegistry::GetRegisteredNames(), UnorderedElementsAreArray(expected)) << readableSetError(mediapipe::SubgraphRegistry::GetRegisteredNames(), expected);
+}
+
+// --- OVMS_GRAPH_QUEUE_MAX_SIZE pbtxt directive tests ---
+
+// Minimal valid pbtxt that MediaPipe can parse (uses a registered test calculator)
+static const char* MINIMAL_PBTXT_TEMPLATE = R"(
+input_stream: "HTTP_REQUEST_PAYLOAD:input"
+output_stream: "HTTP_RESPONSE_PAYLOAD:output"
+node: {
+  calculator: "OpenAIChatCompletionsMockCalculator"
+  input_stream: "LOOPBACK:loopback"
+  input_stream: "HTTP_REQUEST_PAYLOAD:input"
+  output_stream: "LOOPBACK:loopback"
+  output_stream: "HTTP_RESPONSE_PAYLOAD:output"
+  input_stream_info: {
+    tag_index: 'LOOPBACK:0',
+    back_edge: true
+  }
+  input_stream_handler {
+    input_stream_handler: "SyncSetInputStreamHandler",
+    options {
+      [mediapipe.SyncSetInputStreamHandlerOptions.ext] {
+        sync_set {
+          tag_index: "LOOPBACK:0"
+        }
+      }
+    }
+  }
+}
+)";
+
+static std::string makePbtxtWithDirective(const std::string& directive) {
+    return directive + "\n" + MINIMAL_PBTXT_TEMPLATE;
+}
+
+TEST(MediapipeGraphQueueSizeDirective, NoDirectiveMeansDisabled) {
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, MINIMAL_PBTXT_TEMPLATE);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    ASSERT_EQ(status, ovms::StatusCode::OK);
+    EXPECT_FALSE(mgc.getGraphQueueSize().has_value());
+    // getInitialQueueSize on default mgc returns 0
+    EXPECT_EQ(def.getMediapipeGraphConfig().getInitialQueueSize(), 0);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, ExplicitPositiveValue) {
+    EnvGuard guard;
+    guard.unset("OVMS_GRAPH_QUEUE_OFF");
+    std::string pbtxt = makePbtxtWithDirective("# OVMS_GRAPH_QUEUE_MAX_SIZE: 4");
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, pbtxt);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    ASSERT_EQ(status, ovms::StatusCode::OK);
+    EXPECT_EQ(def.getMediapipeGraphConfig().getInitialQueueSize(), 4);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, AutoValue) {
+    EnvGuard guard;
+    guard.unset("OVMS_GRAPH_QUEUE_OFF");
+    std::string pbtxt = makePbtxtWithDirective("# OVMS_GRAPH_QUEUE_MAX_SIZE: AUTO");
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, pbtxt);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    ASSERT_EQ(status, ovms::StatusCode::OK);
+    EXPECT_GT(def.getMediapipeGraphConfig().getInitialQueueSize(), 0);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, ZeroDisablesQueue) {
+    std::string pbtxt = makePbtxtWithDirective("# OVMS_GRAPH_QUEUE_MAX_SIZE: 0");
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, pbtxt);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    ASSERT_EQ(status, ovms::StatusCode::OK);
+    EXPECT_EQ(def.getMediapipeGraphConfig().getInitialQueueSize(), 0);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, NegativeValueRejected) {
+    EnvGuard guard;
+    guard.unset("OVMS_GRAPH_QUEUE_OFF");
+    std::string pbtxt = makePbtxtWithDirective("# OVMS_GRAPH_QUEUE_MAX_SIZE: -1");
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, pbtxt);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    EXPECT_EQ(status, ovms::StatusCode::MEDIAPIPE_GRAPH_CONFIG_FILE_INVALID);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, ExceedsHardwareThreads) {
+    unsigned int maxThreads = std::thread::hardware_concurrency();
+    if (maxThreads == 0) {
+        GTEST_SKIP() << "hardware_concurrency() returned 0, cannot test thread limit";
+    }
+    int oversized = static_cast<int>(maxThreads) + 1;
+    std::string pbtxt = makePbtxtWithDirective("# OVMS_GRAPH_QUEUE_MAX_SIZE: " + std::to_string(oversized));
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, pbtxt);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    // Queue size is clamped to hardware_concurrency with a warning, not rejected
+    EXPECT_EQ(status, ovms::StatusCode::OK);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, InvalidStringRejected) {
+    EnvGuard guard;
+    guard.unset("OVMS_GRAPH_QUEUE_OFF");
+    std::string pbtxt = makePbtxtWithDirective("# OVMS_GRAPH_QUEUE_MAX_SIZE: INVALID");
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, pbtxt);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    EXPECT_EQ(status, ovms::StatusCode::MEDIAPIPE_GRAPH_CONFIG_FILE_INVALID);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, PythonLoopbackWithQueueRejected) {
+    EnvGuard guard;
+    guard.unset("OVMS_GRAPH_QUEUE_OFF");
+    static const char* PYTHON_LOOPBACK_PBTXT = R"(
+# OVMS_GRAPH_QUEUE_MAX_SIZE: 4
+input_stream: "OVMS_PY_TENSOR:input"
+output_stream: "OVMS_PY_TENSOR:output"
+node: {
+  calculator: "PythonExecutorCalculator"
+  input_side_packet: "PYTHON_NODE_RESOURCES:py"
+  input_stream: "LOOPBACK:loopback"
+  input_stream: "OVMS_PY_TENSOR:input"
+  output_stream: "LOOPBACK:loopback"
+  output_stream: "OVMS_PY_TENSOR:output"
+  input_stream_info: {
+    tag_index: 'LOOPBACK:0',
+    back_edge: true
+  }
+}
+)";
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, PYTHON_LOOPBACK_PBTXT);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    EXPECT_EQ(status, ovms::StatusCode::MEDIAPIPE_GRAPH_CONFIG_FILE_INVALID);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, PythonLoopbackWithAutoQueueRejected) {
+    EnvGuard guard;
+    guard.unset("OVMS_GRAPH_QUEUE_OFF");
+    static const char* PYTHON_LOOPBACK_AUTO_PBTXT = R"(
+# OVMS_GRAPH_QUEUE_MAX_SIZE: AUTO
+input_stream: "OVMS_PY_TENSOR:input"
+output_stream: "OVMS_PY_TENSOR:output"
+node: {
+  calculator: "PythonExecutorCalculator"
+  input_side_packet: "PYTHON_NODE_RESOURCES:py"
+  input_stream: "LOOPBACK:loopback"
+  input_stream: "OVMS_PY_TENSOR:input"
+  output_stream: "LOOPBACK:loopback"
+  output_stream: "OVMS_PY_TENSOR:output"
+  input_stream_info: {
+    tag_index: 'LOOPBACK:0',
+    back_edge: true
+  }
+}
+)";
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, PYTHON_LOOPBACK_AUTO_PBTXT);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    EXPECT_EQ(status, ovms::StatusCode::MEDIAPIPE_GRAPH_CONFIG_FILE_INVALID);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, PythonWithoutLoopbackAllowsQueue) {
+    // PythonExecutorCalculator in regular (non-generative) mode is compatible with graph queue
+    static const char* PYTHON_NO_LOOPBACK_PBTXT = R"(
+# OVMS_GRAPH_QUEUE_MAX_SIZE: 4
+input_stream: "OVMS_PY_TENSOR:input"
+output_stream: "OVMS_PY_TENSOR:output"
+node: {
+  calculator: "PythonExecutorCalculator"
+  input_side_packet: "PYTHON_NODE_RESOURCES:py"
+  input_stream: "OVMS_PY_TENSOR:input"
+  output_stream: "OVMS_PY_TENSOR:output"
+}
+)";
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, PYTHON_NO_LOOPBACK_PBTXT);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    // resolveGraphQueueSize should pass; later stages may fail (calculator not registered)
+    // but it should NOT be MEDIAPIPE_GRAPH_CONFIG_FILE_INVALID from our check
+    EXPECT_NE(status, ovms::StatusCode::MEDIAPIPE_GRAPH_CONFIG_FILE_INVALID);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, PythonLoopbackWithQueueDisabledAllowed) {
+    // Queue explicitly disabled (0) — LOOPBACK Python node is fine
+    static const char* PYTHON_LOOPBACK_DISABLED_PBTXT = R"(
+# OVMS_GRAPH_QUEUE_MAX_SIZE: 0
+input_stream: "OVMS_PY_TENSOR:input"
+output_stream: "OVMS_PY_TENSOR:output"
+node: {
+  calculator: "PythonExecutorCalculator"
+  input_side_packet: "PYTHON_NODE_RESOURCES:py"
+  input_stream: "LOOPBACK:loopback"
+  input_stream: "OVMS_PY_TENSOR:input"
+  output_stream: "LOOPBACK:loopback"
+  output_stream: "OVMS_PY_TENSOR:output"
+  input_stream_info: {
+    tag_index: 'LOOPBACK:0',
+    back_edge: true
+  }
+}
+)";
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, PYTHON_LOOPBACK_DISABLED_PBTXT);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    // Queue is disabled so the LOOPBACK check should not trigger
+    EXPECT_NE(status, ovms::StatusCode::MEDIAPIPE_GRAPH_CONFIG_FILE_INVALID);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, EnvVarOVMS_GRAPH_QUEUE_OFF_DisablesPool) {
+    std::string pbtxt = makePbtxtWithDirective("# OVMS_GRAPH_QUEUE_MAX_SIZE: AUTO");
+    ovms::MediapipeGraphConfig mgc;
+    SetEnvironmentVar("OVMS_GRAPH_QUEUE_OFF", "1");
+    DummyMediapipeGraphDefinition def("test", mgc, pbtxt);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    UnSetEnvironmentVar("OVMS_GRAPH_QUEUE_OFF");
+    ASSERT_EQ(status, ovms::StatusCode::OK);
+    EXPECT_EQ(def.getMediapipeGraphConfig().getInitialQueueSize(), 0);
+}
+
+TEST(MediapipeGraphQueueSizeDirective, EnvVarOVMS_GRAPH_QUEUE_OFF_NotSetDoesNotDisable) {
+    UnSetEnvironmentVar("OVMS_GRAPH_QUEUE_OFF");
+    std::string pbtxt = makePbtxtWithDirective("# OVMS_GRAPH_QUEUE_MAX_SIZE: AUTO");
+    ovms::MediapipeGraphConfig mgc;
+    DummyMediapipeGraphDefinition def("test", mgc, pbtxt);
+    ovms::ModelManager manager;
+    auto status = def.validate(manager);
+    ASSERT_EQ(status, ovms::StatusCode::OK);
+    EXPECT_GT(def.getMediapipeGraphConfig().getInitialQueueSize(), 0);
 }

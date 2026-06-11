@@ -14,17 +14,26 @@
 // limitations under the License.
 //*****************************************************************************
 #pragma once
+#include <optional>
 #include <string>
+#include <variant>
 
 namespace ovms {
 struct PluginConfigSettingsImpl;
 struct HFSettingsImpl;
+struct ExportSettings;
 class Status;
 
 class GraphExport {
 public:
     GraphExport();
-    Status createServableConfig(const std::string& directoryPath, const HFSettingsImpl& graphSettings);
-    static std::string createPluginString(const PluginConfigSettingsImpl& pluginConfig);
+    Status createServableConfig(const std::string& directoryPath, const HFSettingsImpl& graphSettings, bool writeToFile = true);
+    static std::variant<std::optional<std::string>, Status> createPluginString(const ExportSettings& exportSettings);
+    static std::string getDraftModelDirectoryName(std::string draftModel);
+    static std::string getDraftModelDirectoryPath(const std::string& directoryPath, const std::string& draftModel);
+
+    static bool hasInMemoryGraphContent();
+    static const std::string& getInMemoryGraphContent();
+    static void clearInMemoryGraphContent();
 };
 }  // namespace ovms

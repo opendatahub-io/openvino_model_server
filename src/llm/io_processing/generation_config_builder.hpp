@@ -19,10 +19,12 @@
 #include <iostream>
 #include <string>
 #include <openvino/genai/generation_config.hpp>
+#include <openvino/genai/tokenizer.hpp>
 #include "base_generation_config_builder.hpp"
 #include "phi4/generation_config_builder.hpp"
 #include "llama3/generation_config_builder.hpp"
 #include "hermes3/generation_config_builder.hpp"
+#include "devstral/generation_config_builder.hpp"
 #include "../apis/openai_request.hpp"
 #include "../../logging.hpp"
 
@@ -32,25 +34,24 @@ class GenerationConfigBuilder {
 
 public:
     GenerationConfigBuilder() = delete;
-    // Using tool parser name to select appropriate builder implementation to avoid introducing additional parameters
-    explicit GenerationConfigBuilder(ov::genai::GenerationConfig baseConfig, std::string toolParserName = "", bool enableToolGuidedGeneration = false) {
-        if (!enableToolGuidedGeneration) {
-            builder_impl = std::make_unique<BaseGenerationConfigBuilder>(baseConfig);
-            return;
-        }
-
+    // Using tool parser name to select appropriate builder implementation to avoid introducing additional parameters. Might be insufficient in the future.
+    explicit GenerationConfigBuilder(const ov::genai::GenerationConfig& baseConfig, std::string toolParserName, bool enableToolGuidedGeneration, DecodingMethod decodingMethod) {
         if (toolParserName == "llama3") {
-            builder_impl = std::make_unique<Llama3GenerationConfigBuilder>(baseConfig);
+            builder_impl = std::make_unique<Llama3GenerationConfigBuilder>(baseConfig, enableToolGuidedGeneration, decodingMethod);
         } else if (toolParserName == "qwen3") {
             // Qwen3 and Hermes3 share the same mechanism for generating tool calls, so we can use Hermes3GenerationConfigBuilder
-            builder_impl = std::make_unique<Hermes3GenerationConfigBuilder>(baseConfig);
+            builder_impl = std::make_unique<Hermes3GenerationConfigBuilder>(baseConfig, enableToolGuidedGeneration, decodingMethod);
         } else if (toolParserName == "hermes3") {
-            builder_impl = std::make_unique<Hermes3GenerationConfigBuilder>(baseConfig);
+            builder_impl = std::make_unique<Hermes3GenerationConfigBuilder>(baseConfig, enableToolGuidedGeneration, decodingMethod);
         } else if (toolParserName == "phi4") {
-            builder_impl = std::make_unique<Phi4GenerationConfigBuilder>(baseConfig);
+            builder_impl = std::make_unique<Phi4GenerationConfigBuilder>(baseConfig, enableToolGuidedGeneration, decodingMethod);
+        } else if (toolParserName == "devstral") {
+            builder_impl = std::make_unique<DevstralGenerationConfigBuilder>(baseConfig, enableToolGuidedGeneration, decodingMethod);
         } else {
-            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Option enable_tool_guided_generation is set, but will not be effective since no valid tool parser has been provided.");
-            builder_impl = std::make_unique<BaseGenerationConfigBuilder>(baseConfig);
+            if (enableToolGuidedGeneration) {
+                SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Option enable_tool_guided_generation is set, but will not be effective since no valid tool parser has been provided.");
+            }
+            builder_impl = std::make_unique<BaseGenerationConfigBuilder>(baseConfig, enableToolGuidedGeneration, decodingMethod);
         }
     }
 
@@ -58,9 +59,24 @@ public:
         return builder_impl->getConfig();
     }
 
-    // Fills generation config with values read from OpenAI request
-    void parseConfigFromRequest(const OpenAIChatCompletionsRequest& request) {
+    void adjustConfigForDecodingMethod() {
+        builder_impl->adjustConfigForDecodingMethod();
+    }
+
+    void validateStructuredOutputConfig(ov::genai::Tokenizer& tokenizer) {
+        builder_impl->validateStructuredOutputConfig(tokenizer);
+    }
+
+    void unsetStructuredOutputConfig() {
+        builder_impl->unsetStructuredOutputConfig();
+    }
+
+    void parseConfigFromRequest(const OpenAIRequest& request) {
         builder_impl->parseConfigFromRequest(request);
+    }
+
+    void addStopString(const std::string& decodedStopString) {
+        builder_impl->addStopString(decodedStopString);
     }
 };
 }  // namespace ovms

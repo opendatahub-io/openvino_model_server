@@ -23,6 +23,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <openvino/runtime/core.hpp>
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wall"
 #include "tensorflow_serving/apis/prediction_service.grpc.pb.h"
@@ -457,7 +459,12 @@ TEST_F(KserveGRPCPredictRequest, ShouldSuccessForSupportedPrecision) {
 
 class KserveGRPCPredictRequestNegative : public KserveGRPCPredictRequest {
 public:
-    void SetUp(std::string dataType, bool bufferInRequestRawInputContent) {
+    void SetUp() override {
+        // Default implementation from parent - avoid compilation error
+        KserveGRPCPredictRequest::SetUp();
+    }
+
+    void SetUpWithParams(std::string dataType, bool bufferInRequestRawInputContent) {
         SetUpTensorProto(dataType, bufferInRequestRawInputContent);
         float value = 1.0;
         auto bytes = static_cast<char*>(static_cast<void*>(&value));

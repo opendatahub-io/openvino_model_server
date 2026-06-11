@@ -5,15 +5,13 @@
 maxdepth: 1
 hidden:
 ---
-ovms_demos_continuous_batching_agent
+ovms_demos_continuous_batching
+ovms_demos_integration_with_open_webui
+ovms_demos_code_completion_vsc
+ovms_demos_audio
 ovms_demos_rerank
 ovms_demos_embeddings
-ovms_demos_continuous_batching
-ovms_demo_long_context
 ovms_demos_continuous_batching_vlm
-ovms_demos_llm_npu
-ovms_demos_vlm_npu
-ovms_demos_code_completion_vsc
 ovms_demos_image_generation
 ovms_demo_clip_image_classification
 ovms_demo_age_gender_guide
@@ -39,8 +37,8 @@ ovms_demo_real_time_stream_analysis
 ovms_demo_using_paddlepaddle_model
 ovms_demo_bert
 ovms_demo_universal-sentence-encoder
-ovms_demo_benchmark_client
 ovms_string_output_model_demo
+ovms_demos_gguf
 
 ```
 
@@ -49,6 +47,7 @@ OpenVINO Model Server demos have been created to showcase the usage of the model
 | Demo | Description |
 |---|---|
 |[AI Agents with MCP servers and serving language models](./continuous_batching/agentic_ai/README.md)|OpenAI agents with MCP servers and serving LLM models|
+|[Integration with Open WebUI](integration_with_OpenWebUI/README.md)|Using OpenWeb UI with OVMS as inference provider. Shows text and image generation as well as usage with RAG and tools|
 |[LLM Text Generation with continuous batching](continuous_batching/README.md)|Generate text with LLM models and continuous batching pipeline|
 |[VLM Text Generation with continuous batching](continuous_batching/vlm/README.md)|Generate text with VLM models and continuous batching pipeline|
 |[OpenAI API text embeddings ](embeddings/README.md)|Get text embeddings via endpoint compatible with OpenAI API|
@@ -59,6 +58,7 @@ OpenVINO Model Server demos have been created to showcase the usage of the model
 |[Long context LLMs](./continuous_batching/long_context/README.md)| Recommendations for handling very long context in LLM models|
 |[Visual Studio Code assistant](./code_local_assistant/README.md)|Use Continue extension to Visual Studio Code with local OVMS serving|
 |[Image Generation](image_generation/README.md)|Generate images|
+|[GGUF models support](gguf/README.md)|Serve GGUF models with OVMS|
 
 
 Check out the list below to see complete step-by-step examples of using OpenVINO Model Server with real world use cases:

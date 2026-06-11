@@ -21,23 +21,30 @@
 #include <unordered_map>
 #include <utility>
 
+#include <fmt/format.h>
+
 namespace ovms {
 
 enum class StatusCode {
-    OK, /*!< Success */
-
-    PATH_INVALID,        /*!< The provided path is invalid or doesn't exists */
-    FILE_INVALID,        /*!< File not found or cannot open */
-    CONFIG_FILE_INVALID, /*!< Config file not found or cannot open */
-    FILESYSTEM_ERROR,    /*!< Underlying filesystem error */
+    OK,                    /*!< Success */
+    PATH_INVALID,          /*!< The provided path is invalid or doesn't exists */
+    DIRECTORY_NOT_CREATED, /*!< Directory could not be created */
+    FILE_INVALID,          /*!< File not found or cannot open */
+    CONFIG_FILE_INVALID,   /*!< Config file not found or cannot open */
+    FILESYSTEM_ERROR,      /*!< Underlying filesystem error */
     MODEL_NOT_LOADED,
-    JSON_INVALID,             /*!< The file/content is not valid json */
-    JSON_SERIALIZATION_ERROR, /*!< Data serialization to json format failed */
+    JSON_INVALID,                /*!< The file/content is not valid json */
+    JSON_NESTING_DEPTH_EXCEEDED, /*!< JSON nesting depth exceeds the allowed limit */
+    JSON_SERIALIZATION_ERROR,    /*!< Data serialization to json format failed */
     MODELINSTANCE_NOT_FOUND,
     SHAPE_WRONG_FORMAT,                   /*!< The provided shape param is in wrong format */
     LAYOUT_WRONG_FORMAT,                  /*!< The provided layout param is in wrong format */
+    FLOAT_WRONG_FORMAT,                   /*!< The provided float param is in wrong format */
+    COLOR_FORMAT_WRONG_FORMAT,            /*!< The provided color format param is in wrong format */
+    PRECISION_WRONG_FORMAT,               /*!< The provided precision param is in wrong format */
     DIM_WRONG_FORMAT,                     /*!< The provided dimension param is in wrong format */
     PLUGIN_CONFIG_WRONG_FORMAT,           /*!< Plugin config is in wrong format */
+    PLUGIN_CONFIG_CONFLICTING_PARAMETERS, /*!< Tried to set the same key twice in plugin config */
     MODEL_VERSION_POLICY_WRONG_FORMAT,    /*!< Model version policy is in wrong format */
     MODEL_VERSION_POLICY_UNSUPPORTED_KEY, /*!< Model version policy contains invalid key */
     GRPC_CHANNEL_ARG_WRONG_FORMAT,
@@ -64,30 +71,14 @@ enum class StatusCode {
     OV_NO_OUTPUTS,
 
     // Model management
-    MODEL_MISSING,                                     /*!< Model with such name and/or version does not exist */
-    MODEL_CONFIG_INVALID,                              /*!< Model config is invalid */
-    MODEL_NAME_MISSING,                                /*!< Model with requested name is not found */
-    MODEL_NAME_OCCUPIED,                               /*!< Given model name is already occupied */
-    MODEL_VERSION_MISSING,                             /*!< Model with requested version is not found */
-    MODEL_VERSION_NOT_LOADED_ANYMORE,                  /*!< Model with requested version is retired */
-    MODEL_VERSION_NOT_LOADED_YET,                      /*!< Model with requested version is not loaded yet */
-    INVALID_NIREQ,                                     /*!< Invalid NIREQ requested */
-    REQUESTED_DYNAMIC_PARAMETERS_ON_STATEFUL_MODEL,    /*!< Dynamic shape and dynamic batch size not supported for stateful models */
-    REQUESTED_STATEFUL_PARAMETERS_ON_SUBSCRIBED_MODEL, /*!< Stateful model cannot be subscribed to pipeline */
-    REQUESTED_MODEL_TYPE_CHANGE,                       /*!< Model type cannot be changed after it's loaded */
-    INVALID_NON_STATEFUL_MODEL_PARAMETER,              /*!< Stateful model config parameter used for non stateful model */
-    INVALID_MAX_SEQUENCE_NUMBER,                       /*!< Sequence max number parameter too high */
-
-    // Sequence management
-    SEQUENCE_MISSING,                /*!< Sequence with provided ID does not exist */
-    SEQUENCE_ALREADY_EXISTS,         /*!< Sequence with provided ID already exists */
-    SEQUENCE_ID_NOT_PROVIDED,        /*!< Sequence ID has not been provided in request inputs */
-    SEQUENCE_ID_BAD_TYPE,            /*!< Wrong sequence ID type */
-    INVALID_SEQUENCE_CONTROL_INPUT,  /*!< Unexpected value of sequence control input */
-    SEQUENCE_CONTROL_INPUT_BAD_TYPE, /*!< Sequence control input in bad type */
-    SEQUENCE_TERMINATED,             /*!< Sequence last request is being processed and it's not available anymore */
-    SPECIAL_INPUT_NO_TENSOR_SHAPE,   /*!< Special input proto does not contain tensor shape information */
-    MAX_SEQUENCE_NUMBER_REACHED,     /*!< Model handles maximum number of sequences and will not accept new ones */
+    MODEL_MISSING,                    /*!< Model with such name and/or version does not exist */
+    MODEL_CONFIG_INVALID,             /*!< Model config is invalid */
+    MODEL_NAME_MISSING,               /*!< Model with requested name is not found */
+    MODEL_NAME_OCCUPIED,              /*!< Given model name is already occupied */
+    MODEL_VERSION_MISSING,            /*!< Model with requested version is not found */
+    MODEL_VERSION_NOT_LOADED_ANYMORE, /*!< Model with requested version is retired */
+    MODEL_VERSION_NOT_LOADED_YET,     /*!< Model with requested version is not loaded yet */
+    INVALID_NIREQ,                    /*!< Invalid NIREQ requested */
 
     // Predict request validation
     INVALID_NO_OF_INPUTS,             /*!< Invalid number of inputs */
@@ -174,6 +165,7 @@ enum class StatusCode {
     UNKNOWN_REQUEST_COMPONENTS_TYPE,        /*!< Components type not recognized */
     FAILED_TO_PARSE_MULTIPART_CONTENT_TYPE, /*!< Request of multipart type but failed to parse */
     FAILED_TO_DEDUCE_MODEL_NAME_FROM_URI,   /*!< Failed to deduce model name from all possible ways */
+    UNAUTHORIZED,                           /*!< Unauthorized request due to invalid or missing api-key*/
 
     // REST Parse
     REST_BODY_IS_NOT_AN_OBJECT,                    /*!< REST body should be JSON object */
@@ -278,6 +270,7 @@ enum class StatusCode {
     // LLM Nodes
     LLM_NODE_NAME_ALREADY_EXISTS,
     LLM_NODE_DIRECTORY_DOES_NOT_EXIST,
+    LLM_NODE_PATH_DOES_NOT_EXIST_AND_NOT_GGUFFILE,
     LLM_NODE_RESOURCE_STATE_INITIALIZATION_FAILED,
     LLM_NODE_MISSING_OPTIONS,
     LLM_NODE_MISSING_NAME,
@@ -348,11 +341,16 @@ enum class StatusCode {
 
     // Huggingface model download errors for libgit2
     HF_FAILED_TO_INIT_LIBGIT2,
-    HF_FAILED_TO_INIT_GIT,
-    HF_FAILED_TO_INIT_GIT_LFS,
     HF_FAILED_TO_INIT_OPTIMUM_CLI,
     HF_RUN_OPTIMUM_CLI_EXPORT_FAILED,
+    HF_RUN_CONVERT_TOKENIZER_EXPORT_FAILED,
+    HF_GIT_CLONE_CANCELLED,
     HF_GIT_CLONE_FAILED,
+    HF_GIT_STATUS_FAILED,
+    HF_GIT_STATUS_FAILED_TO_RESOLVE_PATH,
+    HF_GIT_LIBGIT2_NOT_INITIALIZED,
+    HF_GIT_LIBGIT2_LFS_DOWNLOAD_FAILED,
+    HF_GIT_STATUS_UNCLEAN,
 
     PARTIAL_END,
     NONEXISTENT_PATH,
@@ -445,3 +443,12 @@ public:
     }
 };
 }  // namespace ovms
+
+namespace fmt {
+template <>
+struct formatter<ovms::StatusCode> : formatter<std::string> {
+    auto format(ovms::StatusCode status, format_context& ctx) const -> decltype(ctx.out()) {
+        return format_to(ctx.out(), "{}", ovms::Status(status).string());
+    }
+};
+}  // namespace fmt

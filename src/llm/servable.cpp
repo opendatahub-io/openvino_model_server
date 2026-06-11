@@ -19,10 +19,12 @@
 #include <vector>
 
 #pragma warning(push)
-#pragma warning(disable : 4005 4309 6001 6385 6386 6326 6011 4005 4456 6246)
+#pragma warning(disable : 4005 4309 6001 6385 6386 6326 6011 4005 4456 6246 6313)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "mediapipe/framework/calculator_graph.h"
+#include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
 #pragma GCC diagnostic pop
 #pragma warning(pop)
 
@@ -32,13 +34,33 @@
 #include "../mediapipe_internal/mediapipe_utils.hpp"
 #include "../profiler.hpp"
 #include "apis/openai_completions.hpp"
+#include "apis/openai_responses.hpp"
 #include "servable.hpp"
 #include "text_utils.hpp"
+#include "../tokenize/tokenize_parser.hpp"
 
 namespace ovms {
+
+void GenAiServable::determineDecodingMethod() {
+    getProperties()->decodingMethod = DecodingMethod::STANDARD;
+    auto& pluginConfig = getProperties()->pluginConfig;
+    if (pluginConfig.find("draft_model") != pluginConfig.end()) {
+        if (getProperties()->eagle3Mode) {
+            getProperties()->decodingMethod = DecodingMethod::EAGLE3;
+        } else {
+            getProperties()->decodingMethod = DecodingMethod::SPECULATIVE_DECODING;
+        }
+    }
+    auto it = pluginConfig.find("prompt_lookup");
+    if (it != pluginConfig.end() && it->second.as<bool>() == true) {
+        getProperties()->decodingMethod = DecodingMethod::PROMPT_LOOKUP;
+    }
+}
+
 absl::Status GenAiServable::loadRequest(std::shared_ptr<GenAiServableExecutionContext>& executionContext, const ovms::HttpPayload& payload) {
-    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Request body: {}", payload.body);
-    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Request uri: {}", payload.uri);
+    if (spdlog::default_logger_raw()->level() <= spdlog::level::debug) {
+        logRequestDetails(payload);
+    }
     // Parsed JSON is not guaranteed to be valid, we may reach this point via multipart content type request with no valid JSON parser
     if (payload.parsedJson->HasParseError()) {
         return absl::InvalidArgumentError("Non-json request received in text generation calculator");
@@ -47,22 +69,70 @@ absl::Status GenAiServable::loadRequest(std::shared_ptr<GenAiServableExecutionCo
         executionContext->endpoint = Endpoint::CHAT_COMPLETIONS;
     } else if (payload.uri == "/v3/completions" || payload.uri == "/v3/v1/completions") {
         executionContext->endpoint = Endpoint::COMPLETIONS;
+    } else if (payload.uri == "/v3/responses" || payload.uri == "/v3/v1/responses") {
+        executionContext->endpoint = Endpoint::RESPONSES;
+    } else if (TokenizeParser::isTokenizeEndpoint(payload.uri)) {
+        executionContext->endpoint = Endpoint::TOKENIZE;
     } else {
-        return absl::InvalidArgumentError("Wrong endpoint. Allowed endpoints: /v3/chat/completions, /v3/completions");
+        return absl::InvalidArgumentError("Wrong endpoint. Allowed endpoints: /v3/chat/completions, /v3/completions, /v3/responses, /v3/tokenize");
     }
     executionContext->payload = payload;
     return absl::OkStatus();
 }
 
+absl::Status GenAiServable::processTokenizeRequest(std::shared_ptr<GenAiServableExecutionContext>& executionContext) {
+    ovms::TokenizeRequest tokenizeRequest;
+    auto status = ovms::TokenizeParser::parseTokenizeRequest(*executionContext->payload.parsedJson, tokenizeRequest);
+    if (status != absl::OkStatus()) {
+        return status;
+    }
+
+    ov::genai::TokenizedInputs tokens;
+
+    if (auto strings = std::get_if<std::vector<std::string>>(&tokenizeRequest.input)) {
+        tokens = getProperties()->tokenizer.encode(*strings, tokenizeRequest.parameters);
+        RET_CHECK(tokens.input_ids.get_shape().size() == 2);
+    } else {
+        SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "LLM tokenize input is of not supported type");
+        return absl::InvalidArgumentError("Input should be string or array of strings");
+    }
+
+    StringBuffer responseBuffer;
+    auto responseStatus = ovms::TokenizeParser::parseTokenizeResponse(responseBuffer, tokens, tokenizeRequest.parameters);
+
+    if (!responseStatus.ok()) {
+        return responseStatus;
+    }
+
+    executionContext->response = responseBuffer.GetString();
+
+    return absl::OkStatus();
+}
+
 absl::Status GenAiServable::parseRequest(std::shared_ptr<GenAiServableExecutionContext>& executionContext) {
-    executionContext->apiHandler = std::make_shared<OpenAIChatCompletionsHandler>(*executionContext->payload.parsedJson,
-        executionContext->endpoint,
-        std::chrono::system_clock::now(),
-        getProperties()->tokenizer,
-        getProperties()->responseParserName);
+    try {
+        if (executionContext->endpoint == Endpoint::RESPONSES) {
+            executionContext->apiHandler = std::make_shared<OpenAIResponsesHandler>(*executionContext->payload.parsedJson,
+                executionContext->endpoint,
+                std::chrono::system_clock::now(),
+                getProperties()->tokenizer,
+                getProperties()->toolParserName,
+                getProperties()->reasoningParserName);
+        } else {
+            executionContext->apiHandler = std::make_shared<OpenAIChatCompletionsHandler>(*executionContext->payload.parsedJson,
+                executionContext->endpoint,
+                std::chrono::system_clock::now(),
+                getProperties()->tokenizer,
+                getProperties()->toolParserName,
+                getProperties()->reasoningParserName);
+        }
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_ERROR(llm_calculator_logger, "Failed to create API handler: {}", e.what());
+        return absl::InvalidArgumentError(std::string("Failed to create API handler: ") + e.what());
+    }
     auto& config = ovms::Config::instance();
 
-    auto status = executionContext->apiHandler->parseRequest(getProperties()->maxTokensLimit, getProperties()->bestOfLimit, getProperties()->maxModelLength, config.getServerSettings().allowedLocalMediaPath);
+    auto status = executionContext->apiHandler->parseRequest(getProperties()->maxTokensLimit, getProperties()->bestOfLimit, getProperties()->maxModelLength, config.getServerSettings().allowedLocalMediaPath, config.getServerSettings().allowedMediaDomains);
     if (!status.ok()) {
         SPDLOG_LOGGER_ERROR(llm_calculator_logger, "Failed to parse request: {}", status.message());
         return status;
@@ -75,11 +145,27 @@ absl::Status GenAiServable::parseRequest(std::shared_ptr<GenAiServableExecutionC
             lastStreamerCallbackOutput = text;
             return ov::genai::StreamingStatus::RUNNING;
         };
-
-        executionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback);
+        ov::AnyMap streamerConfig;
+        if ((executionContext->apiHandler->getOutputParser() != nullptr &&
+                executionContext->apiHandler->getOutputParser()->requiresStreamingWithSpecialTokens()) ||
+            !executionContext->apiHandler->getRequest().skipSpecialTokens) {
+            streamerConfig.insert(ov::genai::skip_special_tokens(false));
+        }
+        executionContext->textStreamer = std::make_shared<ov::genai::TextStreamer>(getProperties()->tokenizer, callback, streamerConfig);
     }
-    executionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig, getProperties()->responseParserName, getProperties()->enableToolGuidedGeneration);
+    executionContext->generationConfigBuilder = std::make_shared<GenerationConfigBuilder>(getProperties()->baseGenerationConfig,
+        getProperties()->toolParserName,
+        getProperties()->enableToolGuidedGeneration,
+        getProperties()->decodingMethod);
     executionContext->generationConfigBuilder->parseConfigFromRequest(executionContext->apiHandler->getRequest());
+    executionContext->generationConfigBuilder->adjustConfigForDecodingMethod();
+    try {
+        executionContext->generationConfigBuilder->validateStructuredOutputConfig(getProperties()->tokenizer);
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Tool guided generation will not be applied due to JSON schema validation failure: {}", e.what());
+        executionContext->generationConfigBuilder->unsetStructuredOutputConfig();
+    }
+
     return absl::OkStatus();
 }
 
@@ -108,17 +194,80 @@ absl::Status GenAiServable::prepareInputs(std::shared_ptr<GenAiServableExecution
         }
 #else
         ov::genai::ChatHistory& chatHistory = executionContext->apiHandler->getChatHistory();
-        constexpr bool add_generation_prompt = true;  // confirm it should be hardcoded
-        inputText = getProperties()->tokenizer.apply_chat_template(chatHistory, add_generation_prompt);
+        constexpr bool addGenerationPrompt = true;  // confirm it should be hardcoded
+        auto toolsStatus = executionContext->apiHandler->parseToolsToJsonContainer();
+        if (!toolsStatus.ok()) {
+            return toolsStatus.status();
+        }
+        const auto& tools = toolsStatus.value();
+        auto chatTemplateKwargsStatus = executionContext->apiHandler->parseChatTemplateKwargsToJsonContainer();
+        if (!chatTemplateKwargsStatus.ok()) {
+            return chatTemplateKwargsStatus.status();
+        }
+        const auto& chatTemplateKwargs = chatTemplateKwargsStatus.value();
+        try {
+            inputText = getProperties()->tokenizer.apply_chat_template(chatHistory, addGenerationPrompt, {}, tools, chatTemplateKwargs);
+        } catch (const std::exception& e) {
+            SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Failed to apply chat template: {}", e.what());
+            return absl::Status(absl::StatusCode::kInvalidArgument, "Failed to apply chat template. The model either does not have chat template or has an invalid one.");
+        }
 #endif
         if (inputText.size() == 0) {
             return absl::Status(absl::StatusCode::kInvalidArgument, "Final prompt after applying chat template is empty");
+        }
+        if (executionContext->apiHandler->getOutputParser() != nullptr) {
+            executionContext->apiHandler->getOutputParser()->detectAndSetImplicitReasoningStart(inputText);
+        }
+        break;
+    }
+    case Endpoint::RESPONSES: {
+        if (executionContext->apiHandler->getChatHistory().size() > 0) {
+#if (PYTHON_DISABLE == 0)
+            bool success = PyJinjaTemplateProcessor::applyChatTemplate(getProperties()->templateProcessor, getProperties()->modelsPath, executionContext->apiHandler->getProcessedJson(), inputText);
+            if (!success) {
+                return absl::Status(absl::StatusCode::kInvalidArgument, inputText);
+            }
+#else
+            ov::genai::ChatHistory& chatHistory = executionContext->apiHandler->getChatHistory();
+            constexpr bool addGenerationPrompt = true;
+            auto toolsStatus = executionContext->apiHandler->parseToolsToJsonContainer();
+            if (!toolsStatus.ok()) {
+                return toolsStatus.status();
+            }
+            const auto& tools = toolsStatus.value();
+            auto chatTemplateKwargsStatus = executionContext->apiHandler->parseChatTemplateKwargsToJsonContainer();
+            if (!chatTemplateKwargsStatus.ok()) {
+                return chatTemplateKwargsStatus.status();
+            }
+            const auto& chatTemplateKwargs = chatTemplateKwargsStatus.value();
+            try {
+                inputText = getProperties()->tokenizer.apply_chat_template(chatHistory, addGenerationPrompt, {}, tools, chatTemplateKwargs);
+            } catch (const std::exception& e) {
+                SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Failed to apply chat template: {}", e.what());
+                return absl::Status(absl::StatusCode::kInvalidArgument, "Failed to apply chat template. The model either does not have chat template or has an invalid one.");
+            }
+#endif
+            if (inputText.size() == 0) {
+                return absl::Status(absl::StatusCode::kInvalidArgument, "Final prompt after applying chat template is empty");
+            }
+            if (executionContext->apiHandler->getOutputParser() != nullptr) {
+                executionContext->apiHandler->getOutputParser()->detectAndSetImplicitReasoningStart(inputText);
+            }
+        } else {
+            auto prompt = executionContext->apiHandler->getPrompt();
+            if (!prompt.has_value()) {
+                return absl::Status(absl::StatusCode::kInvalidArgument, "input is missing");
+            }
+            inputText = prompt.value();
         }
         break;
     }
     case Endpoint::COMPLETIONS: {
         inputText = executionContext->apiHandler->getPrompt().value();
+        break;
     }
+    case Endpoint::TOKENIZE:
+        return absl::InternalError("Tokenize endpoint should not reach prepareInputs stage");
     }
     bool encodeAddSpecialTokens = (executionContext->endpoint == Endpoint::COMPLETIONS);
     executionContext->inputIds = getProperties()->tokenizer.encode(inputText, ov::genai::add_special_tokens(encodeAddSpecialTokens)).input_ids;
@@ -165,14 +314,26 @@ absl::Status GenAiServable::preparePartialResponse(std::shared_ptr<GenAiServable
     executionContext->lastStreamerCallbackOutput = "";
 
     std::string lastTextChunk = ss.str();
+
+    bool isFirstToken = GenerationPhase::INPUT_TOKEN_PROCESSING == executionContext->generationPhase;
+    if (isFirstToken) {
+        executionContext->generationPhase = GenerationPhase::OUTPUT_TOKEN_PROCESSING;
+    }
+
     ov::genai::GenerationFinishReason finishReason = generationOutput.finish_reason;
     if (finishReason == ov::genai::GenerationFinishReason::NONE) {  // continue
-        if (lastTextChunk.size() > 0) {
+        // For RESPONSES endpoint, always call serializeStreamingChunk so that
+        // output item initialization events (output_item.added, content_part.added)
+        // are emitted on the first chunk, even before the tokenizer produces text.
+        if (lastTextChunk.size() > 0 || executionContext->apiHandler->getEndpoint() == Endpoint::RESPONSES) {
             std::string serializedChunk = executionContext->apiHandler->serializeStreamingChunk(lastTextChunk, finishReason);
             if (!serializedChunk.empty()) {
                 executionContext->response = wrapTextInServerSideEventMessage(serializedChunk);
                 SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Generated subsequent streaming response: {}", executionContext->response);
             }
+        } else if (isFirstToken) {
+            std::string serializedChunk = executionContext->apiHandler->serializeStreamingHandshakeChunk();
+            executionContext->response = wrapTextInServerSideEventMessage(serializedChunk);
         }
         executionContext->sendLoopbackSignal = true;
     } else {  // finish generation
@@ -186,8 +347,12 @@ absl::Status GenAiServable::preparePartialResponse(std::shared_ptr<GenAiServable
         if (!serializedChunk.empty()) {
             executionContext->response = wrapTextInServerSideEventMessage(serializedChunk);
         }
-        if (executionContext->apiHandler->getStreamOptions().includeUsage)
-            executionContext->response += wrapTextInServerSideEventMessage(executionContext->apiHandler->serializeStreamingUsageChunk());
+        if (executionContext->apiHandler->getStreamOptions().includeUsage) {
+            std::string usageChunk = executionContext->apiHandler->serializeStreamingUsageChunk();
+            if (!usageChunk.empty()) {
+                executionContext->response += wrapTextInServerSideEventMessage(usageChunk);
+            }
+        }
 
         executionContext->response += wrapTextInServerSideEventMessage("[DONE]");
 
@@ -197,16 +362,13 @@ absl::Status GenAiServable::preparePartialResponse(std::shared_ptr<GenAiServable
     return absl::OkStatus();
 }
 
-#pragma warning(push)
-#pragma warning(disable : 4505)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function";
-std::string wrapTextInServerSideEventMessage(const std::string& text) {
-    std::stringstream ss;
-    ss << "data: " << text << "\n\n";
-    return ss.str();
+void logRequestDetails(const ovms::HttpPayload& payload) {
+    auto parsedJson = payload.parsedJson;
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    parsedJson->Accept(writer);
+    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Request body: {}", buffer.GetString());
+    SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Request uri: {}", payload.uri);
 }
-#pragma GCC diagnostic pop
-#pragma warning(push)
 
 }  // namespace ovms

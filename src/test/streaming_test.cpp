@@ -29,6 +29,9 @@
 #include "../status.hpp"
 #include "../stringutils.hpp"
 #include "mediapipe/framework/port/integral_types.h"
+#include "../mediapipe_internal/mediapipefactory.hpp"
+#include "constructor_enabled_model_manager.hpp"
+#include "platform_utils.hpp"
 #include "test_utils.hpp"
 
 #if (PYTHON_DISABLE == 0)
@@ -65,6 +68,35 @@ protected:
 
     void SetUp() override {
         this->reporter = std::make_unique<MediapipeServableMetricReporter>(nullptr, nullptr, "");  // disabled metric reporter
+    }
+};
+
+class StreamingQueueTest : public StreamingTest {
+protected:
+    std::shared_ptr<GraphQueue> queue;
+
+    MediapipeGraphExecutor createQueueExecutor(
+        const ::mediapipe::CalculatorGraphConfig& config,
+        stream_types_mapping_t inputTypes,
+        stream_types_mapping_t outputTypes,
+        std::vector<std::string> inputNames,
+        std::vector<std::string> outputNames,
+        int queueSize = 1) {
+        auto sidePackets = std::make_shared<GraphSidePackets>();
+        queue = std::make_shared<GraphQueue>(config, sidePackets, queueSize);
+        GraphIdGuard graphIdGuard(queue);
+        return MediapipeGraphExecutor{
+            this->name,
+            this->version,
+            config,
+            std::move(inputTypes),
+            std::move(outputTypes),
+            std::move(inputNames),
+            std::move(outputNames),
+            *sidePackets,
+            nullptr,
+            this->reporter.get(),
+            std::move(graphIdGuard)};
     }
 };
 
@@ -357,7 +389,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::KFS_REQUEST}},
         {{"out", mediapipe_packet_type_enum::KFS_RESPONSE}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Mock receiving 3 requests and disconnection
     prepareRequest(this->firstRequest, {{"in", 3.5f}});
@@ -414,7 +446,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Mock receiving 3 requests and disconnection
     prepareRequest(this->firstRequest, {{"in", 3.5f}});  // no timestamp specified, server will assign one
@@ -487,7 +519,7 @@ TEST_F(StreamingWithOVMSCalculatorsCliTest, OVInferenceCalculatorWith2InputsSend
     EXPECT_EQ(definition->getInputsInfo().count("in2"), 1);
     EXPECT_EQ(definition->getOutputsInfo().count("sum"), 1);
 
-    std::shared_ptr<MediapipeGraphExecutor> executor;
+    std::unique_ptr<MediapipeGraphExecutor> executor;
     KFSRequest request;
     KFSResponse response;
     auto status = manager.createPipeline(executor, name);
@@ -524,7 +556,7 @@ TEST_F(StreamingWithOVMSCalculatorsTest, OVInferenceCalculatorWith2InputsSendSep
     EXPECT_EQ(definition->getInputsInfo().count("in"), 1);
     EXPECT_EQ(definition->getInputsInfo().count("in2"), 1);
 
-    std::shared_ptr<MediapipeGraphExecutor> executor;
+    std::unique_ptr<MediapipeGraphExecutor> executor;
     KFSRequest request;
     KFSResponse response;
     auto status = manager.createPipeline(executor, name);
@@ -557,7 +589,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Mock receiving 3 requests with manually (client) assigned ascending order of timestamp and disconnection
     prepareRequest(this->firstRequest, {{"in", 3.5f}}, 3);  // first request with timestamp 3
@@ -602,7 +634,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Mock only 1 request and disconnect immediately
     prepareRequest(this->firstRequest, {{"in", 3.5f}});
@@ -615,6 +647,184 @@ node {
         .WillOnce(SendWithTimestamp({{"out", 4.5f}}, 1))
         .WillOnce(SendWithTimestamp({{"out", 5.5f}}, 2))
         .WillOnce(SendWithTimestamp({{"out", 6.5f}}, 3));
+
+    ASSERT_EQ(executor.inferStream(this->firstRequest, this->stream, this->executionContext), StatusCode::OK);
+}
+
+TEST_F(StreamingQueueTest, SingleStreamSend3Receive3AutomaticTimestamp) {
+    const std::string pbTxt{R"(
+input_stream: "in"
+output_stream: "out"
+node {
+  calculator: "AddOneSingleStreamTestCalculator"
+  input_stream: "in"
+  output_stream: "out"
+}
+    )"};
+    ::mediapipe::CalculatorGraphConfig config;
+    ASSERT_TRUE(::google::protobuf::TextFormat::ParseFromString(pbTxt, &config));
+
+    auto executor = createQueueExecutor(
+        config,
+        {{"in", mediapipe_packet_type_enum::OVTENSOR}},
+        {{"out", mediapipe_packet_type_enum::OVTENSOR}},
+        {"in"},
+        {"out"},
+        1);
+
+    prepareRequest(this->firstRequest, {{"in", 3.5f}});
+    EXPECT_CALL(this->stream, Read(_))
+        .WillOnce(Receive({{"in", 7.2f}}))
+        .WillOnce(Receive({{"in", 102.4f}}))
+        .WillOnce(Disconnect());
+
+    auto timestamp = std::make_shared<int64_t>(-1);
+    EXPECT_CALL(this->stream, Write(_, _))
+        .WillOnce(SendWithAutomaticTimestamp({{"out", 4.5f}}, timestamp))
+        .WillOnce(SendWithAutomaticTimestamp({{"out", 8.2f}}, timestamp))
+        .WillOnce(SendWithAutomaticTimestamp({{"out", 103.4f}}, timestamp));
+
+    ASSERT_EQ(executor.inferStream(this->firstRequest, this->stream, this->executionContext), StatusCode::OK);
+}
+
+TEST_F(StreamingQueueTest, SingleStreamSend1Receive3) {
+    const std::string pbTxt{R"(
+input_stream: "in"
+output_stream: "out"
+node {
+  calculator: "AddOne3CycleIterationsTestCalculator"
+  input_stream: "in"
+  input_stream: "signal"
+  input_stream_info: {
+    tag_index: ':1',
+    back_edge: true
+  }
+  input_stream_handler {
+    input_stream_handler: 'ImmediateInputStreamHandler'
+  }
+  output_stream: "out"
+  output_stream: "signal"
+}
+    )"};
+    ::mediapipe::CalculatorGraphConfig config;
+    ASSERT_TRUE(::google::protobuf::TextFormat::ParseFromString(pbTxt, &config));
+
+    auto executor = createQueueExecutor(
+        config,
+        {{"in", mediapipe_packet_type_enum::OVTENSOR}},
+        {{"out", mediapipe_packet_type_enum::OVTENSOR}},
+        {"in"},
+        {"out"},
+        1);
+
+    prepareRequest(this->firstRequest, {{"in", 3.5f}});
+    EXPECT_CALL(this->stream, Read(_))
+        .WillOnce(Disconnect());
+
+    EXPECT_CALL(this->stream, Write(_, _))
+        .WillOnce(SendWithTimestamp({{"out", 4.5f}}, 1))
+        .WillOnce(SendWithTimestamp({{"out", 5.5f}}, 2))
+        .WillOnce(SendWithTimestamp({{"out", 6.5f}}, 3));
+
+    ASSERT_EQ(executor.inferStream(this->firstRequest, this->stream, this->executionContext), StatusCode::OK);
+}
+
+TEST_F(StreamingQueueTest, ExitOnDisconnectionDuringRead) {
+    const std::string pbTxt{R"(
+input_stream: "in"
+output_stream: "out"
+node {
+  calculator: "AddOneSingleStreamTestCalculator"
+  input_stream: "in"
+  output_stream: "out"
+}
+    )"};
+    ::mediapipe::CalculatorGraphConfig config;
+    ASSERT_TRUE(::google::protobuf::TextFormat::ParseFromString(pbTxt, &config));
+
+    auto executor = createQueueExecutor(
+        config,
+        {{"in", mediapipe_packet_type_enum::OVTENSOR}},
+        {{"out", mediapipe_packet_type_enum::OVTENSOR}},
+        {"in"},
+        {"out"},
+        1);
+
+    prepareRequest(this->firstRequest, {});
+    EXPECT_CALL(this->stream, Read(_))
+        .WillOnce(Disconnect());
+
+    EXPECT_CALL(this->stream, Write(_, _)).Times(0);
+
+    ASSERT_EQ(executor.inferStream(this->firstRequest, this->stream, this->executionContext), StatusCode::OK);
+}
+
+TEST_F(StreamingQueueTest, ErrorOnDisconnectionDuringWrite) {
+    const std::string pbTxt{R"(
+input_stream: "in"
+output_stream: "out"
+node {
+  calculator: "AddOneSingleStreamTestCalculator"
+  input_stream: "in"
+  output_stream: "out"
+}
+    )"};
+    ::mediapipe::CalculatorGraphConfig config;
+    ASSERT_TRUE(::google::protobuf::TextFormat::ParseFromString(pbTxt, &config));
+
+    auto executor = createQueueExecutor(
+        config,
+        {{"in", mediapipe_packet_type_enum::OVTENSOR}},
+        {{"out", mediapipe_packet_type_enum::OVTENSOR}},
+        {"in"},
+        {"out"},
+        1);
+
+    std::promise<void> signalPromise;
+    std::future<void> signalFuture = signalPromise.get_future();
+
+    prepareRequest(this->firstRequest, {{"in", 3.5f}});
+    EXPECT_CALL(this->stream, Read(_))
+        .WillOnce(DisconnectWhenNotified(signalFuture));
+
+    EXPECT_CALL(this->stream, Write(_, _))
+        .WillOnce(DisconnectOnWriteAndNotifyEnd(signalPromise));
+
+    ASSERT_EQ(executor.inferStream(this->firstRequest, this->stream, this->executionContext), StatusCode::MEDIAPIPE_EXECUTION_ERROR);
+}
+
+TEST_F(StreamingQueueTest, ErrorDuringFirstRequestDeserialization) {
+    const std::string pbTxt{R"(
+input_stream: "in"
+output_stream: "out"
+node {
+  calculator: "AddOneSingleStreamTestCalculator"
+  input_stream: "in"
+  output_stream: "out"
+}
+    )"};
+    ::mediapipe::CalculatorGraphConfig config;
+    ASSERT_TRUE(::google::protobuf::TextFormat::ParseFromString(pbTxt, &config));
+
+    auto executor = createQueueExecutor(
+        config,
+        {{"in", mediapipe_packet_type_enum::OVTENSOR}},
+        {{"out", mediapipe_packet_type_enum::OVTENSOR}},
+        {"in"},
+        {"out"},
+        1);
+
+    prepareInvalidRequest(this->firstRequest, {"in"});
+
+    std::promise<void> signalPromise;
+    std::future<void> signalFuture = signalPromise.get_future();
+
+    EXPECT_CALL(this->stream, Read(_))
+        .WillOnce(DisconnectWhenNotified(signalFuture));
+    EXPECT_CALL(this->stream, Write(_, _))
+        .WillOnce(SendErrorAndNotifyEnd(
+            Status(StatusCode::INVALID_CONTENT_SIZE).string() + std::string{" - Expected: 4 bytes; Actual: 0 bytes; input name: in; partial deserialization of first request"},
+            signalPromise));
 
     ASSERT_EQ(executor.inferStream(this->firstRequest, this->stream, this->executionContext), StatusCode::OK);
 }
@@ -653,11 +863,10 @@ node {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
-    this->pythonModule->releaseGILFromThisThread();
     // Mock only 1 request and disconnect immediately
     prepareRequest(this->firstRequest, {{"input", 3.5f}});
     EXPECT_CALL(this->stream, Read(_))
@@ -715,11 +924,10 @@ node {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
-    this->pythonModule->releaseGILFromThisThread();
     // Mock only 1 request and disconnect immediately
     prepareRequest(this->firstRequest, {{"in", 3.5f}});
     EXPECT_CALL(this->stream, Read(_))
@@ -757,11 +965,10 @@ node {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
-    this->pythonModule->releaseGILFromThisThread();
     // Mock receiving 3 requests and disconnection
     prepareRequest(this->firstRequest, {{"input", 3.5f}});  // no timestamp specified, server will assign one
     EXPECT_CALL(this->stream, Read(_))
@@ -822,11 +1029,10 @@ node {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
-    this->pythonModule->releaseGILFromThisThread();
     // Mock receiving 3 requests and disconnection
     prepareRequest(this->firstRequest, {{"in", 3.5f}});  // no timestamp specified, server will assign one
     EXPECT_CALL(this->stream, Read(_))
@@ -878,13 +1084,12 @@ node {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
     std::promise<void> signalPromise;
     std::future<void> signalFuture = signalPromise.get_future();
-    this->pythonModule->releaseGILFromThisThread();
     // Mock receiving 2 requests and disconnection
     prepareRequest(this->firstRequest, {{"input1", 3.5f}});  // no timestamp specified, server will assign one
     EXPECT_CALL(this->stream, Read(_))
@@ -941,11 +1146,10 @@ node {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
-    this->pythonModule->releaseGILFromThisThread();
     // Mock only 1 request and disconnect immediately
     prepareRequest(this->firstRequest, {{"input", 3.5f}});
     EXPECT_CALL(this->stream, Read(_))
@@ -1005,11 +1209,10 @@ node {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
-    this->pythonModule->releaseGILFromThisThread();
     // Mock only 1 request and disconnect immediately
     prepareRequest(this->firstRequest, {{"input1", 3.5f}, {"input2", 13.5f}});
     EXPECT_CALL(this->stream, Read(_))
@@ -1073,11 +1276,9 @@ node_options: {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
-
-    this->pythonModule->releaseGILFromThisThread();
 
     std::promise<void> signalPromise;
     std::future<void> signalFuture = signalPromise.get_future();
@@ -1127,11 +1328,9 @@ node_options: {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
-
-    this->pythonModule->releaseGILFromThisThread();
 
     const int64_t timestamp = 64;
 
@@ -1163,11 +1362,10 @@ node {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
-    this->pythonModule->releaseGILFromThisThread();
     prepareRequest(this->firstRequest, {{"input", 3.5f}});
 
     ASSERT_EQ(pipeline->inferStream(this->firstRequest, this->stream, this->executionContext), StatusCode::MEDIAPIPE_EXECUTION_ERROR);
@@ -1196,11 +1394,10 @@ node {
     DummyMediapipeGraphDefinition mediapipeDummy("my_graph", mgc, testPbtxt, this->pythonBackend);
     ASSERT_EQ(mediapipeDummy.validate(*this->manager), StatusCode::OK);
 
-    std::shared_ptr<MediapipeGraphExecutor> pipeline;
+    std::unique_ptr<MediapipeGraphExecutor> pipeline;
     ASSERT_EQ(mediapipeDummy.create(pipeline), StatusCode::OK);
     ASSERT_NE(pipeline, nullptr);
 
-    this->pythonModule->releaseGILFromThisThread();
     prepareRequest(this->firstRequest, {{"input", 3.5f}});
 
     ASSERT_EQ(pipeline->inferStream(this->firstRequest, this->stream, this->executionContext), StatusCode::MEDIAPIPE_EXECUTION_ERROR);
@@ -1241,7 +1438,7 @@ node {
             {"out3", mediapipe_packet_type_enum::OVTENSOR}},
         {"in1", "in2", "in3"},
         {"out1", "out2", "out3"},
-        {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {}, nullptr, this->reporter.get()};
 
     std::promise<void> signalPromise;
     std::future<void> signalFuture = signalPromise.get_future();
@@ -1293,7 +1490,7 @@ node {
             {"out3", mediapipe_packet_type_enum::OVTENSOR}},
         {"in1", "in2", "in3"},
         {"out1", "out2", "out3"},
-        {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {}, nullptr, this->reporter.get()};
 
     std::promise<void> signalPromise;
     std::future<void> signalFuture = signalPromise.get_future();
@@ -1328,7 +1525,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     std::promise<void> signalPromise;
     std::future<void> signalFuture = signalPromise.get_future();
@@ -1362,7 +1559,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"wrong_name"}, {}, {}, {}, {}, nullptr, this->reporter.get()};  // cannot install observer due to wrong output name (should never happen due to validation)
+        {"in"}, {"wrong_name"}, {}, nullptr, this->reporter.get()};  // cannot install observer due to wrong output name (should never happen due to validation)
 
     EXPECT_CALL(this->stream, Read(_)).Times(0);
     EXPECT_CALL(this->stream, Write(_, _)).Times(0);
@@ -1387,7 +1584,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     prepareRequest(this->firstRequest, {});
     EXPECT_CALL(this->stream, Read(_))
@@ -1415,7 +1612,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     std::promise<void> signalPromise;
     std::future<void> signalFuture = signalPromise.get_future();
@@ -1451,7 +1648,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     prepareRequest(this->firstRequest, {{"in", 3.5f}});
     ASSERT_EQ(executor.inferStream(this->firstRequest, this->stream, this->executionContext), StatusCode::MEDIAPIPE_GRAPH_INITIALIZATION_ERROR);
@@ -1474,7 +1671,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Invalid request - missing data in buffer
     prepareInvalidRequest(this->firstRequest, {"in"});  // no timestamp specified, server will assign one
@@ -1509,7 +1706,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     std::promise<void> signalPromise[3];
     std::future<void> signalFuture[3] = {
@@ -1556,7 +1753,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     prepareRequest(this->firstRequest, {{"in", 3.5f}}, 0);
     EXPECT_CALL(this->stream, Read(_))
@@ -1584,7 +1781,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     prepareRequest(this->firstRequest, {{"in", 3.5f}});
     setRequestTimestamp(this->firstRequest, std::string("not an int"));
@@ -1619,7 +1816,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Timestamps not allowed in stream
     // Expect continuity of operation and response with error message
@@ -1661,7 +1858,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Allowed in stream
     for (auto timestamp : std::vector<::mediapipe::Timestamp>{
@@ -1697,7 +1894,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Mock receiving 3 requests and disconnection
     prepareRequestWithParam(this->firstRequest, {{"in", 3.5f}}, {"val", 65});  // request with parameter val
@@ -1734,7 +1931,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Mock receiving the invalid request and disconnection
     // Request with invalid param py (special pythons session side packet)
@@ -1763,7 +1960,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     prepareRequest(this->firstRequest, {{"in", 3.5f}});  // missing required request param
     EXPECT_CALL(this->stream, Read(_)).Times(0);
@@ -1789,7 +1986,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     // Mock receiving 2 requests and disconnection
     prepareRequest(this->firstRequest, {{"in", 3.5f}}, std::nullopt, this->name, this->version);  // no timestamp specified, server will assign one
@@ -1823,7 +2020,7 @@ node {
         this->name, this->version, config,
         {{"in", mediapipe_packet_type_enum::OVTENSOR}},
         {{"out", mediapipe_packet_type_enum::OVTENSOR}},
-        {"in"}, {"out"}, {}, {}, {}, {}, nullptr, this->reporter.get()};
+        {"in"}, {"out"}, {}, nullptr, this->reporter.get()};
 
     std::promise<void> signalPromise;
     std::future<void> signalFuture = signalPromise.get_future();

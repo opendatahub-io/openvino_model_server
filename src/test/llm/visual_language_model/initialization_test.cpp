@@ -19,6 +19,8 @@
 #include <gtest/gtest.h>
 
 #include "../../../llm/servable_initializer.hpp"
+#include "../../constructor_enabled_model_manager.hpp"
+#include "../../platform_utils.hpp"
 #include "../../test_utils.hpp"
 
 using namespace ovms;
@@ -33,13 +35,7 @@ Status callDeterminePipelineType(PipelineType& pipelineType, const std::string& 
 }
 
 // Initialization tests
-class VLMServableInitializationTest : public ::testing::Test {
-#if (PYTHON_DISABLE == 0)
-public:
-    void SetUp() { py::initialize_interpreter(); }
-    void TearDown() { py::finalize_interpreter(); }
-#endif
-};
+class VLMServableInitializationTest : public ::testing::Test {};
 
 TEST_F(VLMServableInitializationTest, determinePipelineTypeDefault) {
     std::string testPbtxt = R"(
@@ -60,7 +56,7 @@ TEST_F(VLMServableInitializationTest, determinePipelineTypeDefault) {
         }
         node_options: {
             [type.googleapis.com / mediapipe.LLMCalculatorOptions]: {
-                models_path: "/ovms/src/test/llm_testing/OpenGVLab/InternVL2-1B"
+                models_path: "/ovms/src/test/llm_testing/OpenVINO/InternVL2-1B-int4-ov"
             }
         }
         input_stream_handler {
@@ -102,7 +98,7 @@ TEST_F(VLMServableInitializationTest, determinePipelineType_VLM_Specified) {
         node_options: {
             [type.googleapis.com / mediapipe.LLMCalculatorOptions]: {
                 pipeline_type: VLM
-                models_path: "/ovms/src/test/llm_testing/OpenGVLab/InternVL2-1B"
+                models_path: "/ovms/src/test/llm_testing/OpenVINO/InternVL2-1B-int4-ov"
             }
         }
         input_stream_handler {
@@ -144,7 +140,7 @@ TEST_F(VLMServableInitializationTest, determinePipelineType_LM_CB_Specified) {
         node_options: {
             [type.googleapis.com / mediapipe.LLMCalculatorOptions]: {
                 pipeline_type: LM_CB
-                models_path: "/ovms/src/test/llm_testing/OpenGVLab/InternVL2-1B"
+                models_path: "/ovms/src/test/llm_testing/OpenVINO/InternVL2-1B-int4-ov"
             }
         }
         input_stream_handler {
@@ -185,8 +181,8 @@ TEST_F(VLMServableInitializationTest, draftModelProvided) {
         }
         node_options: {
             [type.googleapis.com / mediapipe.LLMCalculatorOptions]: {
-                models_path: "/ovms/src/test/llm_testing/OpenGVLab/InternVL2-1B"
-                draft_models_path: "/ovms/src/test/llm_testing/OpenGVLab/InternVL2-1B"
+                models_path: "/ovms/src/test/llm_testing/OpenVINO/InternVL2-1B-int4-ov"
+                draft_models_path: "/ovms/src/test/llm_testing/OpenVINO/InternVL2-1B-int4-ov"
             }
         }
         input_stream_handler {

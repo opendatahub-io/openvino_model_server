@@ -1,6 +1,6 @@
-# How to serve LLM Models in Speculative Decoding Pipeline{#ovms_demos_continuous_batching_speculative_decoding}
+# LLM Models in Speculative Decoding Pipeline{#ovms_demos_continuous_batching_speculative_decoding}
 
-Following [OpenVINO GenAI docs](https://docs.openvino.ai/2025/openvino-workflow-generative/inference-with-genai.html#efficient-text-generation-via-speculative-decoding):
+Following [OpenVINO GenAI docs](https://docs.openvino.ai/2026/openvino-workflow-generative/inference-with-genai.html#efficient-text-generation-via-speculative-decoding):
 > Speculative decoding (or assisted-generation) enables faster token generation when an additional smaller draft model is used alongside the main model. This reduces the number of infer requests to the main model, increasing performance.
 > 
 > The draft model predicts the next K tokens one by one in an autoregressive manner. The main model validates these predictions and corrects them if necessary - in case of a discrepancy, the main model prediction is used. Then, the draft model acquires this token and runs prediction of the next K tokens, thus repeating the cycle.
@@ -14,6 +14,169 @@ This demo shows how to use speculative decoding in the model serving scenario, b
 **Model preparation**: Python 3.9 or higher with pip and HuggingFace account
 
 **Model Server deployment**: Installed Docker Engine or OVMS binary package according to the [baremetal deployment guide](../../../docs/deploying_server_baremetal.md)
+
+# Eagle3
+Currently using [EAGLE3](https://github.com/SafeAILab/EAGLE) requires some specific preparations hence dedicated section.
+
+## Model considerations
+
+For this demo we picked a pair of models from [available models](https://github.com/SafeAILab/EAGLE#eagle-3-models-on-hugging-face):
+- [Qwen/Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) as a main model
+- [AngelSlim/Qwen3-8B_eagle3](https://huggingface.co/AngelSlim/Qwen3-8B_eagle3) as a draft model
+
+both in INT4 precision.
+
+## Model preparation
+
+Python environment setup:
+```console
+# Install regular requirements for OVMS export script
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/common/export_models/export_model.py -o export_model.py
+pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/common/export_models/requirements.txt
+
+mkdir models
+```
+
+Run `export_model.py` script to download and quantize the model:
+
+```console
+python export_model.py text_generation --source_model Qwen/Qwen3-8B --draft_source_model AngelSlim/Qwen3-8B_eagle3 --draft_eagle3_mode --weight-format int4 --config_file_path models/config.json --model_repository_path models
+```
+
+Draft model inherits all scheduler properties from the main model.
+
+You should have a model folder like below:
+```
+models
+├── config.json
+└── Qwen
+    └── Qwen3-8B
+        ├── added_tokens.json
+        ├── AngelSlim-Qwen3-8B_eagle3
+        │   ├── config.json
+        │   ├── generation_config.json
+        │   ├── openvino_config.json
+        │   ├── openvino_model.bin
+        │   └── openvino_model.xml
+        ├── chat_template.jinja
+        ├── config.json
+        ├── generation_config.json
+        ├── graph.pbtxt
+        ├── merges.txt
+        ├── openvino_config.json
+        ├── openvino_detokenizer.bin
+        ├── openvino_detokenizer.xml
+        ├── openvino_model.bin
+        ├── openvino_model.xml
+        ├── openvino_tokenizer.bin
+        ├── openvino_tokenizer.xml
+        ├── special_tokens_map.json
+        ├── tokenizer_config.json
+        ├── tokenizer.json
+        └── vocab.json
+
+```
+
+## Server Deployment
+
+:::{dropdown} **Deploying with Docker**
+```bash
+docker run -d --rm -p 8000:8000 -v $(pwd)/models:/workspace:ro openvino/model_server:weekly --rest_port 8000 --rest_workers 2 --config_path /workspace/config.json
+```
+
+Running above command starts the container with no accelerators support. 
+To deploy on devices other than CPU, change `target_device` parameter in `export_model.py` call and follow [AI accelerators guide](../../../docs/accelerators.md) for additionally required docker parameters.
+:::
+
+:::{dropdown} **Deploying on Bare Metal**
+
+Assuming you have unpacked model server package, make sure to:
+
+- **On Windows**: run `setupvars` script
+- **On Linux**: set `LD_LIBRARY_PATH` and `PATH` environment variables
+
+as mentioned in [deployment guide](../../../docs/deploying_server_baremetal.md), in every new shell that will start OpenVINO Model Server.
+
+Depending on how you prepared models in the first step of this demo, they are deployed to either CPU or GPU (it's defined in `config.json`). If you run on GPU make sure to have appropriate drivers installed, so the device is accessible for the model server.
+
+```bat
+ovms --rest_port 8000 --rest_workers 2 --config_path ./models/config.json
+```
+:::
+
+## Check performance
+
+Let's check how the deployed model is doing by running performance test. For that purpose we can use vLLM benchmark script and sonnet dataset.
+
+Install vLLM and download sonnet dataset: 
+```bash
+pip install vllm --extra-index-url https://wheels.vllm.ai/nightly/cpu
+curl https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/benchmarks/sonnet.txt -o sonnet.txt
+```
+
+Run benchmark with 100 requests sent sequentially:
+```bash
+vllm bench serve --dataset-name sonnet --dataset-path sonnet.txt --backend openai-chat --host localhost --port 8000 --endpoint /v3/chat/completions --max-concurrency 1 --tokenizer Qwen/Qwen3-8B --model Qwen/Qwen3-8B --num_prompts 100
+
+Starting initial single prompt test run...
+Skipping endpoint ready check.
+Starting main benchmark run...
+Traffic request rate: inf
+Burstiness factor: 1.0 (Poisson process)
+Maximum request concurrency: 1
+100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 100/100 [06:59<00:00,  4.19s/it]
+tip: install termplotlib and gnuplot to plot the metrics
+============ Serving Benchmark Result ============
+Successful requests:                     100
+Failed requests:                         0
+Maximum request concurrency:             1
+Benchmark duration (s):                  419.00
+Total input tokens:                      54256
+Total generated tokens:                  15000
+Request throughput (req/s):              0.24
+Output token throughput (tok/s):         35.80
+Peak output token throughput (tok/s):    16.00
+Peak concurrent requests:                2.00
+Total token throughput (tok/s):          165.29
+---------------Time to First Token----------------
+Mean TTFT (ms):                          426.71
+Median TTFT (ms):                        424.97
+P99 TTFT (ms):                           635.37
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          25.25
+Median TPOT (ms):                        25.09
+P99 TPOT (ms):                           29.22
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           66.29
+Median ITL (ms):                         66.75
+P99 ITL (ms):                            72.11
+==================================================
+```
+
+## Setting default generation parameters
+
+The main model's `generation_config.json` (e.g. `models/Qwen/Qwen3-8B/generation_config.json`) is read at server start-up as the default generation configuration for all requests that do not specify a given parameter. It ships with the model weights from Hugging Face, but is fully operator-editable.
+
+For each generation parameter the server applies the following resolution order:
+
+**request body → `generation_config.json` → OVMS built-in default**
+
+For example, to set a deployment-level default for `num_assistant_tokens`:
+```json
+{ "num_assistant_tokens": 7 }
+```
+The built-in fallback is `5`. The same applies to `assistant_confidence_threshold` and all other generation parameters such as `temperature`, `max_new_tokens`, etc.
+
+## Limitations
+
+Eagle3 deployments currently have following known limitations:
+- stateful mode (pipeline_type: LM) not supported,
+- concurrency not supported - max 1 request can be processed at a time (**ALWAYS** use rest_workers=2 when deploying Eagle3 pipeline),
+- prefix caching not supported,
+- only greedy sampling is supported (enforced by OVMS if pipeline configured properly),
+- MoE models not supported
+
+# Classic Models
 
 ## Model considerations
 
@@ -35,8 +198,8 @@ LLM engine parameters will be defined inside the `graph.pbtxt` file.
 
 Download export script, install its dependencies and create directory for the models:
 ```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/2/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2025/2/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/common/export_models/export_model.py -o export_model.py
+pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/common/export_models/requirements.txt
 mkdir models 
 ```
 
@@ -51,7 +214,7 @@ python export_model.py text_generation --source_model meta-llama/CodeLlama-7b-hf
 Draft model inherits all scheduler properties from the main model.
 
 You should have a model folder like below:
-```console
+```
 models
 ├── config.json
 └── meta-llama
@@ -139,42 +302,49 @@ curl http://localhost:8000/v1/config
 
 Models used in this demo - `meta-llama/CodeLlama-7b-hf` and `AMD-Llama-135m` are not chat models, so we will use `completions` endpoint to interact with the pipeline.
 
-Below you can see an exemplary unary request (you can switch `stream` parameter to enable streamed response). Compared to calls to regular continuous batching model, this request has additional parameter `num_assistant_tokens` which specifies how many tokens should a draft model generate before main model validates them. 
+Below you can see an exemplary unary request (you can switch `stream` parameter to enable streamed response). Compared to calls to regular continuous batching model, this request has additional parameter `num_assistant_tokens` which specifies how many tokens should a draft model generate before main model validates them.
 
+`num_assistant_tokens` does not have to be sent on every request — see [Setting default generation parameters](#setting-default-generation-parameters) for how to configure a deployment-level default via `generation_config.json`.
 
 ```console
-curl http://localhost:8000/v3/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "meta-llama/CodeLlama-7b-hf",
-    "temperature": 0,
-    "max_tokens":100,
-    "stream":false,
-    "prompt": "<s>def quicksort(numbers):",
-    "num_assistant_tokens": 5
-  }'| jq .
+pip3 install openai
 ```
-```json
-{
-  "choices": [
-    {
-      "finish_reason": "length",
-      "index": 0,
-      "logprobs": null,
-      "text": "\n    if len(numbers) <= 1:\n        return numbers\n    else:\n        pivot = numbers[0]\n        lesser = [x for x in numbers[1:] if x <= pivot]\n        greater = [x for x in numbers[1:] if x > pivot]\n        return quicksort(lesser) + [pivot] + quicksort(greater)\n\n\ndef quicksort_recursive(numbers):\n    if"
-    }
-  ],
-  "created": 1737547359,
-  "model": "meta-llama/CodeLlama-7b-hf-sd",
-  "object": "text_completion",
-  "usage": {
-    "prompt_tokens": 9,
-    "completion_tokens": 100,
-    "total_tokens": 109
-  }
-}
+```python
+from openai import OpenAI
+
+client = OpenAI(
+  base_url="http://localhost:8000/v3",
+  api_key="unused"
+)
+
+stream = client.completions.create(
+    model="meta-llama/CodeLlama-7b-hf",
+    prompt="<s>def quicksort(numbers):",
+    temperature=0,
+    max_tokens=100,
+    extra_body={"num_assistant_tokens": 5},
+    stream=True,
+)
+for chunk in stream:
+    if chunk.choices[0].text is not None:
+        print(chunk.choices[0].text, end="", flush=True)
+```
+
+Output:
 
 ```
+if len(numbers) <= 1:
+  return numbers
+else:
+  pivot = numbers[0]
+  lesser = [x for x in numbers[1:] if x <= pivot]
+  greater = [x for x in numbers[1:] if x > pivot]
+  return quicksort(lesser) + [pivot] + quicksort(greater)
+                                    
+def quicksort_recursive(numbers):
+   if
+```   
+
 
 High value for `num_assistant_tokens` brings profit when tokens generated by the draft model mostly match the main model. If they don't, tokens are dropped and both models do additional work. For low values such risk is lower, but the potential performance boost is limited. Usually the value of `5` is a good compromise.
 

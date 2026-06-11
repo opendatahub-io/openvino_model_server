@@ -18,11 +18,13 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "../filesystem.hpp"
+#include <openvino/runtime/core.hpp>
+
+#include "src/filesystem/filesystem.hpp"
 #include "../model.hpp"
 #include "../modelmanager.hpp"
 #include "mockmodelinstancechangingstates.hpp"
-#include "test_utils.hpp"
+#include "test_models_configs.hpp"
 
 class ModelDefaultVersions : public ::testing::Test {
 protected:

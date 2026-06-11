@@ -17,7 +17,7 @@
 BUILDKIT_STEP_LOG_MAX_SIZE=500000000
 BUILDKIT_STEP_LOG_MAX_SPEED=10000000
 
-VIRTUALENV_EXE := python3 -m virtualenv -p python3
+VIRTUALENV_EXE := python3 -m venv
 VIRTUALENV_DIR := .venv
 VIRTUALENV_STYLE_DIR := .venv-style
 ACTIVATE="$(VIRTUALENV_DIR)/bin/activate"
@@ -45,13 +45,13 @@ JOBS ?= $(CORES_TOTAL)
 
 # Image on which OVMS is compiled. If DIST_OS is not set, it's also used for a release image.
 # Currently supported BASE_OS values are: ubuntu24 ubuntu22 redhat
-BASE_OS ?= ubuntu22
+BASE_OS ?= ubuntu24
 
 # do not change this; change versions per OS a few lines below (BASE_OS_TAG_*)!
 BASE_OS_TAG ?= latest
 
-BASE_OS_TAG_UBUNTU ?= 22.04
-BASE_OS_TAG_REDHAT ?= 9.6
+BASE_OS_TAG_UBUNTU ?= 24.04
+BASE_OS_TAG_REDHAT ?= 9.7
 
 INSTALL_RPMS_FROM_URL ?=
 BUILD_IMAGE ?= build
@@ -70,21 +70,19 @@ $(error PYTHON_DISABLE cannot be 0 when MEDIAPIPE_DISABLE is 1)
 endif
 endif
 FUZZER_BUILD ?= 0
-
+DOCKER_BUILDKIT ?= 1
+KONFLUX ?= 0
 # NOTE: when changing any value below, you'll need to adjust WORKSPACE file by hand:
 #         - uncomment source build section, comment binary section
 #         - adjust binary version path - version variable is not passed to WORKSPACE file!
-OV_SOURCE_BRANCH ?= cc73719a2c667106c454f3abe663e312832365f1 # master 2025-07-29
-OV_CONTRIB_BRANCH ?= c39462ca8d7c550266dc70cdbfbe4fc8c5be0677  # master / 2024-10-31
-OV_TOKENIZERS_BRANCH ?= d9a2bb05e750f1c628ada5ed81457f880719fd73 # master 2025-07-25
 
-OV_SOURCE_ORG ?= openvinotoolkit
-OV_CONTRIB_ORG ?= openvinotoolkit
+# Dependency versions (git commits, orgs, package version) are centralised in versions.mk.
+# Override any variable via the environment or command-line before invoking make.
+include versions.mk
 
 TEST_LLM_PATH ?= "src/test/llm_testing"
 GPU_MODEL_PATH ?= "/tmp/face_detection_adas"
 
-OV_USE_BINARY ?= 1
 APT_OV_PACKAGE ?= openvino-2022.1.0
 # opt, dbg:
 BAZEL_BUILD_TYPE ?= opt
@@ -134,8 +132,18 @@ endif
 
 ifeq ($(findstring ubuntu,$(BASE_OS)),ubuntu)
   TARGET_DISTRO_PARAMS = " --//:distro=ubuntu"
+  OV_USE_BINARY ?= 1
+  ifeq ($(findstring ubuntu22,$(BASE_OS)),ubuntu22)
+	ifeq ($(OV_USE_BINARY),0)
+  		$(error OV_USE_BINARY = 0 not supported on Ubuntu22 OS)
+  	endif
+  endif
 else ifeq ($(findstring redhat,$(BASE_OS)),redhat)
   TARGET_DISTRO_PARAMS = " --//:distro=redhat"
+  OV_USE_BINARY ?= 0
+  ifeq ($(OV_USE_BINARY),1)
+  	$(error OV_USE_BINARY = 1 not supported on RHEL OS)
+  endif
 else
   $(error BASE_OS must be either ubuntu or redhat)
 endif
@@ -160,12 +168,12 @@ ifeq ($(findstring ubuntu,$(BASE_OS)),ubuntu)
   BASE_IMAGE_RELEASE=$(BASE_IMAGE)
   ifeq ($(BASE_OS_TAG),24.04)
         OS=ubuntu24
-	INSTALL_DRIVER_VERSION ?= "24.52.32224"
-	DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19616-cc73719a2c6/openvino_toolkit_ubuntu24_2025.3.0.dev20250729_x86_64.tgz
+	INSTALL_DRIVER_VERSION ?= "26.09.37435"
+	DLDT_PACKAGE_URL ?= $(DLDT_PACKAGE_URL_UBUNTU24)
   else ifeq  ($(BASE_OS_TAG),22.04)
         OS=ubuntu22
 	INSTALL_DRIVER_VERSION ?= "24.39.31294"
-	DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19616-cc73719a2c6/openvino_toolkit_ubuntu22_2025.3.0.dev20250729_x86_64.tgz
+	DLDT_PACKAGE_URL ?= $(DLDT_PACKAGE_URL_UBUNTU22)
   endif
 endif
 ifeq ($(BASE_OS),redhat)
@@ -174,7 +182,7 @@ ifeq ($(BASE_OS),redhat)
   BASE_IMAGE ?= registry.access.redhat.com/ubi9/ubi:$(BASE_OS_TAG_REDHAT)
   BASE_IMAGE_RELEASE=registry.access.redhat.com/ubi9/ubi-minimal:$(BASE_OS_TAG_REDHAT)
   DIST_OS=redhat
-  DLDT_PACKAGE_URL ?= https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19616-cc73719a2c6/openvino_toolkit_rhel8_2025.3.0.dev20250729_x86_64.tgz
+  DLDT_PACKAGE_URL ?= $(DLDT_PACKAGE_URL_RHEL) # not used
   INSTALL_DRIVER_VERSION ?= "24.52.32224"
 endif
 
@@ -187,7 +195,7 @@ OVMS_CPP_IMAGE_TAG ?= latest
 
 OVMS_PYTHON_IMAGE_TAG ?= py
 
-PRODUCT_VERSION ?= "2025.3.0"
+PRODUCT_VERSION ?= "2026.3.0"
 PROJECT_VER_PATCH =
 
 $(eval PROJECT_VER_PATCH:=`git rev-parse --short HEAD`)
@@ -211,7 +219,10 @@ BUILD_ARGS = --build-arg http_proxy=$(HTTP_PROXY)\
 	--build-arg no_proxy=$(NO_PROXY)\
 	--build-arg ov_source_branch=$(OV_SOURCE_BRANCH)\
 	--build-arg ov_source_org=$(OV_SOURCE_ORG)\
-	--build-arg ov_contrib_org=$(OV_CONTRIB_ORG)\
+	--build-arg ov_genai_org=$(OV_GENAI_ORG)\
+	--build-arg ov_tokenizers_org=$(OV_TOKENIZERS_ORG)\
+	--build-arg ov_tokenizers_branch=$(OV_TOKENIZERS_BRANCH)\
+	--build-arg ov_genai_branch=$(OV_GENAI_BRANCH)\
 	--build-arg ov_use_binary=$(OV_USE_BINARY)\
 	--build-arg DLDT_PACKAGE_URL=$(DLDT_PACKAGE_URL)\
 	--build-arg CHECK_COVERAGE=$(CHECK_COVERAGE)\
@@ -223,16 +234,16 @@ BUILD_ARGS = --build-arg http_proxy=$(HTTP_PROXY)\
 	--build-arg minitrace_flags=$(MINITRACE_FLAGS) \
 	--build-arg CMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE)\
 	--build-arg PROJECT_VERSION=$(PROJECT_VERSION)\
+	--build-arg OPENCV_VERSION=$(OPENCV_VERSION)\
 	--build-arg BASE_IMAGE=$(BASE_IMAGE)\
 	--build-arg BASE_OS=$(BASE_OS)\
-	--build-arg ov_contrib_branch=$(OV_CONTRIB_BRANCH)\
-	--build-arg ov_tokenizers_branch=$(OV_TOKENIZERS_BRANCH)\
 	--build-arg INSTALL_RPMS_FROM_URL=$(INSTALL_RPMS_FROM_URL)\
 	--build-arg INSTALL_DRIVER_VERSION=$(INSTALL_DRIVER_VERSION)\
 	--build-arg RELEASE_BASE_IMAGE=$(BASE_IMAGE_RELEASE)\
 	--build-arg JOBS=$(JOBS)\
 	--build-arg CAPI_FLAGS=$(CAPI_FLAGS)\
-	--build-arg VERBOSE_LOGS=$(VERBOSE_LOGS)
+	--build-arg VERBOSE_LOGS=$(VERBOSE_LOGS)\
+	--build-arg KONFLUX=$(KONFLUX)
 
 
 .PHONY: default docker_build \
@@ -254,7 +265,6 @@ spell: venv-style
 
 $(ACTIVATE):
 	@echo "Updating virtualenv dependencies in: $(VIRTUALENV_DIR)..."
-	@python3 -m pip install virtualenv
 	@test -d $(VIRTUALENV_DIR) || $(VIRTUALENV_EXE) $(VIRTUALENV_DIR)
 	@. $(ACTIVATE); pip3 install --upgrade pip
 	@. $(ACTIVATE); pip3 install -vUqq "setuptools<80"
@@ -263,7 +273,6 @@ $(ACTIVATE):
 
 $(ACTIVATE_STYLE):
 	@echo "Updating virtualenv dependencies in: $(VIRTUALENV_STYLE_DIR)..."
-	@python3 -m pip install virtualenv
 	@test -d $(VIRTUALENV_STYLE_DIR) || $(VIRTUALENV_EXE) $(VIRTUALENV_STYLE_DIR)
 	@. $(ACTIVATE_STYLE); pip3 install --upgrade pip
 	@. $(ACTIVATE_STYLE); pip3 install -vUqq "setuptools<80"
@@ -349,13 +358,10 @@ ifeq ($(NO_DOCKER_CACHE),true)
 	@docker pull registry.access.redhat.com/ubi9/ubi-minimal:$(BASE_OS_TAG_REDHAT)
   endif
 endif
-ifeq ($(USE_BUILDX),true)
-	$(eval BUILDX:=buildx)
-endif
 
 ifeq ($(BUILD_CUSTOM_NODES),true)
 	@echo "Building custom nodes"
-	@cd src/custom_nodes && make USE_BUILDX=$(USE_BUILDX) NO_DOCKER_CACHE=$(NO_DOCKER_CACHE) BASE_OS=$(OS) BASE_IMAGE=$(BASE_IMAGE) 
+	@cd src/custom_nodes && make NO_DOCKER_CACHE=$(NO_DOCKER_CACHE) BASE_OS=$(OS) BASE_IMAGE=$(BASE_IMAGE) 
 endif
 	@echo "Building docker image $(BASE_OS)"
 	# Provide metadata information into image if defined
@@ -379,15 +385,23 @@ targz_package:
 		--target=pkg && \
 	rm -vrf dist/$(OS) && mkdir -p dist/$(OS) && \
 	ID=$$(docker create $(OVMS_CPP_DOCKER_IMAGE)-pkg:$(OVMS_CPP_IMAGE_TAG)) && \
-	docker cp $$ID:/ovms_pkg/$(OS) dist/ && \
+	docker cp $$ID:/ovms_pkg/$(OS)/ovms.tar dist/$(OS)/ && \
 	docker rm $$ID
-	cd dist/$(OS) && sha256sum --check ovms.tar.gz.sha256
+	docker $(BUILDX) build -f Dockerfile.$(DIST_OS) . \
+		$(BUILD_ARGS) \
+		--build-arg BUILD_IMAGE=$(BUILD_IMAGE) \
+		-t $(OVMS_CPP_DOCKER_IMAGE)-capi:$(OVMS_CPP_IMAGE_TAG) \
+		--target=capi-build && \
+	ID=$$(docker create $(OVMS_CPP_DOCKER_IMAGE)-capi:$(OVMS_CPP_IMAGE_TAG)) && \
+	docker cp $$ID:/ovms_release/lib/libovms_shared.so dist/$(OS)/ && \
+	docker rm $$ID
+	cd dist/$(OS) && \
+	tar rf ovms.tar --transform 's,^,ovms/lib/,' libovms_shared.so && \
+	gzip ovms.tar && \
+	rm -f libovms_shared.so && \
+	sha256sum ovms.tar.gz > ovms.tar.gz.sha256
 
 ovms_release_images:
-ifeq ($(USE_BUILDX),true)
-	$(eval BUILDX:=buildx)
-	$(eval NO_CACHE_OPTION:=--no-cache-filter release)
-endif
 ifeq ($(BASE_OS),redhat)
 	$(eval NPU:=0)
 else
@@ -419,7 +433,7 @@ ifeq ($(findstring ubuntu,$(BASE_OS)),ubuntu)
 endif
 ifeq ($(BASE_OS),redhat)
 	touch base_packages.txt
-	docker run registry.access.redhat.com/ubi9-minimal:9.6 rpm -qa  --qf "%{NAME}\n" | sort > base_packages.txt
+	docker run registry.access.redhat.com/ubi9-minimal:9.7 rpm -qa  --qf "%{NAME}\n" | sort > base_packages.txt
 	docker run --entrypoint rpm $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) -qa  --qf "%{NAME}\n" | sort > all_packages.txt
 	rm -rf ovms_rhel_$(OVMS_CPP_IMAGE_TAG)
 	mkdir ovms_rhel_$(OVMS_CPP_IMAGE_TAG)
@@ -435,10 +449,6 @@ ifeq ($(BASE_OS),redhat)
 endif
 
 release_image:
-ifeq ($(USE_BUILDX),true)
-	$(eval BUILDX:=buildx)
-	$(eval NO_CACHE_OPTION:=--no-cache-filter release)
-endif
 	docker $(BUILDX) build $(NO_CACHE_OPTION) -f Dockerfile.$(DIST_OS) . \
 		$(BUILD_ARGS) \
 		--build-arg BUILD_IMAGE=$(BUILD_IMAGE) \
@@ -467,7 +477,7 @@ get_coverage:
 	fi
 check_coverage:
 	@echo "Checking if coverage is above threshold..."
-	@docker run $(OVMS_CPP_DOCKER_IMAGE)-build:$(OVMS_CPP_IMAGE_TAG) ./check_coverage.bat | grep success
+	@bash ci/check_coverage.bat
 	
 test_checksec: venv
 	@echo "Running checksec on libovms_shared library..."
@@ -596,26 +606,17 @@ test_throughput_dummy_model: venv
 test_functional: venv
 	@. $(ACTIVATE); pytest --json=report.json -v -s $(TEST_PATH)
 
-# Client library make style target, by default uses Python 3 env in .venv path
-# This fact is used in test_client_lib, where make build runs in .venv Python 3 environment
-test_client_lib:
-	@cd client/python/ovmsclient/lib && \
-		make style || exit 1 && \
-		. .venv-ovmsclient/bin/activate; make build || exit 1 && \
-		make test TEST_TYPE=FULL || exit 1 && \
-		make clean
-
 test_python_clients:
 	@echo "Prepare docker image"
-	@docker build . -f tests/python/Dockerfile -t python_client_test
+	@docker build --build-arg http_proxy="$(http_proxy)" --build-arg https_proxy="$(https_proxy)" . -f tests/python/Dockerfile -t python_client_test
 	@echo "Dropping test container if exist"
 	@docker rm --force $(PYTHON_CLIENT_TEST_CONTAINER_NAME) || true
 	@echo "Download models"
 	@if [ ! -d "tests/python/models" ]; then cd tests/python && \
 		mkdir models && \
-		docker run -u $(id -u):$(id -g) -v ${PWD}/tests/python/models:/models openvino/ubuntu20_dev:2024.6.0 omz_downloader --name resnet-50-tf --output_dir /models && \
-		docker run -u $(id -u):$(id -g) -v ${PWD}/tests/python/models:/models:rw openvino/ubuntu20_dev:2024.6.0 omz_converter --name resnet-50-tf --download_dir /models --output_dir /models --precisions FP32 && \
-		docker run -u $(id -u):$(id -g) -v ${PWD}/tests/python/models:/models:rw openvino/ubuntu20_dev:2024.6.0 mv /models/public/resnet-50-tf/FP32 /models/public/resnet-50-tf/1; fi
+		docker run -u $(id -u):$(id -g) -e http_proxy="$(http_proxy)" -e https_proxy="$(https_proxy)" -v ${PWD}/tests/python/models:/models openvino/ubuntu20_dev:2024.6.0 omz_downloader --name resnet-50-tf --output_dir /models && \
+		docker run -u $(id -u):$(id -g) -e http_proxy="$(http_proxy)" -e https_proxy="$(https_proxy)" -v ${PWD}/tests/python/models:/models:rw openvino/ubuntu20_dev:2024.6.0 omz_converter --name resnet-50-tf --download_dir /models --output_dir /models --precisions FP32 && \
+		docker run -u $(id -u):$(id -g) -e http_proxy="$(http_proxy)" -e https_proxy="$(https_proxy)" -v ${PWD}/tests/python/models:/models:rw openvino/ubuntu20_dev:2024.6.0 mv /models/public/resnet-50-tf/FP32 /models/public/resnet-50-tf/1; fi
 	@echo "Start test container"
 	@docker run -d --rm --name $(PYTHON_CLIENT_TEST_CONTAINER_NAME) -v ${PWD}/tests/python/models/public/resnet-50-tf:/models/public/resnet-50-tf -p $(PYTHON_CLIENT_TEST_REST_PORT):8000 -p $(PYTHON_CLIENT_TEST_GRPC_PORT):9000 openvino/model_server:latest --model_name resnet --model_path /models/public/resnet-50-tf --port 9000 --rest_port 8000 && \
 		sleep 10

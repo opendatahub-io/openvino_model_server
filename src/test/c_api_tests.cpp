@@ -24,6 +24,8 @@
 
 #include <gtest/gtest.h>
 
+#include <openvino/runtime/core.hpp>
+
 #include "../capi_frontend/capi_request_utils.hpp"
 #include "../deserialization_main.hpp"
 #include "../inference_executor.hpp"
@@ -36,14 +38,19 @@
 #include "../capi_frontend/capi_dag_utils.hpp"
 #include "../capi_frontend/servablemetadata.hpp"
 #include "../dags/pipelinedefinitionstatus.hpp"
-#include "../metric_module.hpp"
+#include "../filesystem/filesystem.hpp"
+#include "src/metrics/metric_module.hpp"
 #include "../ovms.h"
 #include "../servablemanagermodule.hpp"
 #include "../server.hpp"
 #include "../version.hpp"
 #include "c_api_test_utils.hpp"
 #include "mockmodelinstancechangingstates.hpp"
+#include "test_models_configs.hpp"
 #include "test_utils.hpp"
+#include "light_test_utils.hpp"
+#include "platform_utils.hpp"
+#include "test_with_temp_dir.hpp"
 
 using namespace ovms;
 using testing::ElementsAreArray;
@@ -54,14 +61,14 @@ static void testDefaultSingleModelOptions(ModelsSettingsImpl* modelsSettings) {
     EXPECT_EQ(modelsSettings->batchSize, "");
     EXPECT_EQ(modelsSettings->shape, "");
     EXPECT_EQ(modelsSettings->layout, "");
+    EXPECT_EQ(modelsSettings->mean, std::nullopt);
+    EXPECT_EQ(modelsSettings->scale, std::nullopt);
+    EXPECT_EQ(modelsSettings->colorFormat, std::nullopt);
+    EXPECT_EQ(modelsSettings->precision, std::nullopt);
     EXPECT_EQ(modelsSettings->modelVersionPolicy, "");
     EXPECT_EQ(modelsSettings->nireq, 0);
     EXPECT_EQ(modelsSettings->targetDevice, "");
     EXPECT_EQ(modelsSettings->pluginConfig, "");
-    EXPECT_EQ(modelsSettings->stateful, std::nullopt);
-    EXPECT_EQ(modelsSettings->lowLatencyTransformation, std::nullopt);
-    EXPECT_EQ(modelsSettings->maxSequenceNumber, std::nullopt);
-    EXPECT_EQ(modelsSettings->idleSequenceCleanup, std::nullopt);
 }
 
 const uint32_t AVAILABLE_CORES = std::thread::hardware_concurrency();
@@ -98,8 +105,7 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     EXPECT_EQ(serverSettings->grpcMaxThreads, std::nullopt);
     EXPECT_EQ(serverSettings->grpcMemoryQuota, std::nullopt);
     EXPECT_EQ(serverSettings->filesystemPollWaitMilliseconds, 1000);
-    EXPECT_EQ(serverSettings->sequenceCleanerPollWaitMinutes, 5);
-    EXPECT_EQ(serverSettings->resourcesCleanerPollWaitSeconds, 1);
+    EXPECT_EQ(serverSettings->resourcesCleanerPollWaitSeconds, 300);
     EXPECT_EQ(serverSettings->cacheDir, "");
 
     testDefaultSingleModelOptions(modelsSettings);
@@ -116,7 +122,7 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcMaxThreads(_serverSettings, 100));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetGrpcMemoryQuota(_serverSettings, (size_t)1000000));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetFileSystemPollWaitSeconds(_serverSettings, 2));
-    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetSequenceCleanerPollWaitMinutes(_serverSettings, 3));
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetSequenceCleanerPollWaitMinutes(_serverSettings, 1), StatusCode::NOT_IMPLEMENTED);
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetCustomNodeResourcesCleanerIntervalSeconds(_serverSettings, 4));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetCpuExtensionPath(_serverSettings, getGenericFullPathForSrcTest("/ovms/src/test").c_str()));
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetCacheDir(_serverSettings, getGenericFullPathForTmp("/tmp/cache").c_str()));
@@ -127,6 +133,8 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetLogLevel(_serverSettings, OVMS_LOG_TRACE));
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetLogLevel(_serverSettings, static_cast<OVMS_LogLevel>(99)), StatusCode::NONEXISTENT_LOG_LEVEL);
     ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetLogPath(_serverSettings, getGenericFullPathForTmp("/tmp/logs").c_str()));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetAllowedLocalMediaPath(_serverSettings, getGenericFullPathForTmp("/tmp/path").c_str()));
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetAllowedMediaDomains(_serverSettings, "raw.githubusercontent.com,githubusercontent.com,google.com"));
     ASSERT_CAPI_STATUS_NULL(OVMS_ModelsSettingsSetConfigPath(_modelsSettings, getGenericFullPathForTmp("/tmp/config").c_str()));
     // check nullptr
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetGrpcPort(nullptr, 5555), StatusCode::NONEXISTENT_PTR);
@@ -142,7 +150,7 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetGrpcMaxThreads(nullptr, 100), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetGrpcMemoryQuota(nullptr, 1000000), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetFileSystemPollWaitSeconds(nullptr, 2), StatusCode::NONEXISTENT_PTR);
-    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetSequenceCleanerPollWaitMinutes(nullptr, 3), StatusCode::NONEXISTENT_PTR);
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetSequenceCleanerPollWaitMinutes(nullptr, 1), StatusCode::NOT_IMPLEMENTED);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetCustomNodeResourcesCleanerIntervalSeconds(nullptr, 4), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetCpuExtensionPath(nullptr, "/ovms/src/test"), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetCpuExtensionPath(_serverSettings, nullptr), StatusCode::NONEXISTENT_PTR);
@@ -151,6 +159,10 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetLogLevel(nullptr, OVMS_LOG_TRACE), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetLogPath(nullptr, getGenericFullPathForTmp("/tmp/logs").c_str()), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetLogPath(_serverSettings, nullptr), StatusCode::NONEXISTENT_PTR);
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetAllowedLocalMediaPath(nullptr, getGenericFullPathForTmp("/tmp/images").c_str()), StatusCode::NONEXISTENT_PTR);
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetAllowedLocalMediaPath(_serverSettings, nullptr), StatusCode::NONEXISTENT_PTR);
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetAllowedMediaDomains(nullptr, "raw.githubusercontent.com,githubusercontent.com,google.com"), StatusCode::NONEXISTENT_PTR);
+    ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ServerSettingsSetAllowedMediaDomains(_serverSettings, nullptr), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ModelsSettingsSetConfigPath(nullptr, getGenericFullPathForTmp("/tmp/config").c_str()), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_ModelsSettingsSetConfigPath(_modelsSettings, nullptr), StatusCode::NONEXISTENT_PTR);
 
@@ -166,12 +178,18 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     EXPECT_EQ(serverSettings->cpuExtensionLibraryPath, getGenericFullPathForSrcTest("/ovms/src/test"));
     EXPECT_EQ(serverSettings->logLevel, "TRACE");
     EXPECT_EQ(serverSettings->logPath, getGenericFullPathForTmp("/tmp/logs"));
+    ASSERT_TRUE(serverSettings->allowedLocalMediaPath.has_value());
+    EXPECT_EQ(serverSettings->allowedLocalMediaPath.value(), ovms::FileSystem::normalizeConfiguredPath(getGenericFullPathForTmp("/tmp/path")));
+    ASSERT_TRUE(serverSettings->allowedMediaDomains.has_value());
+    EXPECT_EQ(serverSettings->allowedMediaDomains.value().size(), 3);
+    EXPECT_EQ(serverSettings->allowedMediaDomains.value()[0], "raw.githubusercontent.com");
+    EXPECT_EQ(serverSettings->allowedMediaDomains.value()[1], "githubusercontent.com");
+    EXPECT_EQ(serverSettings->allowedMediaDomains.value()[2], "google.com");
     // trace path  // not tested since it is not supported in C-API
     EXPECT_EQ(serverSettings->grpcChannelArguments, "grpcargs");
     EXPECT_EQ(serverSettings->grpcMaxThreads, 100);
     EXPECT_EQ(serverSettings->grpcMemoryQuota, (size_t)1000000);
     EXPECT_EQ(serverSettings->filesystemPollWaitMilliseconds, 2000);
-    EXPECT_EQ(serverSettings->sequenceCleanerPollWaitMinutes, 3);
     EXPECT_EQ(serverSettings->resourcesCleanerPollWaitSeconds, 4);
     EXPECT_EQ(serverSettings->cacheDir, getGenericFullPathForTmp("/tmp/cache"));
 
@@ -201,7 +219,6 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     // trace path  // not tested since it is not supported in C-API
     EXPECT_EQ(cfg.grpcChannelArguments(), "grpcargs");
     EXPECT_EQ(cfg.filesystemPollWaitMilliseconds(), 2000);
-    EXPECT_EQ(cfg.sequenceCleanerPollWaitMinutes(), 3);
     EXPECT_EQ(cfg.resourcesCleanerPollWaitSeconds(), 4);
     EXPECT_EQ(cfg.cacheDir(), getGenericFullPathForTmp("/tmp/cache"));
 
@@ -210,14 +227,14 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
     EXPECT_EQ(cfg.batchSize(), "");
     EXPECT_EQ(cfg.shape(), "");
     EXPECT_EQ(cfg.layout(), "");
+    EXPECT_EQ(cfg.means(), "");
+    EXPECT_EQ(cfg.scales(), "");
+    EXPECT_EQ(cfg.colorFormat(), "");
+    EXPECT_EQ(cfg.precision(), "");
     EXPECT_EQ(cfg.modelVersionPolicy(), "");
     EXPECT_EQ(cfg.nireq(), 0);
     EXPECT_EQ(cfg.targetDevice(), "CPU");
     EXPECT_EQ(cfg.pluginConfig(), "");
-    EXPECT_FALSE(cfg.stateful());
-    EXPECT_FALSE(cfg.lowLatencyTransformation());
-    EXPECT_EQ(cfg.maxSequenceNumber(), DEFAULT_MAX_SEQUENCE_NUMBER);
-    EXPECT_TRUE(cfg.idleSequenceCleanup());
 
     EXPECT_EQ(cfg.configPath(), getGenericFullPathForTmp("/tmp/config"));
 
@@ -229,6 +246,22 @@ TEST(CAPIConfigTest, MultiModelConfiguration) {
 
 TEST(CAPIConfigTest, SingleModelConfiguration) {
     GTEST_SKIP() << "Use C-API to initialize in next stages, currently not supported";
+}
+
+TEST(CAPIConfigTest, AllowedLocalMediaPathRelativeIsNormalized) {
+    OVMS_ServerSettings* serverSettingsRaw = nullptr;
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsNew(&serverSettingsRaw));
+    ASSERT_NE(serverSettingsRaw, nullptr);
+    ServerSettingsImpl* serverSettings = reinterpret_cast<ServerSettingsImpl*>(serverSettingsRaw);
+
+    ASSERT_CAPI_STATUS_NULL(OVMS_ServerSettingsSetAllowedLocalMediaPath(serverSettingsRaw, "src/test"));
+    ASSERT_TRUE(serverSettings->allowedLocalMediaPath.has_value());
+
+    const auto configuredPath = std::filesystem::path(serverSettings->allowedLocalMediaPath.value());
+    const auto expectedPath = std::filesystem::path(ovms::FileSystem::normalizeConfiguredPath("src/test"));
+    EXPECT_EQ(configuredPath.lexically_normal(), expectedPath.lexically_normal());
+
+    OVMS_ServerSettingsDelete(serverSettingsRaw);
 }
 
 TEST(CAPIStartTest, InitializingMultipleServers) {
@@ -314,7 +347,7 @@ TEST(CAPIServerMetadata, Basic) {
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_SerializeMetadataToString(metadata, nullptr, &size), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NOT_NULL_EXPECT_CODE(OVMS_SerializeMetadataToString(metadata, &json, nullptr), StatusCode::NONEXISTENT_PTR);
     ASSERT_CAPI_STATUS_NULL(OVMS_SerializeMetadataToString(metadata, &json, &size));
-    ASSERT_EQ(std::string(json), std::string("{\"name\":\"" + std::string(PROJECT_NAME) + "\",\"version\":\"" + std::string(PROJECT_VERSION) + "\",\"ov_version\":\"" + std::string(OPENVINO_NAME) + "\"}"));
+    ASSERT_EQ(std::string(json), std::string("{\"name\":\"" + std::string(PROJECT_NAME) + "\",\"version\":\"" + std::string(PROJECT_VERSION) + "\",\"ov_version\":\"" + std::string(ovms::getOpenVINOVersion()) + "\"}"));
     ASSERT_EQ(size, std::strlen(json));
     OVMS_StringFree(json);
     const char* pointer = "/name";
@@ -337,7 +370,7 @@ TEST(CAPIServerMetadata, Basic) {
 
     pointer = "/ov_version";
     ASSERT_CAPI_STATUS_NULL(OVMS_MetadataFieldByPointer(metadata, pointer, &value, &size));
-    ASSERT_EQ(std::string(value), std::string(OPENVINO_NAME));
+    ASSERT_EQ(std::string(value), std::string(ovms::getOpenVINOVersion()));
     ASSERT_EQ(size, std::strlen(value));
     OVMS_StringFree(value);
 
@@ -1366,7 +1399,7 @@ public:
     class MockModel : public Model {
     public:
         MockModel(const std::string& name, std::shared_ptr<ModelInstance> instance) :
-            Model(name, false /*stateful*/, nullptr) {
+            Model(name) {
             modelVersions.insert({instance->getVersion(), instance});
         }
     };

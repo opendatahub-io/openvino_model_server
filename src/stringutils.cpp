@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -60,6 +61,11 @@ void rtrim(std::string& str) {
 void trim(std::string& str) {
     ltrim(str);
     rtrim(str);
+}
+
+std::string trim_copy(std::string str) {
+    trim(str);
+    return str;
 }
 
 void erase_spaces(std::string& str) {
@@ -107,7 +113,7 @@ std::optional<uint32_t> stou32(const std::string& input) {
     std::string str = input;
     ovms::erase_spaces(str);
 
-    if (str.size() > 0 && str[0] == '-') {
+    if (!str.empty() && str[0] == '-') {
         return std::nullopt;
     }
 
@@ -122,9 +128,42 @@ std::optional<uint32_t> stou32(const std::string& input) {
     }
 }
 
-std::optional<int32_t> stoi32(const std::string& str) {
+std::optional<uint64_t> stou64(const std::string& str) {
+    if (str.empty()) {
+        return std::nullopt;
+    }
+
+    // Reject negative numbers for unsigned conversion
+    if (!str.empty() && str[0] == '-') {
+        return std::nullopt;
+    }
+
+    size_t idx = 0;
     try {
-        return {static_cast<int32_t>(std::stoi(str))};
+        uint64_t val = std::stoull(str, &idx);
+        // Check if the whole string was consumed
+        if (idx != str.size()) {
+            return std::nullopt;
+        }
+        return val;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<int32_t> stoi32(const std::string& str) {
+    if (str.empty()) {
+        return std::nullopt;
+    }
+
+    size_t idx = 0;
+    try {
+        int32_t val = std::stoi(str, &idx);
+        // Check if the whole string was consumed
+        if (idx != str.size()) {
+            return std::nullopt;
+        }
+        return val;
     } catch (...) {
         return std::nullopt;
     }
@@ -152,6 +191,41 @@ std::optional<int64_t> stoi64(const std::string& str) {
     } catch (...) {
         return std::nullopt;
     }
+}
+
+std::optional<float> stof(const std::string& str) {
+    if (str.empty()) {
+        return std::nullopt;
+    }
+
+    size_t idx = 0;
+    try {
+        float val = std::stof(str, &idx);
+        // Check if the whole string was consumed
+        if (idx != str.size()) {
+            return std::nullopt;
+        }
+        // Reject NaN or Inf
+        if (std::isnan(val) || std::isinf(val)) {
+            return std::nullopt;
+        }
+        return val;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<std::vector<float>> stringToFloatVector(const std::string& str, char delimiter) {
+    std::vector<std::string> stringValues = tokenize(str, delimiter);
+    std::vector<float> floatValues;
+    for (const auto& stringValue : stringValues) {
+        auto floatValue = ovms::stof(stringValue);
+        if (!floatValue.has_value()) {
+            return std::nullopt;
+        }
+        floatValues.push_back(floatValue.value());
+    }
+    return floatValues;
 }
 
 bool isValidUtf8(const std::string& text) {
@@ -183,6 +257,53 @@ std::string toLower(const std::string& input) {
     std::transform(result.begin(), result.end(), result.begin(),
         [](unsigned char c) { return std::tolower(c); });
     return result;
+}
+
+bool stringsOverlap(const std::string& lhs, const std::string& rhs) {
+    if (lhs.empty() && rhs.empty()) {
+        return true;
+    }
+
+    size_t minLength = std::min(lhs.size(), rhs.size());
+    for (size_t len = 1; len <= minLength; ++len) {
+        if (lhs.compare(lhs.size() - len, len, rhs, 0, len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void escapeSpecialCharacters(std::string& text) {
+    // Escape all double quotes, backslashes, and control characters in the text
+    std::string escaped;
+    for (char c : text) {
+        switch (c) {
+        case '\"':
+            escaped += "\\\"";
+            break;
+        case '\\':
+            escaped += "\\\\";
+            break;
+        case '\b':
+            escaped += "\\b";
+            break;
+        case '\f':
+            escaped += "\\f";
+            break;
+        case '\n':
+            escaped += "\\n";
+            break;
+        case '\r':
+            escaped += "\\r";
+            break;
+        case '\t':
+            escaped += "\\t";
+            break;
+        default:
+            escaped += c;
+        }
+    }
+    text = std::move(escaped);
 }
 
 }  // namespace ovms

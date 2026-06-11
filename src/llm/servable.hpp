@@ -20,18 +20,18 @@
 #include <unordered_map>
 #include <vector>
 
-#include "openvino/genai/text_streamer.hpp"
-
 #pragma warning(push)
-#pragma warning(disable : 4005 4309 6001 6385 6386 6326 6011 4005 4456 6246)
+#pragma warning(disable : 4251 4005 4309 6001 6385 6386 6326 6011 4005 4456 6246)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#include "openvino/genai/text_streamer.hpp"
 #include "mediapipe/framework/calculator_graph.h"
 #pragma GCC diagnostic pop
 #pragma warning(pop)
 
 #include "../http_payload.hpp"
-#include "apis/openai_completions.hpp"
+#include "../sse_utils.hpp"
+#include "apis/openai_api_handler.hpp"
 #include "io_processing/generation_config_builder.hpp"
 #if (PYTHON_DISABLE == 0)
 #include "py_jinja_template_processor.hpp"
@@ -60,11 +60,16 @@ Instance of this class is created for each request and is passed through multipl
 Note that GenAiServableExecutionContext pointer is the only parameter most of the GenAiServable methods take.
 */
 
+enum class GenerationPhase {
+    INPUT_TOKEN_PROCESSING,
+    OUTPUT_TOKEN_PROCESSING,
+};
+
 struct GenAiServableExecutionContext {
     // Common API related members
-    ovms::HttpPayload payload;
+    HttpPayload payload;
     Endpoint endpoint;
-    std::shared_ptr<OpenAIChatCompletionsHandler> apiHandler;
+    std::shared_ptr<OpenAIApiHandler> apiHandler;
     std::shared_ptr<GenerationConfigBuilder> generationConfigBuilder;
     // Single tensor with inputIds for the model. This is considered general for all pipelines,
     // but depending on particular pipeline implementation it might be not required or on the other hand, insufficient.
@@ -75,23 +80,39 @@ struct GenAiServableExecutionContext {
     std::shared_ptr<ov::genai::TextStreamer> textStreamer;
     bool sendLoopbackSignal = false;
     std::string lastStreamerCallbackOutput;
+    GenerationPhase generationPhase = GenerationPhase::INPUT_TOKEN_PROCESSING;
+};
+
+struct ExtraGenerationInfo {
+    std::string bosTokenFromTokenizer;
+    std::string bosTokenIdFromTokenizer;
+    std::string eosTokenFromTokenizer;
+    std::string eosTokenIdFromTokenizer;
+    std::string chatTemplateFromTokenizer;
+    std::string chatTemplateDirectory;
+    bool isGgufModel;
 };
 
 struct GenAiServableProperties {
     // General configuration
     std::string modelsPath;
     ov::genai::GenerationConfig baseGenerationConfig;
-    std::string responseParserName;
+    std::string toolParserName;
+    std::string reasoningParserName;
     std::string device;
     ov::AnyMap pluginConfig;
     ov::AnyMap tokenizerPluginConfig;
     bool enableToolGuidedGeneration = false;
-    // Sampling limits
+    // Sampling
+    DecodingMethod decodingMethod;
     std::optional<uint32_t> maxTokensLimit;
     std::optional<uint32_t> maxModelLength;
     uint32_t bestOfLimit;
     // Text processing utilities
     ov::genai::Tokenizer tokenizer;
+    // Specific pipeline properties
+    bool eagle3Mode = false;
+
 #if (PYTHON_DISABLE == 0)
     PyJinjaTemplateProcessor templateProcessor;
 #endif
@@ -106,13 +127,22 @@ public:
     GenAiServable& operator=(const GenAiServable&) = delete;
     virtual ~GenAiServable() = default;
 
+    void determineDecodingMethod();
+
+    // ----------- Tokenize scenario ------------
+    /*
+    processTokenizeRequest method implements tokenization of the input text provided in executionContext payload.
+    Implementation fills executionContext response field with serialized tokenization result wrapped in json.
+    */
+    absl::Status processTokenizeRequest(std::shared_ptr<GenAiServableExecutionContext>& executionContext);
+
     // ----- Interface for derived classes -----
 
     /*
     loadRequest method implementation MUST fill executionContext payload and endpoint fields.
     Base implementation does that and makes sure URI matches either chat/completions or completions endpoint.
     */
-    virtual absl::Status loadRequest(std::shared_ptr<GenAiServableExecutionContext>& executionContext, const ovms::HttpPayload& payload);
+    virtual absl::Status loadRequest(std::shared_ptr<GenAiServableExecutionContext>& executionContext, const HttpPayload& payload);
 
     // Creates execution context for the request
     virtual std::shared_ptr<GenAiServableExecutionContext> createExecutionContext() = 0;
@@ -178,6 +208,6 @@ public:
     */
     virtual absl::Status preparePartialResponse(std::shared_ptr<GenAiServableExecutionContext>& executionContext);
 };
-std::string wrapTextInServerSideEventMessage(const std::string& text);
 using GenAiServableMap = std::unordered_map<std::string, std::shared_ptr<GenAiServable>>;
+void logRequestDetails(const HttpPayload& payload);
 }  // namespace ovms

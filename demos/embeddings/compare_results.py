@@ -26,13 +26,20 @@ parser.add_argument('--service_url', required=False, default='http://localhost:8
                     help='Specify url to embeddings endpoint. default:http://localhost:8000/v3/embeddings', dest='service_url')
 parser.add_argument('--model_name', default='Alibaba-NLP/gte-large-en-v1.5', help='Model name to query. default: Alibaba-NLP/gte-large-en-v1.5',
                     dest='model_name')
+parser.add_argument('--hf_model_name', default='', help='HuggingFaces model name. default: equal to --model_name',
+                    dest='hf_model_name')
 parser.add_argument('--input', default=[], help='List of strings to query. default: []',
                     dest='input', action='append')
+parser.add_argument('--pooling', default="CLS", choices=["CLS", "LAST", "MEAN"], help='Embeddings pooling mode', dest='pooling')
+
 args = vars(parser.parse_args())
 
 model_id = args['model_name']
-tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-model_pt = AutoModel.from_pretrained(model_id, trust_remote_code=True)
+hf_model_name = args['hf_model_name']
+if len(hf_model_name) == 0:
+    hf_model_name = model_id
+tokenizer = AutoTokenizer.from_pretrained(hf_model_name, trust_remote_code=True)
+model_pt = AutoModel.from_pretrained(hf_model_name, trust_remote_code=True)
 #model_ov = OVSentenceTransformer.from_pretrained(model_id, trust_remote_code=True)
 
 text = args['input']
@@ -43,8 +50,14 @@ def run_model():
         start_time = datetime.datetime.now()
         input = tokenizer(text, padding=True, truncation=True, return_tensors='pt')
         model_output = model_pt(**input)
-        embeddings = model_output.last_hidden_state[:, 0]
-        embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        if args['pooling'] == "LAST":
+            sequence_lengths = input['attention_mask'].sum(dim=1) - 1
+            batch_size = model_output.last_hidden_state.shape[0]
+            embeddings = model_output.last_hidden_state[torch.arange(batch_size, device=model_output.last_hidden_state.device), sequence_lengths]
+            embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        else:
+            embeddings = model_output.last_hidden_state[:, 0]
+            embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
         end_time = datetime.datetime.now()
         duration = (end_time - start_time).total_seconds() * 1000
         print("HF Duration:", duration, "ms", type(model_pt).__name__)
@@ -75,6 +88,7 @@ HF_embeddings = run_model()
 OVMS_embeddings = run_ovms()
 
 i=0
+failed=0
 for res in OVMS_embeddings:
     print("Batch number:", i)
     ovmsresult = np.array(res.embedding)
@@ -83,8 +97,24 @@ for res in OVMS_embeddings:
         #print("OVSentenceTransformer: shape:",OV_embeddings[i].shape, "emb[:20]:\n", OV_embeddings[i][:20])
         print("HF AutoModel: shape:",HF_embeddings[i].shape, "emb[:20]:\n", HF_embeddings[i][:20])
     print("Difference score with HF AutoModel:", np.linalg.norm(ovmsresult - HF_embeddings[i]))
-    assert np.allclose(ovmsresult, HF_embeddings[i], atol=1e-2)
-    assert (np.linalg.norm(ovmsresult - HF_embeddings[i]) < 0.06)
+    if np.allclose(ovmsresult, HF_embeddings[i], atol=1e-2):
+        print("[PASS] Arrays are within tolerance (atol=1e-2)")
+    else:
+        failed+=1
+        print("[FAIL] Arrays are NOT within tolerance (atol=1e-2)")
+        # Optional: print the differences for debugging
+        diff = np.abs(ovmsresult - HF_embeddings[i])
+        print(f"Max difference: {diff.max():.6f}")
+        print(f"Mean difference: {diff.mean():.6f}")
+    if (np.linalg.norm(ovmsresult - HF_embeddings[i]) < 0.06):
+        print("[PASS] Np linalg.norm")
+    else:
+        print("[FAIL] Np linalg.norm")
+        failed+=1
     i+=1
 
-
+if failed:
+    print("[FAILED]")
+    assert failed==0
+else:
+    print("[SUCCESS]")

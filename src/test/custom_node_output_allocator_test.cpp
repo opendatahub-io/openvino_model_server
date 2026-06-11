@@ -16,6 +16,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <openvino/runtime/tensor.hpp>
+
 #include "../dags/custom_node_output_allocator.hpp"
 #include "../precision.hpp"
 #include "../shape.hpp"
@@ -79,7 +81,7 @@ public:
         return allocImpl->allocate(bytes, alignment);
     }
 
-    void deallocate(void* handle, const size_t bytes, size_t alignment) {
+    void deallocate(void* handle, const size_t bytes, const size_t alignment) noexcept {
         allocImpl->deallocate(handle, bytes, alignment);
         (*freeCallCount)++;
     }

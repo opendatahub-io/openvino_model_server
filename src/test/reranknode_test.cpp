@@ -26,54 +26,14 @@
 #include "rapidjson/writer.h"        // TODO: Move out together with rerank tests
 #include "test_http_utils.hpp"
 #include "test_utils.hpp"
+#include "platform_utils.hpp"
 
 using namespace ovms;
 
-class V3HttpTest : public ::testing::Test {
-public:
-    std::unique_ptr<ovms::HttpRestApiHandler> handler;
-
-    std::unordered_map<std::string, std::string> headers{{"content-type", "application/json"}};
-    ovms::HttpRequestComponents comp;
-    const std::string endpointEmbeddings = "/v3/embeddings";
-    const std::string endpointRerank = "/v3/rerank";
-    std::shared_ptr<MockedServerRequestInterface> writer;
-    std::shared_ptr<MockedMultiPartParser> multiPartParser;
-    std::string response;
-    ovms::HttpResponseComponents responseComponents;
-
-    static void SetUpSuite(std::string& port, std::string& configPath, std::unique_ptr<std::thread>& t) {
-        ovms::Server& server = ovms::Server::instance();
-        ::SetUpServer(t, server, port, configPath.c_str());
-    }
-    static void SetUpTestSuite() {
-    }
-
-    void SetUp() {
-        writer = std::make_shared<MockedServerRequestInterface>();
-        multiPartParser = std::make_shared<MockedMultiPartParser>();
-        ovms::Server& server = ovms::Server::instance();
-        handler = std::make_unique<ovms::HttpRestApiHandler>(server, 5);
-        ASSERT_EQ(handler->parseRequestComponents(comp, "POST", endpointEmbeddings, headers), ovms::StatusCode::OK);
-    }
-
-    static void TearDownSuite(std::unique_ptr<std::thread>& t) {
-        ovms::Server& server = ovms::Server::instance();
-        server.setShutdownRequest(1);
-        t->join();
-        server.setShutdownRequest(0);
-    }
-
-    void TearDown() {
-        handler.reset();
-    }
-};
-
-auto graphs = ::testing::Values(
-    "rerank", "rerank_ov");
-
-class RerankHttpTest : public V3HttpTest, public ::testing::WithParamInterface<std::string> {
+class RerankHttpTest : public V3HttpTest {
 protected:
+    std::string endpoint = "/v3/rerank";
+    std::string modelName = "rerank_ov";
     static std::unique_ptr<std::thread> t;
 
 public:
@@ -83,14 +43,18 @@ public:
         SetUpSuite(port, configPath, t);
     }
 
+    void SetUp() {
+        V3HttpTest::SetUp();
+        ASSERT_EQ(handler->parseRequestComponents(comp, "POST", endpoint, headers), ovms::StatusCode::OK);
+    }
+
     static void TearDownTestSuite() {
         TearDownSuite(t);
     }
 };
 std::unique_ptr<std::thread> RerankHttpTest::t;
 
-TEST_P(RerankHttpTest, simplePositive) {
-    auto modelName = GetParam();
+TEST_F(RerankHttpTest, simplePositive) {
     std::string requestBody = R"(
         {
             "model": ")" + modelName +
@@ -104,7 +68,7 @@ TEST_P(RerankHttpTest, simplePositive) {
         }
     )";
     ASSERT_EQ(
-        handler->dispatchToProcessor(endpointRerank, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        handler->dispatchToProcessor(endpoint, requestBody, &response, comp, responseComponents, writer, multiPartParser),
         ovms::StatusCode::OK);
     rapidjson::Document d;
     rapidjson::ParseResult ok = d.Parse(response.c_str());
@@ -122,8 +86,7 @@ TEST_P(RerankHttpTest, simplePositive) {
     }
 }
 
-TEST_P(RerankHttpTest, positiveTopN) {
-    auto modelName = GetParam();
+TEST_F(RerankHttpTest, positiveTopN) {
     std::string requestBody = R"(
         {
             "model": ")" + modelName +
@@ -138,7 +101,7 @@ TEST_P(RerankHttpTest, positiveTopN) {
         }
     )";
     ASSERT_EQ(
-        handler->dispatchToProcessor(endpointRerank, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        handler->dispatchToProcessor(endpoint, requestBody, &response, comp, responseComponents, writer, multiPartParser),
         ovms::StatusCode::OK);
     rapidjson::Document d;
     rapidjson::ParseResult ok = d.Parse(response.c_str());
@@ -156,8 +119,7 @@ TEST_P(RerankHttpTest, positiveTopN) {
     }
 }
 
-TEST_P(RerankHttpTest, positiveReturnDocuments) {
-    auto modelName = GetParam();
+TEST_F(RerankHttpTest, positiveReturnDocuments) {
     std::string requestBody = R"(
         {
             "model": ")" + modelName +
@@ -172,7 +134,7 @@ TEST_P(RerankHttpTest, positiveReturnDocuments) {
         }
     )";
     ASSERT_EQ(
-        handler->dispatchToProcessor(endpointRerank, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        handler->dispatchToProcessor(endpoint, requestBody, &response, comp, responseComponents, writer, multiPartParser),
         ovms::StatusCode::OK);
     rapidjson::Document d;
     rapidjson::ParseResult ok = d.Parse(response.c_str());
@@ -195,16 +157,13 @@ TEST_P(RerankHttpTest, positiveReturnDocuments) {
     }
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    RerankHttpTestInstances,
-    RerankHttpTest,
-    graphs);
-
-class RerankWithParamsHttpTest : public V3HttpTest, public ::testing::WithParamInterface<std::string> {
+class RerankWithParamsHttpTest : public V3HttpTest {
 protected:
+    std::string endpoint = "/v3/rerank";
     static std::unique_ptr<std::thread> t;
 
 public:
+    std::string modelName = "rerank_ov";
     const size_t MAX_POSITION_EMBEDDINGS = 12;
     const size_t MAX_ALLOWED_CHUNKS = 4;
 
@@ -223,18 +182,22 @@ public:
         SetUpSuite(port, configPath, t);
     }
 
+    void SetUp() {
+        V3HttpTest::SetUp();
+        ASSERT_EQ(handler->parseRequestComponents(comp, "POST", endpoint, headers), ovms::StatusCode::OK);
+    }
+
     static void TearDownTestSuite() {
         TearDownSuite(t);
     }
 };
 std::unique_ptr<std::thread> RerankWithParamsHttpTest::t;
 
-TEST_P(RerankWithParamsHttpTest, PositiveMaxAllowedChunksNotExceeded) {
+TEST_F(RerankWithParamsHttpTest, PositiveMaxAllowedChunksNotExceeded) {
     // Create a JSON document
     rapidjson::Document document;
     document.SetObject();
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-    auto modelName = GetParam();
     // Populate the JSON document with data
     document.AddMember("model", rapidjson::StringRef(modelName.c_str()), allocator);
     document.AddMember("query", "What is the capital of the United States?", allocator);  // Will be trimmed to 6 tokens
@@ -253,16 +216,15 @@ TEST_P(RerankWithParamsHttpTest, PositiveMaxAllowedChunksNotExceeded) {
 
     std::string requestBody = buffer.GetString();
     ASSERT_EQ(
-        handler->dispatchToProcessor(endpointRerank, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        handler->dispatchToProcessor(endpoint, requestBody, &response, comp, responseComponents, writer, multiPartParser),
         ovms::StatusCode::OK);
 }
 
-TEST_P(RerankWithParamsHttpTest, MaxAllowedChunksExceededByDocumentsBeforeChunking) {
+TEST_F(RerankWithParamsHttpTest, MaxAllowedChunksExceededByDocumentsBeforeChunking) {
     // Create a JSON document
     rapidjson::Document document;
     document.SetObject();
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-    auto modelName = GetParam();
     // Populate the JSON document with data
     document.AddMember("model", rapidjson::StringRef(modelName.c_str()), allocator);
     document.AddMember("query", "What is the capital of the United States?", allocator);  // Will be trimmed to 6 tokens
@@ -281,17 +243,16 @@ TEST_P(RerankWithParamsHttpTest, MaxAllowedChunksExceededByDocumentsBeforeChunki
     document.Accept(wr);
 
     std::string requestBody = buffer.GetString();
-    auto status = handler->dispatchToProcessor(endpointRerank, requestBody, &response, comp, responseComponents, writer, multiPartParser);
+    auto status = handler->dispatchToProcessor(endpoint, requestBody, &response, comp, responseComponents, writer, multiPartParser);
     ASSERT_EQ(status, ovms::StatusCode::MEDIAPIPE_EXECUTION_ERROR);
     ASSERT_THAT(status.string(), ::testing::HasSubstr("Number of documents exceeds max_allowed_chunks"));  // 5 because we prepared 1 document more than allowed
 }
 
-TEST_P(RerankWithParamsHttpTest, MaxAllowedChunksExceededAfterChunking) {
+TEST_F(RerankWithParamsHttpTest, MaxAllowedChunksExceededAfterChunking) {
     // Create a JSON document
     rapidjson::Document document;
     document.SetObject();
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-    auto modelName = GetParam();
     // Populate the JSON document with data
     document.AddMember("model", rapidjson::StringRef(modelName.c_str()), allocator);
     document.AddMember("query", "What is the capital of the United States?", allocator);  // Will be trimmed to 6 tokens
@@ -313,24 +274,21 @@ TEST_P(RerankWithParamsHttpTest, MaxAllowedChunksExceededAfterChunking) {
     document.Accept(wr);
 
     std::string requestBody = buffer.GetString();
-    auto status = handler->dispatchToProcessor(endpointRerank, requestBody, &response, comp, responseComponents, writer, multiPartParser);
+    auto status = handler->dispatchToProcessor(endpoint, requestBody, &response, comp, responseComponents, writer, multiPartParser);
     ASSERT_EQ(status, ovms::StatusCode::MEDIAPIPE_EXECUTION_ERROR) << status.string();
     ASSERT_THAT(status.string(), ::testing::HasSubstr("Chunking failed: exceeding max_allowed_chunks after chunking limit: 4; actual: 8"));  // 8 because of the last document which was chunked to 5 documents, 3 + 5 = 8
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    RerankWithParamsHttpTestInstances,
-    RerankWithParamsHttpTest,
-    graphs);
-
-class RerankWithInvalidParamsHttpTest : public V3HttpTest, public ::testing::WithParamInterface<std::string> {
+class RerankWithInvalidParamsHttpTest : public V3HttpTest {
 protected:
+    std::string endpoint = "/v3/rerank";
     static std::unique_ptr<std::thread> t;
 
 public:
     const size_t MAX_POSITION_EMBEDDINGS = 8;
     const size_t MAX_ALLOWED_CHUNKS = 4;
 
+    std::string modelName = "rerank_ov";
     static void SetUpTestSuite() {
         std::string port = "9173";
         /*
@@ -344,18 +302,22 @@ public:
         SetUpSuite(port, configPath, t);
     }
 
+    void SetUp() {
+        V3HttpTest::SetUp();
+        ASSERT_EQ(handler->parseRequestComponents(comp, "POST", endpoint, headers), ovms::StatusCode::OK);
+    }
+
     static void TearDownTestSuite() {
         TearDownSuite(t);
     }
 };
 std::unique_ptr<std::thread> RerankWithInvalidParamsHttpTest::t;
 
-TEST_P(RerankWithInvalidParamsHttpTest, AnyRequestNegativeWithInvalidSetup) {
+TEST_F(RerankWithInvalidParamsHttpTest, AnyRequestNegativeWithInvalidSetup) {
     // Create a JSON document
     rapidjson::Document document;
     document.SetObject();
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-    auto modelName = GetParam();
     // Populate the JSON document with data
     document.AddMember("model", rapidjson::StringRef(modelName.c_str()), allocator);
     document.AddMember("query", "What is the capital of the United States?", allocator);
@@ -373,12 +335,267 @@ TEST_P(RerankWithInvalidParamsHttpTest, AnyRequestNegativeWithInvalidSetup) {
     document.Accept(wr);
 
     std::string requestBody = buffer.GetString();
-    auto status = handler->dispatchToProcessor(endpointRerank, requestBody, &response, comp, responseComponents, writer, multiPartParser);
+    auto status = handler->dispatchToProcessor(endpoint, requestBody, &response, comp, responseComponents, writer, multiPartParser);
     ASSERT_EQ(status, ovms::StatusCode::MEDIAPIPE_EXECUTION_ERROR);
     ASSERT_THAT(status.string(), ::testing::HasSubstr("max_position_embeddings should be larger than 2 * NUMBER_OF_SPECIAL_TOKENS"));
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    RerankWithInvalidParamsHttpTestInstances,
-    RerankWithInvalidParamsHttpTest,
-    graphs);
+class RerankTokenizeHttpTest : public V3HttpTest {
+protected:
+    static std::unique_ptr<std::thread> t;
+
+public:
+    const std::string endpointTokenize = "/v3/tokenize";
+    static void SetUpTestSuite() {
+        std::string port = "9173";
+        std::string configPath = getGenericFullPathForSrcTest("/ovms/src/test/rerank/config.json");
+        SetUpSuite(port, configPath, t);
+    }
+
+    void SetUp() {
+        V3HttpTest::SetUp();
+        ASSERT_EQ(handler->parseRequestComponents(comp, "POST", endpointTokenize, headers), ovms::StatusCode::OK);
+    }
+
+    static void TearDownTestSuite() {
+        TearDownSuite(t);
+    }
+
+    static void AssertTokenizationResult(const std::string& response, const std::vector<int>& expectedTokens) {
+        rapidjson::Document d;
+        rapidjson::ParseResult ok = d.Parse(response.c_str());
+        ASSERT_EQ(ok.Code(), 0);
+        ASSERT_TRUE(d.HasMember("tokens"));
+        ASSERT_TRUE(d["tokens"].IsArray());
+        ASSERT_EQ(d["tokens"].Size(), expectedTokens.size());
+        for (size_t i = 0; i < expectedTokens.size(); ++i) {
+            ASSERT_EQ(d["tokens"][(rapidjson::SizeType)i].GetInt(), expectedTokens[i]);
+        }
+    }
+
+    static void AssertTokenizationResult(const std::string& response, const std::vector<std::vector<int>>& expectedTokensBatch) {
+        rapidjson::Document d;
+        rapidjson::ParseResult ok = d.Parse(response.c_str());
+        ASSERT_EQ(ok.Code(), 0);
+        ASSERT_TRUE(d.HasMember("tokens"));
+        ASSERT_TRUE(d["tokens"].IsArray());
+        ASSERT_EQ(d["tokens"].Size(), expectedTokensBatch.size());
+        for (size_t i = 0; i < expectedTokensBatch.size(); ++i) {
+            const auto& expectedTokens = expectedTokensBatch[i];
+            ASSERT_TRUE(d["tokens"][(rapidjson::SizeType)i].IsArray());
+            ASSERT_EQ(d["tokens"][(rapidjson::SizeType)i].Size(), expectedTokens.size());
+            for (size_t j = 0; j < expectedTokens.size(); ++j) {
+                ASSERT_EQ(d["tokens"][(rapidjson::SizeType)i][(rapidjson::SizeType)j].GetInt(), expectedTokens[j]);
+            }
+        }
+    }
+};
+
+std::unique_ptr<std::thread> RerankTokenizeHttpTest::t;
+
+TEST_F(RerankTokenizeHttpTest, tokenizePositive) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": "hello world"
+        }
+    )";
+    std::vector<int> expectedTokens = {33600, 31, 8999};
+    ASSERT_EQ(
+        handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        ovms::StatusCode::OK);
+    AssertTokenizationResult(response, expectedTokens);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizeNegativeMissingText) {
+    std::string requestBody = R"(
+        {
+                "model": "rerank_ov"
+        }
+    )";
+    Status status = handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser);
+    ASSERT_EQ(status, ovms::StatusCode::MEDIAPIPE_EXECUTION_ERROR) << status.string();
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizeNegativeInvalidModel) {
+    std::string requestBody = R"(
+        {
+            "model": "non_existing_model",
+            "text": "hello world"
+        }
+    )";
+    Status status = handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser);
+    ASSERT_EQ(status, ovms::StatusCode::MEDIAPIPE_DEFINITION_NAME_MISSING) << status.string();
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizePositiveMaxLenParam) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": "hello world hello world",
+            "max_length": 3
+        }
+    )";
+    std::vector<int> expectedTokens = {33600, 31, 8999};
+    ASSERT_EQ(
+        handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        ovms::StatusCode::OK);
+    AssertTokenizationResult(response, expectedTokens);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizePositivePadToMaxLenParam) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": "hello world",
+            "max_length": 100,
+            "pad_to_max_length": true
+        }
+    )";
+    std::vector<int> expectedTokens(97, 1);
+    expectedTokens.insert(expectedTokens.begin(), {33600, 31, 8999});
+    ASSERT_EQ(
+        handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        ovms::StatusCode::OK);
+    AssertTokenizationResult(response, expectedTokens);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizePositivePaddingSideLeft) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": "hello world",
+            "max_length": 100,
+            "pad_to_max_length": true,
+            "padding_side": "left"
+        }
+    )";
+    std::vector<int> expectedTokens(97, 1);
+    expectedTokens.insert(expectedTokens.end(), {33600, 31, 8999});
+    ASSERT_EQ(
+        handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        ovms::StatusCode::OK);
+    AssertTokenizationResult(response, expectedTokens);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizePositivePaddingSideRight) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": "hello world",
+            "max_length": 100,
+            "pad_to_max_length": true,
+            "padding_side": "right"
+        }
+    )";
+    std::vector<int> expectedTokens(97, 1);
+    expectedTokens.insert(expectedTokens.begin(), {33600, 31, 8999});
+    ASSERT_EQ(
+        handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        ovms::StatusCode::OK);
+    AssertTokenizationResult(response, expectedTokens);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizeNegativeInvalidPaddingSide) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": "hello world",
+            "padding_side": "invalid_value"
+        }
+    )";
+    Status status = handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser);
+    ASSERT_EQ(status, ovms::StatusCode::MEDIAPIPE_EXECUTION_ERROR) << status.string();
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizePositiveMaxLengthIgnored) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": "hello world",
+            "max_length": 513,
+            "pad_to_max_length": true
+        }
+    )";
+    std::vector<int> expectedTokens(510, 1);
+    expectedTokens.insert(expectedTokens.begin(), {33600, 31, 8999});
+    ASSERT_EQ(handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        ovms::StatusCode::OK);
+    AssertTokenizationResult(response, expectedTokens);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizePositiveBatch) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": ["hello", "hello world", "hello hello hello world"]
+        }
+    )";
+    Status status = handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser);
+    std::vector<std::vector<int>> expectedTokens = {
+        {33600, 31},
+        {33600, 31, 8999},
+        {33600, 31, 33600, 31, 33600, 31, 8999}};
+    rapidjson::Document d;
+    rapidjson::ParseResult ok = d.Parse(response.c_str());
+    ASSERT_EQ(ok.Code(), 0);
+    ASSERT_EQ(
+        handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        ovms::StatusCode::OK);
+    AssertTokenizationResult(response, expectedTokens);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizeBatchWithPadToMaxLen) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": ["hello", "hello world", "hello hello hello world"],
+            "max_length": 6,
+            "pad_to_max_length": true
+        }
+    )";
+    Status status = handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser);
+    std::vector<std::vector<int>> expectedTokens = {
+        {33600, 31, 1, 1, 1, 1},
+        {33600, 31, 8999, 1, 1, 1},
+        {33600, 31, 33600, 31, 33600, 31}};
+    rapidjson::Document d;
+    rapidjson::ParseResult ok = d.Parse(response.c_str());
+    ASSERT_EQ(ok.Code(), 0);
+    ASSERT_EQ(
+        handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        ovms::StatusCode::OK);
+    AssertTokenizationResult(response, expectedTokens);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizeIgnoreAddSpecialTokensParameter) {
+    std::string requestBody = R"(
+        {
+            "model": "rerank_ov",
+            "text": "hello world",
+            "max_length": 3,
+            "add_special_tokens": true
+        }
+    )";
+    std::vector<int> expectedTokens = {33600, 31, 8999};
+    ASSERT_EQ(
+        handler->dispatchToProcessor(endpointTokenize, requestBody, &response, comp, responseComponents, writer, multiPartParser),
+        ovms::StatusCode::OK);
+    AssertTokenizationResult(response, expectedTokens);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizeEmptyNestedArray) {
+    assertTokenizeWithInvalidTextReturnsError(handler.get(), "rerank_ov", "[[]]", response, comp, responseComponents, writer, multiPartParser);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizeMultipleEmptyNestedArrays) {
+    assertTokenizeWithInvalidTextReturnsError(handler.get(), "rerank_ov", "[[], [], []]", response, comp, responseComponents, writer, multiPartParser);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizeMultipleEmptyNestedArraysAndOneNonEmpty) {
+    assertTokenizeWithInvalidTextReturnsError(handler.get(), "rerank_ov", R"([[], ["hello world"], []])", response, comp, responseComponents, writer, multiPartParser);
+}
+
+TEST_F(RerankTokenizeHttpTest, tokenizeEmptyWithArrayMultipleLevelsOfNesting) {
+    assertTokenizeWithInvalidTextReturnsError(handler.get(), "rerank_ov", "[[[[[]]]]]", response, comp, responseComponents, writer, multiPartParser);
+}

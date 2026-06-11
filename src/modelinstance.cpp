@@ -16,7 +16,9 @@
 #include "modelinstance.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -31,6 +33,7 @@
 #include <dirent.h>
 #endif
 #include <malloc.h>
+#include <openvino/core/layout.hpp>
 #include <openvino/runtime/compiled_model.hpp>
 // TODO windows
 #ifdef __linux__
@@ -45,7 +48,7 @@
 #include "customloaderinterface.hpp"
 #include "customloaders.hpp"
 #include "executingstreamidguard.hpp"
-#include "filesystem.hpp"
+#include "filesystem/filesystem.hpp"
 #include "layout.hpp"
 #include "layout_configuration.hpp"
 #include "logging.hpp"
@@ -53,10 +56,10 @@
 #include "modelconfig.hpp"
 #include "modelinstanceunloadguard.hpp"
 #include "ov_utils.hpp"
+#include "ovinferrequestsqueue.hpp"
 #include "profiler.hpp"
 #include "regularovtensorfactory.hpp"
 #include "shape.hpp"
-#include "status.hpp"
 #include "stringutils.hpp"
 #include "tensorinfo.hpp"
 #include "timer.hpp"
@@ -76,6 +79,111 @@ enum : unsigned int {
     POSTPROCESS,
     TIMER_END
 };
+
+enum class PluginConfigValueType {
+    INT64,
+    BOOL,
+};
+
+struct PluginConfigNormalizationRule {
+    const char* key;
+    PluginConfigValueType valueType;
+};
+
+const std::array<PluginConfigNormalizationRule, 3> TYPED_PLUGIN_CONFIG_NORMALIZATION_RULES{{
+    // NUM_STREAMS is intentionally NOT normalized to int64: OpenVINO's new strict
+    // plugin_config (e.g. intel_gpu) types NUM_STREAMS as ov::streams::Num and rejects
+    // int64_t via is_valid_value, while accepting the original "N" string form.
+    {"INFERENCE_NUM_THREADS", PluginConfigValueType::INT64},
+    {"AUTO_BATCH_TIMEOUT", PluginConfigValueType::INT64},
+    {"ENABLE_CPU_PINNING", PluginConfigValueType::BOOL},
+}};
+
+std::string pluginConfigValueToString(const ov::Any& value) {
+    if (value.is<std::string>()) {
+        return value.as<std::string>();
+    }
+    if (value.is<const char*>()) {
+        return value.as<const char*>();
+    }
+    if (value.is<int64_t>()) {
+        return std::to_string(value.as<int64_t>());
+    }
+    if (value.is<int>()) {
+        return std::to_string(value.as<int>());
+    }
+    if (value.is<uint32_t>()) {
+        return std::to_string(value.as<uint32_t>());
+    }
+    if (value.is<double>()) {
+        return std::to_string(value.as<double>());
+    }
+    if (value.is<bool>()) {
+        return value.as<bool>() ? "true" : "false";
+    }
+    return "<non-stringifiable>";
+}
+
+bool normalizePluginConfigValue(ov::Any& value, const PluginConfigNormalizationRule& rule) {
+    if (!value.is<std::string>()) {
+        return false;
+    }
+
+    const auto& stringValue = value.as<std::string>();
+    switch (rule.valueType) {
+    case PluginConfigValueType::INT64: {
+        auto parsedValue = ovms::stoi64(stringValue);
+        if (!parsedValue.has_value()) {
+            return false;
+        }
+        value = parsedValue.value();
+        return true;
+    }
+    case PluginConfigValueType::BOOL: {
+        auto normalized = ovms::toLower(stringValue);
+        if (normalized == "true") {
+            value = true;
+            return true;
+        }
+        if (normalized == "false") {
+            value = false;
+            return true;
+        }
+        return false;
+    }
+    }
+    return false;
+}
+
+template <typename MapType>
+void normalizeTypedPluginConfigValues(MapType& pluginConfig) {
+    for (const auto& rule : TYPED_PLUGIN_CONFIG_NORMALIZATION_RULES) {
+        auto it = pluginConfig.find(rule.key);
+        if (it == pluginConfig.end()) {
+            continue;
+        }
+        if (!normalizePluginConfigValue(it->second, rule) && it->second.template is<std::string>()) {
+            SPDLOG_LOGGER_DEBUG(ovms::modelmanager_logger, "Keeping plugin config key: {} as string value: {}", rule.key, it->second.template as<std::string>());
+        }
+    }
+
+    auto devicePropertiesIt = pluginConfig.find("DEVICE_PROPERTIES");
+    if (devicePropertiesIt == pluginConfig.end() || !devicePropertiesIt->second.template is<ov::AnyMap>()) {
+        return;
+    }
+
+    ov::AnyMap deviceProperties = devicePropertiesIt->second.template as<ov::AnyMap>();
+    for (auto& devicePropertiesEntry : deviceProperties) {
+        auto& devicePropertiesAny = devicePropertiesEntry.second;
+        if (!devicePropertiesAny.is<ov::AnyMap>()) {
+            continue;
+        }
+        ov::AnyMap nestedDeviceProperties = devicePropertiesAny.as<ov::AnyMap>();
+        normalizeTypedPluginConfigValues(nestedDeviceProperties);
+        devicePropertiesAny = nestedDeviceProperties;
+    }
+    devicePropertiesIt->second = deviceProperties;
+}
 }  // namespace
 
 namespace ov {
@@ -230,10 +338,59 @@ const Layout ModelInstance::getReportedTensorLayout(const ModelConfig& config, c
     return defaultLayout;
 }
 
-static Status applyLayoutConfiguration(const ModelConfig& config, std::shared_ptr<ov::Model>& model, const std::string& modelName, model_version_t modelVersion) {
-    OV_LOGGER("ov::Model: {}, ov::preprocess::PrePostProcessor(ov::Model)", reinterpret_cast<void*>(model.get()));
-    ov::preprocess::PrePostProcessor preproc(model);
+static void applyScaleOrMeanPreprocessing(ov::preprocess::PrePostProcessor& preproc, std::optional<ovms::float_vec_or_value_t>& config, bool isScale) {
+    if (!config.has_value()) {
+        return;
+    }
+    if (auto* scalar = std::get_if<float>(&config.value())) {
+        isScale ? preproc.input().preprocess().scale(*scalar) : preproc.input().preprocess().mean(*scalar);
+    } else {
+        isScale ? preproc.input().preprocess().scale(std::get<std::vector<float>>(config.value())) : preproc.input().preprocess().mean(std::get<std::vector<float>>(config.value()));
+    }
+}
 
+static Status applyPreprocessingConfiguration(ov::preprocess::PrePostProcessor& preproc, const ModelConfig& config, std::shared_ptr<ov::Model>& model) {
+    OV_LOGGER("ov::preprocess::PrePostProcessor& preproc, const ModelConfig& config, std::shared_ptr<ov::Model>& model");
+
+    try {
+        auto preprocessingScale = config.getScales();
+        auto preprocessingMean = config.getMeans();
+        auto colorFormat = config.getColorFormat();
+        auto precision = config.getPrecision();
+
+        if (colorFormat.has_value()) {
+            SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Applying color format for model");
+            preproc.input().tensor().set_color_format(colorFormat.value().getSourceColorFormat());
+            preproc.input().preprocess().convert_color(colorFormat.value().getTargetColorFormat());
+        }
+
+        if (precision.has_value()) {
+            SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Applying precision for model");
+            preproc.input().tensor().set_element_type(precision.value().getTargetPrecision());
+            preproc.input().preprocess().convert_element_type(precision.value().getSourcePrecision());
+        }
+
+        SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Applying mean configuration");
+        applyScaleOrMeanPreprocessing(preproc, preprocessingMean, false);
+        SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Applying scale configuration");
+        applyScaleOrMeanPreprocessing(preproc, preprocessingScale, true);
+    } catch (const ov::Exception& e) {
+        SPDLOG_LOGGER_ERROR(modelmanager_logger, "Failed to configure input preprocessing configuration; from OpenVINO with error:{}",
+            e.what());
+        return StatusCode::UNKNOWN_ERROR;
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_ERROR(modelmanager_logger, "Failed to configure input preprocessing configuration; from OpenVINO with error:{}",
+            e.what());
+        return StatusCode::UNKNOWN_ERROR;
+    } catch (...) {
+        SPDLOG_LOGGER_ERROR(modelmanager_logger, "Failed to configure input preprocessing configuration; from OpenVINO");
+        return StatusCode::UNKNOWN_ERROR;
+    }
+
+    return StatusCode::OK;
+}
+
+static Status applyLayoutConfiguration(ov::preprocess::PrePostProcessor& preproc, const ModelConfig& config, std::shared_ptr<ov::Model>& model, const std::string& modelName, model_version_t modelVersion) {
     SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Applying layout configuration: {}", config.layoutConfigurationToString());
 
     OV_LOGGER("ov::Model: {}, model->inputs()", reinterpret_cast<void*>(model.get()));
@@ -301,10 +458,10 @@ static Status applyLayoutConfiguration(const ModelConfig& config, std::shared_pt
         }
     }
 
-    OV_LOGGER("ov::Model: {}, model->outputs()", reinterpret_cast<void*>(model.get()));
+    SPDLOG_LOGGER_DEBUG(modelmanager_logger, "ov::Model: {}, model->outputs()", reinterpret_cast<void*>(model.get()));
     for (const ov::Output<ov::Node>& output : model->outputs()) {
         try {
-            OV_LOGGER("ov::Output<ov::Node> output: {}, output.get_any_name()", reinterpret_cast<const void*>(&output));
+            SPDLOG_LOGGER_DEBUG(modelmanager_logger, "ov::Output<ov::Node> output: {}, output.get_any_name()", reinterpret_cast<const void*>(&output));
             std::string name = output.get_any_name();
             std::string mappedName = config.getMappingOutputByKey(name).empty() ? name : config.getMappingOutputByKey(name);
             if (config.getLayouts().count(mappedName) > 0) {
@@ -315,12 +472,12 @@ static Status applyLayoutConfiguration(const ModelConfig& config, std::shared_pt
                     layout.getTensorLayout(),
                     layout.getModelLayout(),
                     mappedName);
-                OV_LOGGER("ov::preprocess::PrePostProcessor::output({})::tensor()::set_layout(ov::Layout({}))", name, layout.getTensorLayout());
+                SPDLOG_LOGGER_DEBUG(modelmanager_logger, "ov::preprocess::PrePostProcessor::output({})::tensor()::set_layout(ov::Layout({}))", name, layout.getTensorLayout());
                 preproc.output(name).tensor().set_layout(ov::Layout(layout.getTensorLayout()));
-                OV_LOGGER("ov::preprocess::PrePostProcessor::output({})::model()::set_layout(ov::Layout({}))", name, layout.getModelLayout());
+                SPDLOG_LOGGER_DEBUG(modelmanager_logger, "ov::preprocess::PrePostProcessor::output({})::model()::set_layout(ov::Layout({}))", name, layout.getModelLayout());
                 preproc.output(name).model().set_layout(ov::Layout(layout.getModelLayout()));
             } else {
-                OV_LOGGER("output: {}, output.get_rt_info()", reinterpret_cast<const void*>(&output));
+                SPDLOG_LOGGER_DEBUG(modelmanager_logger, "output: {}, output.get_rt_info()", reinterpret_cast<const void*>(&output));
                 auto inheritedModelLayout = getLayoutFromRTMap(output.get_rt_info());
                 const auto& guessedModelLayout = Layout::getDefaultLayout(output.get_partial_shape().size());
 
@@ -331,7 +488,7 @@ static Status applyLayoutConfiguration(const ModelConfig& config, std::shared_pt
                 } else {
                     SPDLOG_LOGGER_DEBUG(modelmanager_logger, "model: {}, version: {}; Configuring layout: Tensor Layout:; Network Layout:{} (default); output name: {}", modelName, modelVersion, targetModelLayout.to_string(), name);
                 }
-                OV_LOGGER("ov::preprocess::PrePostProcessor::output({})::model()::set_layout(ov::Layout({}))", name, targetModelLayout.to_string());
+                SPDLOG_LOGGER_DEBUG(modelmanager_logger, "ov::preprocess::PrePostProcessor::output({})::model()::set_layout(ov::Layout({}))", name, targetModelLayout.to_string());
                 preproc.output(name).model().set_layout(targetModelLayout);
             }
         } catch (const ov::Exception& e) {
@@ -354,13 +511,42 @@ static Status applyLayoutConfiguration(const ModelConfig& config, std::shared_pt
         }
     }
 
+    return StatusCode::OK;
+}
+
+Status ModelInstance::applyPreprocessing(const ModelConfig& config, std::shared_ptr<ov::Model>& model, const std::string& modelName, model_version_t modelVersion) {
+    OV_LOGGER("ov::Model: {}, ov::preprocess::PrePostProcessor(ov::Model)", reinterpret_cast<void*>(model.get()));
+    SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Applying preprocessing configuration");
+    ov::preprocess::PrePostProcessor preproc(model);
+    Status status = StatusCode::OK;
+
+    SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Applying layout configuration");
+    status = applyLayoutConfiguration(preproc, config, model, modelName, modelVersion);
+    if (!status.ok()) {
+        return status;
+    }
+
+    status = applyPreprocessingConfiguration(preproc, config, model);
+    if (!status.ok()) {
+        SPDLOG_LOGGER_ERROR(modelmanager_logger, "Error during preprocessing configuration");
+        return status;
+    }
+
     try {
         OV_LOGGER("preproc: {}, ov::Model = ov::preprocess::PrePostProcessor::build()", reinterpret_cast<void*>(&preproc));
+
+        if (spdlog::default_logger_raw()->level() <= spdlog::level::debug) {
+            std::ostringstream ss;
+            ss << preproc;
+            SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Preprocessing steps applied:\n{}", ss.str());
+        }
+
         model = preproc.build();
-    } catch (std::exception&) {
-        SPDLOG_LOGGER_ERROR(modelmanager_logger, "Cannot change layout");
+    } catch (std::exception& e) {
+        SPDLOG_LOGGER_ERROR(modelmanager_logger, "Cannot change layout or preprocessing parameters. Error: {}", e.what());
         return StatusCode::MODEL_NOT_LOADED;
     }
+
     return StatusCode::OK;
 }
 
@@ -430,7 +616,7 @@ Status ModelInstance::adjustForEmptyOutputNames() {
     return StatusCode::OK;
 }
 
-Status ModelInstance::loadTensors(const ModelConfig& config, bool needsToApplyLayoutConfiguration, const DynamicModelParameter& parameter) {
+Status ModelInstance::loadTensors(const ModelConfig& config, const bool needsToApplyLayoutConfiguration, const DynamicModelParameter& parameter) {
     Status status = validateConfigurationAgainstNetwork(config, this->model);
     if (!status.ok()) {
         SPDLOG_LOGGER_ERROR(modelmanager_logger, "Error during configuration validation against model");
@@ -441,10 +627,11 @@ Status ModelInstance::loadTensors(const ModelConfig& config, bool needsToApplyLa
         SPDLOG_LOGGER_ERROR(modelmanager_logger, "Error during adjusting output names");
         return status;
     }
+
     if (needsToApplyLayoutConfiguration) {
-        status = applyLayoutConfiguration(config, this->model, getName(), getVersion());
+        status = applyPreprocessing(config, this->model, getName(), getVersion());
         if (!status.ok()) {
-            SPDLOG_LOGGER_ERROR(modelmanager_logger, "Error during layout configuration");
+            SPDLOG_LOGGER_ERROR(modelmanager_logger, "Error during layout/preprocessing configuration");
             return status;
         }
     }
@@ -825,6 +1012,7 @@ void ModelInstance::loadCompiledModelPtr(const plugin_config_t& pluginConfig) {
 
 plugin_config_t ModelInstance::prepareDefaultPluginConfig(const ModelConfig& config) {
     plugin_config_t pluginConfig = config.getPluginConfig();
+    normalizeTypedPluginConfigValues(pluginConfig);
     if ((pluginConfig.count("NUM_STREAMS") == 1) || (pluginConfig.count("PERFORMANCE_HINT") == 1)) {
         return pluginConfig;
     } else {
@@ -855,6 +1043,15 @@ Status ModelInstance::loadOVCompiledModel(const ModelConfig& config) {
             getVersion(),
             config.getTargetDevice());
         return status;
+    } catch (...) {
+        Status status = StatusCode::CANNOT_COMPILE_MODEL_INTO_TARGET_DEVICE;
+        SPDLOG_LOGGER_ERROR(modelmanager_logger, "{}; error: {}; model: {}; version: {}; device: {}",
+            status.string(),
+            "Unknown error",
+            getName(),
+            getVersion(),
+            config.getTargetDevice());
+        return status;
     }
 
     uint32_t numberOfStreams = getNumOfStreams();
@@ -864,7 +1061,7 @@ Status ModelInstance::loadOVCompiledModel(const ModelConfig& config) {
     for (const auto& pair : pluginConfig) {
         const auto& key = pair.first;
         const auto& value = pair.second;
-        SPDLOG_LOGGER_INFO(modelmanager_logger, "OVMS set plugin settings key: {}; value: {};", key, value.as<std::string>());
+        SPDLOG_LOGGER_INFO(modelmanager_logger, "OVMS set plugin settings key: {}; value: {};", key, pluginConfigValueToString(value));
     }
     logOVPluginConfig([this](const std::string& key) {
             OV_LOGGER("ov::CompiledModel:{} get_property({})", reinterpret_cast<void*>(this->model.get()), key);
@@ -899,6 +1096,67 @@ Status ModelInstance::fetchModelFilepaths() {
     }
 
     SPDLOG_DEBUG("Getting model files from path: {}", path);
+
+    std::error_code ec;
+    if (FileSystem::isLocalFilesystem(path) && std::filesystem::is_regular_file(path, ec)) {
+        const auto modelFile = std::filesystem::path(path);
+        const auto extension = modelFile.extension().string();
+        const auto modelDirectory = modelFile.parent_path().string();
+        modelFiles.clear();
+
+        if (extension == ".xml") {
+            const auto stem = modelFile.stem().string();
+            const auto binFile = modelDirectory + FileSystem::getOsSeparator() + stem + ".bin";
+            if (!std::filesystem::is_regular_file(binFile, ec)) {
+                SPDLOG_ERROR("Error loading model. Missing .bin file for: {}", path);
+                return StatusCode::FILE_INVALID;
+            }
+            modelFiles.push_back(path);
+            modelFiles.push_back(binFile);
+            path = modelDirectory;
+            return StatusCode::OK;
+        }
+
+        if (extension == ".onnx") {
+            modelFiles.push_back(path);
+            return StatusCode::OK;
+        }
+
+        if (extension == ".pdmodel" || extension == ".pdiparams") {
+            const auto stem = modelFile.stem().string();
+            const auto pdmodelFile = modelDirectory + FileSystem::getOsSeparator() + stem + ".pdmodel";
+            const auto pdiparamsFile = modelDirectory + FileSystem::getOsSeparator() + stem + ".pdiparams";
+            if (!std::filesystem::is_regular_file(pdmodelFile, ec) || !std::filesystem::is_regular_file(pdiparamsFile, ec)) {
+                SPDLOG_ERROR("Error loading model. Missing .pdmodel or .pdiparams file for: {}", path);
+                return StatusCode::FILE_INVALID;
+            }
+            modelFiles.push_back(pdmodelFile);
+            modelFiles.push_back(pdiparamsFile);
+            path = modelDirectory;
+            return StatusCode::OK;
+        }
+
+        if (extension == ".pb") {
+            if (modelFile.filename().string() == "saved_model.pb") {
+                modelFiles.push_back(modelDirectory + FileSystem::getOsSeparator());
+            } else {
+                modelFiles.push_back(path);
+            }
+            return StatusCode::OK;
+        }
+
+        if (extension == ".tflite") {
+            modelFiles.push_back(path);
+            return StatusCode::OK;
+        }
+
+        SPDLOG_ERROR("Error loading model: no valid model file found for model: {}, version: {}, path: {}",
+            getName(),
+            getVersion(),
+            path);
+        return StatusCode::FILE_INVALID;
+    }
+
     if (!FileSystem::dirExists(path)) {
         SPDLOG_ERROR("Missing model directory {}", path);
         return StatusCode::PATH_INVALID;
@@ -912,7 +1170,10 @@ Status ModelInstance::fetchModelFilepaths() {
     fetchModelFiles(found, TFLITE_MODEL_FILES_EXTENSIONS);
 
     if (!found) {
-        SPDLOG_ERROR("Could not find file for model: {} version: {} in path: {}", getName(), getVersion(), path);
+        SPDLOG_ERROR("Error loading model: no valid model file found for model: {}, version: {}, path: {}",
+            getName(),
+            getVersion(),
+            path);
         return StatusCode::FILE_INVALID;
     }
 
@@ -963,8 +1224,8 @@ void ModelInstance::loadTensorFactories() {
 }
 
 Status ModelInstance::loadModelImpl(const ModelConfig& config, const DynamicModelParameter& parameter) {
-    bool isLayoutConfigurationChanged = !config.isLayoutConfigurationEqual(this->config);
-    bool needsToApplyLayoutConfiguration = isLayoutConfigurationChanged || !this->model;
+    bool hasLayoutConfigurationChanged = !config.isLayoutConfigurationEqual(this->config);
+    bool needsToApplyLayoutConfiguration = hasLayoutConfigurationChanged || !this->model;
 
     subscriptionManager.notifySubscribers();
     this->path = config.getPath();
@@ -983,7 +1244,7 @@ Status ModelInstance::loadModelImpl(const ModelConfig& config, const DynamicMode
             return status;
         }
 
-        if (!this->model || isLayoutConfigurationChanged) {
+        if (!this->model || hasLayoutConfigurationChanged) {
             if (this->config.isCustomLoaderRequiredToLoadModel()) {
                 status = loadOVModelUsingCustomLoader();
             } else {
@@ -1037,7 +1298,7 @@ Status ModelInstance::loadModelImpl(const ModelConfig& config, const DynamicMode
 Status ModelInstance::setCacheOptions(const ModelConfig& config) {
     if (!config.getCacheDir().empty()) {
         if (!config.isAllowCacheSetToTrue() && (config.isCustomLoaderRequiredToLoadModel() || config.anyShapeSetToAuto() || (config.getBatchingMode() == Mode::AUTO))) {
-            OV_LOGGER("ov::Core: {}, ieCore.set_property(ov::cache_dir({}))", reinterpret_cast<const void*>(this->compiledModel.get()), "");
+            OV_LOGGER("ov::Core: {}, ieCore.set_property(ov::cache_dir({}))", reinterpret_cast<const void*>(&this->ieCore), "");
             this->ieCore.set_property(ov::cache_dir(""));
             SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Model: {} has disabled caching", this->getName());
             this->cacheDisabled = true;
@@ -1045,7 +1306,7 @@ Status ModelInstance::setCacheOptions(const ModelConfig& config) {
             SPDLOG_LOGGER_ERROR(modelmanager_logger, "Model: {} has allow cache set to true while using custom loader", this->getName());
             return StatusCode::ALLOW_CACHE_WITH_CUSTOM_LOADER;
         } else {
-            OV_LOGGER("ov::Core: {}, ieCore.set_property(ov::cache_dir({}))", reinterpret_cast<const void*>(this->compiledModel.get()), config.getCacheDir());
+            OV_LOGGER("ov::Core: {}, ieCore.set_property(ov::cache_dir({}))", reinterpret_cast<const void*>(&this->ieCore), config.getCacheDir());
             this->ieCore.set_property(ov::cache_dir(config.getCacheDir()));
             SPDLOG_LOGGER_DEBUG(modelmanager_logger, "Model: {} has enabled caching", this->getName());
         }
@@ -1072,7 +1333,7 @@ Status ModelInstance::reloadModel(const ModelConfig& config, const DynamicModelP
     this->status.setLoading();
     while (!canUnloadInstance()) {
         SPDLOG_INFO("Waiting to reload model: {} version: {}. Blocked by: {} inferences in progress.",
-            getName(), getVersion(), predictRequestsHandlesCount);
+            getName(), getVersion(), predictRequestsHandlesCount.load());
         std::this_thread::sleep_for(std::chrono::milliseconds(UNLOAD_AVAILABILITY_CHECKING_INTERVAL_MILLISECONDS));
     }
     if ((this->config.isCustomLoaderRequiredToLoadModel()) && (isCustomLoaderConfigChanged)) {
@@ -1243,7 +1504,7 @@ void ModelInstance::unloadModelComponents() {
     subscriptionManager.notifySubscribers();
     while (!canUnloadInstance()) {
         SPDLOG_DEBUG("Waiting to unload model: {} version: {}. Blocked by: {} inferences in progress.",
-            getName(), getVersion(), predictRequestsHandlesCount);
+            getName(), getVersion(), predictRequestsHandlesCount.load());
         std::this_thread::sleep_for(std::chrono::milliseconds(UNLOAD_AVAILABILITY_CHECKING_INTERVAL_MILLISECONDS));
     }
     SET_IF_ENABLED(this->getMetricReporter().inferReqQueueSize, 0);
@@ -1329,6 +1590,18 @@ void ModelInstance::checkForOutputTensorResetAbility() {
 }
 bool ModelInstance::doesSupportOutputReset() const {
     return this->supportOutputTensorsReset;
+}
+
+std::optional<Dimension> ModelInstance::getBatchSize() const {
+    try {
+        return Dimension(ov::get_batch(model));
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+OVInferRequestsQueue& ModelInstance::getInferRequestsQueue() {
+    return *inferRequestsQueue;
 }
 
 const size_t ModelInstance::getBatchSizeIndex() const {

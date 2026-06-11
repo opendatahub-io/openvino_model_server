@@ -18,10 +18,10 @@ import sys
 import re
 import subprocess
 
-WIN_OV_VERSION_REGEX = re.compile(r'[0-9]{4}.[0-9].[0-9].[^_]+')
+WIN_OV_VERSION_REGEX = re.compile(r'[0-9]{4}.[0-9].[0-9]+')
 WIN_OV_ZIP_PACKAGE_DIR = "openvino_genai_windows_"
 VERSION_FILE = "src\\version.hpp"
-OVMS_PROJECT_VERSION="2025.3.0"
+OVMS_PROJECT_VERSION="2026.3.0"
 
 def help():
     print("Usage:\n\
@@ -42,31 +42,7 @@ def replace_in_file(file_path, old_string, new_string):
         file.seek(0)
         file.write(contents)
         file.truncate()
-
-def get_openvino_name(openvino_dir):
-    openvino_name = "Unknown"
-    for root, dirs, files in os.walk(openvino_dir):
-        # Start searching from directories with biggest version numbers
-        dirs = sorted(dirs, reverse=True)
-        for dir in dirs:
-            if WIN_OV_ZIP_PACKAGE_DIR in dir:
-                matches = WIN_OV_VERSION_REGEX.findall(dir)
-                if len(matches) > 1:
-                    print("[ERROR] Multiple openvino versions detected in " + os.path.join(root, dir))
-                    exit(-1)
-                if len(matches) == 1:
-                    print("[INFO] Openvino detected in " + os.path.join(root, dir))
-                    openvino_name = matches[0]
-                    break
-        
-        # we search only 1 directory level deep
-        break
-
-    if openvino_name == "Unknown":
-        print("[WARNING] Openvino versions not detected in " + openvino_dir)
-
-    return openvino_name
-
+ 
 def get_ovms_sha():
     command = "git rev-parse --short HEAD"
     output = subprocess.check_output(command, shell=True, text=True)
@@ -93,10 +69,9 @@ def main():
         openvino_dir = sys.argv[2]
         print('Provided openvino directory: ' + openvino_dir)
 
-    openvino_name = get_openvino_name(openvino_dir)
+
     version_file_path = os.path.join(os.getcwd(), VERSION_FILE)
     replace_in_file(version_file_path, "REPLACE_PROJECT_VERSION", check_get_product_version() + "." + get_ovms_sha())
-    replace_in_file(version_file_path, "REPLACE_OPENVINO_NAME", openvino_name)
     replace_in_file(version_file_path, "REPLACE_BAZEL_BUILD_FLAGS", bazel_bld_flags)
 
 if __name__ == '__main__':

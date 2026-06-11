@@ -80,7 +80,6 @@ def check_dir(start_dir):
         '.xml',
         'Doxyfile',
         'LICENSE',
-        'OWNERS',
         'REST_age_gender.ipynb',
         '__pycache__',
         'abseil_gcc_8.5_constant_expression.patch',
@@ -108,7 +107,7 @@ def check_dir(start_dir):
         'net_http.patch',
         'partial.patch',
         'ovms_drogon_trantor.patch',
-        'gorila.patch',
+        'gorilla.patch',
         'opencv_cmake_flags.txt',
         'ovms-c/dist',
         'requirements.txt',
@@ -123,6 +122,7 @@ def check_dir(start_dir):
         'upb_warning_turn_off.patch',
         'partial_2.18.patch',
         'tf_2.18_logging.patch',
+        'tf_nsync_chrono.patch',
         'vehicle_images.txt',
         'bazel_rules_apple.patch',
         "go.sum",
@@ -149,9 +149,15 @@ def check_dir(start_dir):
         "lib_custom_nodes_files",
         "spelling-whitelist.txt",
         "results.txt",
+        "windows_bdba.bat",
+        "windows_sign.bat",
+        "config.yaml",
+        "kserve-openvino.yaml",
+        "ServingRuntime.yaml",
+        "dummy_facebook_template.jinja",
         ]
 
-    exclude_directories = ['/dist/', 'release_files/thirdparty-licenses']
+    exclude_directories = ['/dist/', 'release_files/thirdparty-licenses', 'extras/chat_template_examples']
 
     for (d_path, _, file_set) in os.walk(start_dir):
         for f_name in file_set:
@@ -191,6 +197,7 @@ def check_func(start_dir):
         '.venv',
         '.vscode',
         '.xml',
+        '.jinja'
         'Doxyfile',
         'REST_age_gender.ipynb',
         '__pycache__',
@@ -228,6 +235,7 @@ def check_func(start_dir):
         'tftext.patch',
         'partial_2.18.patch',
         'tf_2.18_logging.patch',
+        'tf_nsync_chrono.patch',
         'zlib.LICENSE.txt',
         'bazel_rules_apple.patch',
         'yarn.lock',
@@ -240,6 +248,8 @@ def check_func(start_dir):
         "internal_tests",
         'cleanup_jenkins.bat',
         ".bazelversion",
+        "windows_bdba.bat",
+        "windows_sign.bat",
     ]
 
     exclude_directories = ['/dist/']

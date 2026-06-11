@@ -30,16 +30,20 @@
 #include "../get_model_metadata_impl.hpp"
 #include "../http_rest_api_handler.hpp"
 #include "../kfs_frontend/kfs_grpc_inference_service.hpp"
-#include "../metric_config.hpp"
-#include "../metric_module.hpp"
+#include "src/metrics/metric_config.hpp"
+#include "src/metrics/metric_module.hpp"
 #include "../model_service.hpp"
 #include "../precision.hpp"
 #include "../prediction_service.hpp"
 #include "../servablemanagermodule.hpp"
 #include "../server.hpp"
 #include "../shape.hpp"
+#include "constructor_enabled_model_manager.hpp"
+#include "platform_utils.hpp"
 #include "test_http_utils.hpp"
 #include "test_utils.hpp"
+#include "light_test_utils.hpp"
+#include "test_with_temp_dir.hpp"
 
 using namespace ovms;
 
@@ -196,6 +200,9 @@ protected:
     }
 
     void SetUp() override {
+#ifdef _WIN32
+        GTEST_SKIP() << "Skipping test on Windows";  // CVS-176245
+#endif
         TestWithTempDir::SetUp();
         std::string port = "9000";
         randomizeAndEnsureFree(port);
@@ -209,9 +216,6 @@ protected:
 };
 
 TEST_F(MetricFlowTest, GrpcPredict) {
-#ifdef _WIN32
-    GTEST_SKIP() << "Skipping test on Windows";
-#endif
     PredictionServiceImpl impl(server);
     tensorflow::serving::PredictRequest request;
     tensorflow::serving::PredictResponse response;
@@ -824,7 +828,7 @@ TEST_F(MetricFlowTest, ModelReady) {
 
 #if (MEDIAPIPE_DISABLE == 0)
 TEST_F(MetricFlowTest, RestV3Unary) {
-    HttpRestApiHandler handler(server, 0);
+    HttpRestApiHandler handler(server, 0, "");
     std::shared_ptr<MockedServerRequestInterface> stream = std::make_shared<MockedServerRequestInterface>();
     std::shared_ptr<MockedMultiPartParser> multiPartParser = std::make_shared<MockedMultiPartParser>();
 

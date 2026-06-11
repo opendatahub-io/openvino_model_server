@@ -35,6 +35,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <openvino/runtime/core.hpp>
+
 #include "../cleaner_utils.hpp"
 #include "../dags/custom_node.hpp"
 #include "../dags/custom_node_library_manager.hpp"
@@ -45,15 +47,22 @@
 #include "../dags/node_library_utils.hpp"
 #include "../dags/nodestreamidguard.hpp"
 #include "../dags/pipeline.hpp"
+#include "../dags/pipeline_factory.hpp"
 #include "../dags/pipelinedefinition.hpp"
 #include "../execution_context.hpp"
-#include "../metric_registry.hpp"
+#include "src/metrics/metric_config.hpp"
+#include "src/metrics/metric_registry.hpp"
+#include "../model.hpp"
 #include "../model_metric_reporter.hpp"
 #include "../modelinstance.hpp"
 #include "../modelinstanceunloadguard.hpp"
 #include "../precision.hpp"
 #include "../stringutils.hpp"
+#include "constructor_enabled_model_manager.hpp"
+#include "test_models_configs.hpp"
 #include "test_utils.hpp"
+#include "light_test_utils.hpp"
+#include "test_with_temp_dir.hpp"
 
 using namespace ovms;
 
@@ -1114,7 +1123,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, FailInCustomNodeInitialize) 
         {"custom_node", {{customNodeOutputName, pipelineOutputName}}}};
 
     // createDefinition fails due to initialization failure
-    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::NODE_LIBRARY_INITIALIZE_FAILED);
+    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager, manager, manager), StatusCode::NODE_LIBRARY_INITIALIZE_FAILED);
 }
 
 TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, FailInCustomNodeDeinitialize) {
@@ -1154,7 +1163,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, FailInCustomNodeDeinitialize
 
     std::unique_ptr<Pipeline> pipeline;
     // creating definition, pipeline and then executing works properly due to correct initialization
-    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
+    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager, manager, manager), StatusCode::OK);
     ASSERT_EQ(factory.create(pipeline, "my_new_pipeline", &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
@@ -1202,7 +1211,7 @@ TEST_F(EnsembleFlowCustomNodeFactoryCreateThenExecuteTest, SimplePipelineFactory
         {"custom_node", {{customNodeOutputName, pipelineOutputName}}}};
 
     std::unique_ptr<Pipeline> pipeline;
-    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
+    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager, manager, manager), StatusCode::OK);
     ASSERT_EQ(factory.create(pipeline, "my_new_pipeline", &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
@@ -1264,7 +1273,7 @@ TEST_F(EnsembleFlowCustomNodeFactoryCreateThenExecuteTest, ParallelPipelineFacto
     }
 
     std::unique_ptr<Pipeline> pipeline;
-    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
+    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager, manager, manager), StatusCode::OK);
     ASSERT_EQ(factory.create(pipeline, "my_new_pipeline", &requests[0], &response, manager), StatusCode::OK);
 
     auto run = [this, &requests, &manager, &factory, &inputValues, addValues, subValues, PARALLEL_CUSTOM_NODES](int i) {
@@ -1434,7 +1443,7 @@ TEST_F(EnsembleFlowCustomNodeFactoryCreateThenExecuteTest, PipelineFactoryCreati
         {"custom_node", {{customNodeOutputName, pipelineOutputName}}}};
 
     std::unique_ptr<Pipeline> pipeline;
-    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
+    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager, manager, manager), StatusCode::OK);
     ASSERT_EQ(factory.create(pipeline, "my_new_pipeline", &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
@@ -1516,7 +1525,7 @@ TEST_F(EnsembleFlowCustomNodeLoadConfigThenExecuteTest, AddSubCustomNode) {
     std::unique_ptr<Pipeline> pipeline;
     this->prepareRequest(inputValues);
     this->loadCorrectConfiguration();
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     this->checkResponseForCorrectConfiguration();
 }
@@ -1569,17 +1578,17 @@ TEST_F(EnsembleFlowCustomNodeLoadConfigThenExecuteTest, ReferenceMissingLibraryT
     // Loading correct configuration is required for test to pass.
     // This is due to fact that when OVMS loads pipeline definition for the first time and fails, its status is RETIRED.
     this->loadCorrectConfiguration();
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     this->checkResponseForCorrectConfiguration();
     response.Clear();
 
     this->loadConfiguration(pipelineCustomNodeReferenceMissingLibraryConfig, StatusCode::PIPELINE_DEFINITION_INVALID_NODE_LIBRARY);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::PIPELINE_DEFINITION_NOT_LOADED_YET);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::PIPELINE_DEFINITION_NOT_LOADED_YET);
     response.Clear();
 
     this->loadCorrectConfiguration();
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     this->checkResponseForCorrectConfiguration();
 }
@@ -1630,18 +1639,18 @@ TEST_F(EnsembleFlowCustomNodeLoadConfigThenExecuteTest, ReferenceLibraryWithExec
     // Loading correct configuration is required for test to pass.
     // This is due to fact that when OVMS loads pipeline definition for the first time and fails, its status is RETIRED.
     this->loadCorrectConfiguration();
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     this->checkResponseForCorrectConfiguration();
     response.Clear();
 
     this->loadConfiguration(pipelineCustomNodeReferenceLibraryWithExecutionErrorMissingParamsLibraryConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::NODE_LIBRARY_EXECUTION_FAILED);
     response.Clear();
 
     this->loadCorrectConfiguration();
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     this->checkResponseForCorrectConfiguration();
 }
@@ -1693,18 +1702,18 @@ TEST_F(EnsembleFlowCustomNodeLoadConfigThenExecuteTest, MissingRequiredNodeParam
     // Loading correct configuration is required for test to pass.
     // This is due to fact that when OVMS loads pipeline definition for the first time and fails, its status is RETIRED.
     this->loadCorrectConfiguration();
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     this->checkResponseForCorrectConfiguration();
     response.Clear();
 
     this->loadConfiguration(pipelineCustomNodeMissingParametersConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::NODE_LIBRARY_EXECUTION_FAILED);
     response.Clear();
 
     this->loadCorrectConfiguration();
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     this->checkResponseForCorrectConfiguration();
 }
@@ -1757,17 +1766,17 @@ TEST_F(EnsembleFlowCustomNodeLoadConfigThenExecuteTest, ReferenceLibraryWithRest
     // Loading correct configuration is required for test to pass.
     // This is due to fact that when OVMS loads pipeline definition for the first time and fails, its status is RETIRED.
     this->loadCorrectConfiguration();
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     this->checkResponseForCorrectConfiguration();
     response.Clear();
 
     this->loadConfiguration(pipelineCustomNodeLibraryNotEscapedPathConfig, StatusCode::PIPELINE_DEFINITION_INVALID_NODE_LIBRARY);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::PIPELINE_DEFINITION_NOT_LOADED_YET);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::PIPELINE_DEFINITION_NOT_LOADED_YET);
     response.Clear();
 
     this->loadCorrectConfiguration();
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     this->checkResponseForCorrectConfiguration();
 }
@@ -1916,7 +1925,7 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerLoadConfigThenExecuteTest, JustDiff
     this->prepareRequest(request, input, differentOpsInputName);
     this->prepareRequest(request, factors, differentOpsFactorsName);
     this->loadConfiguration(pipelineCustomNodeDifferentOperationsConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
     std::vector<float> expectedOutput(4 * DUMMY_MODEL_OUTPUT_SIZE);
@@ -2007,7 +2016,7 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerLoadConfigThenExecuteTest, Differen
     this->prepareRequest(request, input, differentOpsInputName);
     this->prepareRequest(request, factors, differentOpsFactorsName);
     this->loadConfiguration(pipelineCustomNodeDifferentOperationsThenDummyConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
     std::vector<float> expectedOutput(4 * DUMMY_MODEL_OUTPUT_SIZE);
     prepareDifferentOpsExpectedOutput(expectedOutput, input, factors);
@@ -2089,7 +2098,7 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerLoadConfigThenExecuteTest, Differen
     this->prepareRequest(request, input, differentOpsInputName);
     this->prepareRequest(request, factors, differentOpsFactorsName);
     this->loadConfiguration(pipelineCustomNodeDifferentOperations2OutputsConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
     std::vector<float> expectedOutput(4 * DUMMY_MODEL_OUTPUT_SIZE);
@@ -2203,7 +2212,7 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerLoadConfigThenExecuteTest, Differen
     this->prepareRequest(request, input, differentOpsInputName);
     this->prepareRequest(request, factors, differentOpsFactorsName);
     this->loadConfiguration(pipelineCustomNodeDifferentOperationsThenDummyThenChooseMaximumConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
     std::vector<float> expectedOutput(4 * DUMMY_MODEL_OUTPUT_SIZE);
@@ -2318,7 +2327,7 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerLoadConfigThenExecuteTest, Differen
     this->prepareRequest(request, input, differentOpsInputName);
     this->prepareRequest(request, factors, differentOpsFactorsName);
     this->loadConfiguration(pipelineCustomNodeDifferentOperationsThenDummyThenChooseMaximumThenDummyConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
     std::vector<float> expectedOutput(4 * DUMMY_MODEL_OUTPUT_SIZE);
@@ -2411,7 +2420,7 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerLoadConfigThenExecuteTest, Demultip
 
     this->prepareRequest(request, input, differentOpsInputName, {4, 1, 10});
     this->loadConfiguration(demultiplyThenDummyThenChooseMaximumConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     auto status = pipeline->execute(DEFAULT_TEST_CONTEXT);
     ASSERT_EQ(status, StatusCode::OK) << status.string();
 
@@ -2586,7 +2595,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, SuccessfulConfiguration) {
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, SuccessfulConfigurationWithScalar) {
@@ -2619,7 +2628,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, SuccessfulConfigurationWit
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, SuccessfulConfigurationWithDynamicShapeInInput) {
@@ -2652,7 +2661,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, SuccessfulConfigurationWit
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, SuccessfulConfigurationWithDynamicShapeInOutput) {
@@ -2685,7 +2694,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, SuccessfulConfigurationWit
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, ShapesNotMatchBetweenDLModelAndCustomNode) {
@@ -2720,7 +2729,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, ShapesNotMatchBetweenDLMod
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_SHAPE);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_SHAPE);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, ShapesNotMatchBetweenCustomNodeAndDLNode) {
@@ -2750,7 +2759,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, ShapesNotMatchBetweenCusto
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_SHAPE);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_SHAPE);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, ShapesNotMatchBetweenCustomNodes) {
@@ -2783,7 +2792,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, ShapesNotMatchBetweenCusto
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_SHAPE);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_SHAPE);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, PrecisionNotMatchBetweenDLModelAndCustomNode) {
@@ -2818,7 +2827,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, PrecisionNotMatchBetweenDL
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_PRECISION);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_PRECISION);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, PrecisionNotMatchBetweenCustomNodeAndDLNode) {
@@ -2848,7 +2857,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, PrecisionNotMatchBetweenCu
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_PRECISION);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_PRECISION);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, PrecisionNotMatchBetweenCustomNodes) {
@@ -2881,7 +2890,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, PrecisionNotMatchBetweenCu
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_PRECISION);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_PRECISION);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, NotAllCustomNodeInputsAreConnected) {
@@ -2914,7 +2923,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, NotAllCustomNodeInputsAreC
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_NOT_ALL_INPUTS_CONNECTED);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_NOT_ALL_INPUTS_CONNECTED);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, CustomNodeMissingOutput) {
@@ -2937,7 +2946,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, CustomNodeMissingOutput) {
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_NODE_REFERING_TO_MISSING_MODEL_OUTPUT);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_NODE_REFERING_TO_MISSING_MODEL_OUTPUT);
 }
 
 TEST_F(EnsembleConfigurationValidationWithCustomNode, InvalidSharedLibrary) {
@@ -2972,7 +2981,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, InvalidSharedLibrary) {
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_DEFINITION_INVALID_NODE_LIBRARY);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_DEFINITION_INVALID_NODE_LIBRARY);
 }
 
 struct LibraryErrorsOnMetadataCall {
@@ -3029,7 +3038,7 @@ TEST_F(EnsembleConfigurationValidationWithCustomNode, SharedLibraryErrorsOnMetad
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::NODE_LIBRARY_METADATA_FAILED);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::NODE_LIBRARY_METADATA_FAILED);
 }
 
 class EnsembleConfigurationValidationWithDemultiplexer : public EnsembleConfigurationValidationWithCustomNode {};
@@ -3066,7 +3075,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfigurationSingleDynamicDemultiplexerFirst) {
@@ -3092,7 +3101,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfigurationSingleDynamicDemultiplexerFixedLibraryFirstMetadataCheck) {
@@ -3118,7 +3127,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = pipelineDefinition->getInputsInfo();
     auto outputs = pipelineDefinition->getOutputsInfo();
@@ -3154,7 +3163,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = pipelineDefinition->getInputsInfo();
     auto outputs = pipelineDefinition->getOutputsInfo();
@@ -3185,7 +3194,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = pipelineDefinition->getInputsInfo();
     auto outputs = pipelineDefinition->getOutputsInfo();
@@ -3216,7 +3225,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfigurationSingleDynamicDemultiplexerAndDynamicGather) {
@@ -3246,7 +3255,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfigurationSingleFixedDemultiplexerAndDynamicGather) {
@@ -3276,7 +3285,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfigurationSingleDynamicDemultiplexerAndFixedGatherShouldWarnInLog) {
@@ -3306,7 +3315,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfigurationSingleDynamicDemultiplexerFixedLibraryDynamicGatherMetadataCheck) {
@@ -3332,7 +3341,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 
     auto inputs = pipelineDefinition->getInputsInfo();
     auto outputs = pipelineDefinition->getOutputsInfo();
@@ -3385,7 +3394,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, SuccessfulConfiguration
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, MultipleBatchInCustomNode) {
@@ -3420,7 +3429,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, MultipleBatchInCustomNo
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    auto status = pipelineDefinition->validate(manager);
+    auto status = pipelineDefinition->validate(manager, manager, manager);
     ASSERT_EQ(status, StatusCode::OK) << status.string();
 }
 
@@ -3451,7 +3460,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultiplexerNodeNotEno
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_NOT_ENOUGH_SHAPE_DIMENSIONS_TO_DEMULTIPLY);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_NOT_ENOUGH_SHAPE_DIMENSIONS_TO_DEMULTIPLY);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultiplexerCustomNodeNotEnoughDimensionsToDemultiply_Scalar) {
@@ -3475,7 +3484,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultiplexerCustomNode
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_NOT_ENOUGH_SHAPE_DIMENSIONS_TO_DEMULTIPLY);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_NOT_ENOUGH_SHAPE_DIMENSIONS_TO_DEMULTIPLY);
 }
 
 class DummyModelWithMockedMetadata : public ovms::ModelInstance {
@@ -3509,7 +3518,7 @@ class ModelWithDummyModelWithMockedMetadata : public ovms::Model {
 
 public:
     ModelWithDummyModelWithMockedMetadata(const std::string& name, std::shared_ptr<DummyModelWithMockedMetadata> modelInstance) :
-        Model(name, false, nullptr),
+        Model(name),
         modelInstance(modelInstance) {}
     std::shared_ptr<ovms::ModelInstance> modelInstanceFactory(const std::string& modelName, const ovms::model_version_t, ov::Core& ieCore, ovms::MetricRegistry* registry = nullptr, const ovms::MetricConfig* config = nullptr) override {
         return modelInstance;
@@ -3524,7 +3533,7 @@ class ModelManagerWithModelWithDummyModelWithMockedMetadata : public ovms::Model
 public:
     ModelManagerWithModelWithDummyModelWithMockedMetadata(std::shared_ptr<DummyModelWithMockedMetadata> modelInstance) :
         modelInstance(modelInstance) {}
-    std::shared_ptr<ovms::Model> modelFactory(const std::string& name, const bool isStateful) override {
+    std::shared_ptr<ovms::Model> modelFactory(const std::string& name) override {
         return std::make_shared<ModelWithDummyModelWithMockedMetadata>("dummy", modelInstance);
     }
 };
@@ -3639,7 +3648,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, CustomNodeWithDemultipl
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, CustomNodeWithDemultiplexerAndBatchSizeGreaterThan1ThenDummy) {
@@ -3747,7 +3756,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, ShapesNotMatchBetweenDL
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_SHAPE);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_SHAPE);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, ShapesNotMatchBetweenCustomNodeAndDLNode) {
@@ -3778,7 +3787,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, ShapesNotMatchBetweenCu
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_SHAPE);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_SHAPE);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, ShapesNotMatchBetweenCustomNodes) {
@@ -3812,7 +3821,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, ShapesNotMatchBetweenCu
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_SHAPE);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_SHAPE);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultiplyCountNotMatchingOutputSecondDimensionValue) {
@@ -3847,7 +3856,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultiplyCountNotMatch
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_DEMULTIPLY_COUNT_DOES_NOT_MATCH_TENSOR_SHARD_COUNT);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_DEMULTIPLY_COUNT_DOES_NOT_MATCH_TENSOR_SHARD_COUNT);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultiplyCountNotMatchingOutputShapeBeforeExitNode) {
@@ -3873,7 +3882,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultiplyCountNotMatch
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_DEMULTIPLY_COUNT_DOES_NOT_MATCH_TENSOR_SHARD_COUNT);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_DEMULTIPLY_COUNT_DOES_NOT_MATCH_TENSOR_SHARD_COUNT);
 }
 
 class EnsembleConfigurationValidationWithGather : public EnsembleConfigurationValidationWithCustomNode {};
@@ -3918,7 +3927,7 @@ TEST_F(EnsembleConfigurationValidationWithGather, SuccessfulConfiguration) {
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithGather, SuccessfulConfigurationWithDLNodeAsDemultliplexer) {
@@ -3971,7 +3980,7 @@ TEST_F(EnsembleConfigurationValidationWithGather, SuccessfulConfigurationWithDLN
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithGather, SuccessfulConfigurationWithDLNodeAsGather) {
@@ -4024,7 +4033,7 @@ TEST_F(EnsembleConfigurationValidationWithGather, SuccessfulConfigurationWithDLN
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::OK);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::OK);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, MultipleGathersNotAllowedInNonExitNode) {
@@ -4067,7 +4076,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, MultipleGathersNotAllow
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_MANUAL_GATHERING_FROM_MULTIPLE_NODES_NOT_SUPPORTED);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_MANUAL_GATHERING_FROM_MULTIPLE_NODES_NOT_SUPPORTED);
 }
 
 TEST_F(EnsembleConfigurationValidationWithGather, ShapesNotMatchBetweenDLModelAndCustomNode) {
@@ -4120,7 +4129,7 @@ TEST_F(EnsembleConfigurationValidationWithGather, ShapesNotMatchBetweenDLModelAn
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_SHAPE);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_SHAPE);
 }
 
 TEST_F(EnsembleConfigurationValidationWithGather, ShapesNotMatchBetweenCustomNodeAndDLNode) {
@@ -4173,7 +4182,7 @@ TEST_F(EnsembleConfigurationValidationWithGather, ShapesNotMatchBetweenCustomNod
     ModelConfig config = DUMMY_MODEL_CONFIG;
     ASSERT_EQ(manager.reloadModelWithVersions(config), StatusCode::OK_RELOADED);
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_SHAPE);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_SHAPE);
 }
 
 TEST_F(EnsembleConfigurationValidationWithGather, ShapesNotMatchBetweenCustomNodes) {
@@ -4216,7 +4225,7 @@ TEST_F(EnsembleConfigurationValidationWithGather, ShapesNotMatchBetweenCustomNod
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::INVALID_SHAPE);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::INVALID_SHAPE);
 }
 
 TEST_F(EnsembleConfigurationValidationWithGather, DemultiplyCountNotMatchingInputSecondDimensionValue) {
@@ -4259,7 +4268,7 @@ TEST_F(EnsembleConfigurationValidationWithGather, DemultiplyCountNotMatchingInpu
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_DEMULTIPLY_COUNT_DOES_NOT_MATCH_TENSOR_SHARD_COUNT);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_DEMULTIPLY_COUNT_DOES_NOT_MATCH_TENSOR_SHARD_COUNT);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultipliersGatherNodesNotInLIFOOrder) {
@@ -4302,7 +4311,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultipliersGatherNode
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_WRONG_DEMULTIPLEXER_GATHER_NODES_ORDER);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_WRONG_DEMULTIPLEXER_GATHER_NODES_ORDER);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, GatherNodeWithoutDemultiplexerPath) {
@@ -4343,7 +4352,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, GatherNodeWithoutDemult
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_WRONG_DEMULTIPLEXER_GATHER_NODES_ORDER);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_WRONG_DEMULTIPLEXER_GATHER_NODES_ORDER);
 }
 
 TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultiplexerWithoutGatherNodePath) {
@@ -4391,7 +4400,7 @@ TEST_F(EnsembleConfigurationValidationWithDemultiplexer, DemultiplexerWithoutGat
 
     ConstructorEnabledModelManager manager;
     std::unique_ptr<PipelineDefinition> pipelineDefinition = std::make_unique<PipelineDefinition>("my_new_pipeline", info, connections);
-    ASSERT_EQ(pipelineDefinition->validate(manager), StatusCode::PIPELINE_WRONG_DEMULTIPLEXER_GATHER_NODES_ORDER);
+    ASSERT_EQ(pipelineDefinition->validate(manager, manager, manager), StatusCode::PIPELINE_WRONG_DEMULTIPLEXER_GATHER_NODES_ORDER);
 }
 
 class EnsembleFlowCustomNodeAndDynamicDemultiplexerLoadConfigThenExecuteTest : public EnsembleFlowCustomNodeLoadConfigThenExecuteTest {
@@ -4470,7 +4479,7 @@ TEST_F(EnsembleFlowCustomNodeAndDynamicDemultiplexerLoadConfigThenExecuteTest, J
     std::vector<float> input{static_cast<float>(dynamicDemultiplyCount), 1, 2, 3, 4, 5, 6, 7, 8, 9};
     this->prepareRequest(request, input, differentOpsInputName);
     this->loadConfiguration(pipelineCustomNodeDynamicDemultiplexThenDummyConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
     std::vector<float> expectedOutput(dynamicDemultiplyCount * DUMMY_MODEL_OUTPUT_SIZE);
@@ -4663,7 +4672,7 @@ TEST_F(EnsembleFlowCustomNodeAndDynamicDemultiplexerLoadConfigThenExecuteTest, D
     std::iota(input.begin(), input.end(), 42);
     this->prepareRequest(request, input, differentOpsInputName, {dynamicDemultiplyCount, 1, 10});
     this->loadConfiguration(pipelineEntryNodeDynamicDemultiplexThenDummyConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
     std::vector<float> expectedOutput = input;
@@ -4737,7 +4746,7 @@ TEST_F(EnsembleFlowCustomNodeAndDynamicDemultiplexerLoadConfigThenExecuteTest, D
     std::iota(input.begin(), input.end(), 42);
     this->prepareRequest(request, input, pipelineInputName, {3, 5, DUMMY_MODEL_INPUT_SIZE});
     this->loadConfiguration(pipelineEntryNodeDemultiplexThenDummyConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
     std::vector<float> expectedOutput = input;
@@ -4770,7 +4779,7 @@ TEST_F(EnsembleFlowCustomNodeAndDynamicDemultiplexerLoadConfigThenExecuteTest, D
     std::vector<float> input{static_cast<float>(dynamicDemultiplyCount), 1, 2, 3, 4, 5, 6, 7, 8, 9};
     this->prepareRequest(request, input, differentOpsInputName);
     this->loadConfiguration(pipelineCustomNodeDynamicDemultiplexThenDummyConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     auto status = pipeline->execute(DEFAULT_TEST_CONTEXT);
     ASSERT_EQ(status, StatusCode::PIPELINE_TOO_LARGE_DIMENSION_SIZE_TO_DEMULTIPLY) << status.string();
 }
@@ -4866,7 +4875,7 @@ TEST_F(EnsembleFlowCustomNodeAndDemultiplexerLoadConfigThenExecuteTest, Differen
     this->prepareRequest(request, input, differentOpsInputName);
     this->prepareRequest(request, factors, differentOpsFactorsName);
     this->loadConfiguration(pipelineCustomNodeDifferentOperationsThenDummyThenChooseMaximumNotInOrderConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
     std::vector<float> expectedOutput(4 * DUMMY_MODEL_OUTPUT_SIZE);
@@ -4883,7 +4892,7 @@ TEST_F(EnsembleFlowCustomNodeAndDynamicDemultiplexerLoadConfigThenExecuteTest, D
     std::vector<float> input{static_cast<float>(dynamicDemultiplyCount), 1, 2, 3, 4, 5, 6, 7, 8, 9};
     this->prepareRequest(request, input, differentOpsInputName);
     this->loadConfiguration(pipelineCustomNodeDynamicDemultiplexThenDummyConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::PIPELINE_DEMULTIPLEXER_NO_RESULTS);
 }
 
@@ -4893,7 +4902,7 @@ TEST_F(EnsembleFlowCustomNodeAndDynamicDemultiplexerLoadConfigThenExecuteTest, D
     std::vector<float> input{static_cast<float>(dynamicDemultiplyCount), 1, 2, 3, 4, 5, 6, 7, 8, 9};
     this->prepareRequest(request, input, differentOpsInputName);
     this->loadConfiguration(pipelineCustomNodeDynamicDemultiplexThenDummyConfig);
-    ASSERT_EQ(manager.createPipeline(pipeline, pipelineName, &request, &response), StatusCode::OK);
+    ASSERT_EQ(manager.getPipelineFactory().create(pipeline, pipelineName, &request, &response, manager), StatusCode::OK);
     ASSERT_EQ(pipeline->execute(DEFAULT_TEST_CONTEXT), StatusCode::OK);
 
     std::vector<float> expectedOutput(dynamicDemultiplyCount * DUMMY_MODEL_OUTPUT_SIZE);
@@ -5685,7 +5694,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, MultipleDeinitializeCallsOnR
     connections[EXIT_NODE_NAME] = {
         {"custom_node_3", {{customNodeOutputName, pipelineOutputName}}}};
 
-    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
+    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager, manager, manager), StatusCode::OK);
     cleaner.cleanup();
     ASSERT_EQ(manager.getResourcesSize(), 3);
 
@@ -5747,7 +5756,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, ReloadPipelineWithoutNodeDei
     connections[EXIT_NODE_NAME] = {
         {"custom_node_3", {{customNodeOutputName, pipelineOutputName}}}};
 
-    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager), StatusCode::OK);
+    ASSERT_EQ(factory.createDefinition("my_new_pipeline", info, connections, manager, manager, manager), StatusCode::OK);
     cleaner.cleanup();
     ASSERT_EQ(manager.getResourcesSize(), 3);
 
@@ -5759,7 +5768,7 @@ TEST_F(EnsembleFlowCustomNodePipelineExecutionTest, ReloadPipelineWithoutNodeDei
     connections.erase("custom_node_3");
     connections[EXIT_NODE_NAME] = {
         {"custom_node_2", {{customNodeOutputName, pipelineOutputName}}}};
-    ASSERT_EQ(factory.reloadDefinition("my_new_pipeline", std::move(info), std::move(connections), manager), StatusCode::OK);
+    ASSERT_EQ(factory.reloadDefinition("my_new_pipeline", std::move(info), std::move(connections), manager, manager, manager), StatusCode::OK);
     cleaner.cleanup();
     ASSERT_EQ(manager.getResourcesSize(), 2);
     // Each custom node has effectively 1 internalManager initialized, because they use same library instance

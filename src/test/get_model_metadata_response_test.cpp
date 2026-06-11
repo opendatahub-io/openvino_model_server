@@ -18,13 +18,15 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
+#include <openvino/runtime/core.hpp>
 #include <rapidjson/document.h>
 
 #include "../get_model_metadata_impl.hpp"
 #include "../modelmanager.hpp"
 #include "../status.hpp"
 #include "mockmodelinstancechangingstates.hpp"
-#include "test_utils.hpp"
+#include "test_models_configs.hpp"
 
 using ::testing::NiceMock;
 using ::testing::Return;

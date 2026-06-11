@@ -17,6 +17,7 @@
 // Type that holds vector of pairs where first element is chat turn index and second is image tensor
 // this way we store information about which image is associated with which chat turn
 #pragma once
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -27,15 +28,18 @@
 #include <openvino/runtime/tensor.hpp>
 #include <openvino/genai/tokenizer.hpp>
 
+#include "src/port/rapidjson_document.hpp"
+
+#include "tool_schema_wrapper.hpp"
+
 namespace ovms {
 using ImageHistory = std::vector<std::pair<size_t, ov::Tensor>>;
 
 struct StreamOptions {
     bool includeUsage = false;
 };
-
 // Class that maps OpenAI request content.
-struct OpenAIChatCompletionsRequest {
+struct OpenAIRequest {
     ov::genai::ChatHistory chatHistory;
     std::string processedJson;
     ImageHistory imageHistory;
@@ -54,8 +58,9 @@ struct OpenAIChatCompletionsRequest {
     // Multinomial decoding specific
     std::optional<float> temperature{std::nullopt};
     std::optional<float> topP{std::nullopt};
+    std::optional<float> minP{std::nullopt};
     std::optional<int> topK{std::nullopt};
-    std::optional<int> seed{std::nullopt};
+    std::optional<uint32_t> seed{std::nullopt};
     std::optional<float> frequencyPenalty{std::nullopt};
     std::optional<float> presencePenalty{std::nullopt};
     std::optional<float> repetitionPenalty{std::nullopt};
@@ -71,12 +76,16 @@ struct OpenAIChatCompletionsRequest {
     std::optional<uint32_t> maxModelLength;
 
     // Guided generation specific
-    // Schema for response_format handling
-    std::optional<std::string> responseSchema{std::nullopt};
+    // String representation of response format object
+    std::optional<std::string> responseFormat{std::nullopt};
     // Map that holds tool names and schemas for their arguments
-    std::map<std::string, std::string> toolNameSchemaMap;
+    ToolsSchemas_t toolNameSchemaMap;
+    // Holds value for tool_choice field as described in https://platform.openai.com/docs/api-reference/chat/create#chat_create-tool_choice
+    std::string toolChoice;
 
-    OpenAIChatCompletionsRequest() = default;
-    ~OpenAIChatCompletionsRequest() = default;
+    bool skipSpecialTokens{true};
+
+    OpenAIRequest() = default;
+    ~OpenAIRequest() = default;
 };
 }  // namespace ovms
