@@ -14,8 +14,8 @@ index 0000000000..644f757c52
 +++ b/.konflux/build-args.conf
 @@ -0,0 +1,37 @@
 +# Base images
-+BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.7
-+RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9-minimal:9.7
++BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.8
++RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.8
 +
 +# Logging/tests
 +VERBOSE_LOGS=ON
