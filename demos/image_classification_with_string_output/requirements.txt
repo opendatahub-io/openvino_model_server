@@ -1,3 +1,3 @@
 requests
-tensorflow==2.13.1
+tensorflow==2.21.0
 tritonclient[http]
