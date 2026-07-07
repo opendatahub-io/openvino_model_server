@@ -698,3 +698,52 @@ endif
 
 run_lib_files_test:
 	docker run --entrypoint bash -v $(realpath tests/file_lists):/test $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)$(IMAGE_TAG_SUFFIX) ./test/test_release_files.sh ${BAZEL_DEBUG_FLAGS} > file_test.log 2>&1 ; exit_status=$$? ; tail -200 file_test.log ; exit $$exit_status
+
+# Multi-arch build targets
+.PHONY: docker_build_multiarch
+docker_build_multiarch:
+	@echo "Building multi-arch OVMS images for linux/amd64,linux/s390x,linux/ppc64le..."
+	docker buildx build \
+		--platform linux/amd64,linux/s390x,linux/ppc64le \
+		--file Dockerfile.$(DIST_OS) \
+		$(BUILD_ARGS) \
+		--build-arg GPU=0 \
+		--tag $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG) \
+		--push \
+		.
+
+.PHONY: docker_build_per_arch
+docker_build_per_arch:
+	@echo "Building per-arch OVMS images..."
+	# Build amd64
+	docker buildx build --platform linux/amd64 \
+		--file Dockerfile.$(DIST_OS) \
+		$(BUILD_ARGS) \
+		--tag $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)-amd64 \
+		--push \
+		.
+
+	# Build s390x
+	docker buildx build --platform linux/s390x \
+		--file Dockerfile.$(DIST_OS) \
+		$(BUILD_ARGS) \
+		--build-arg GPU=0 \
+		--tag $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)-s390x \
+		--push \
+		.
+
+	# Build ppc64le
+	docker buildx build --platform linux/ppc64le \
+		--file Dockerfile.$(DIST_OS) \
+		$(BUILD_ARGS) \
+		--build-arg GPU=0 \
+		--tag $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)-ppc64le \
+		--push \
+		.
+
+	# Create manifest list
+	@echo "Creating multi-arch manifest..."
+	docker buildx imagetools create -t $(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG) \
+		$(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)-amd64 \
+		$(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)-s390x \
+		$(OVMS_CPP_DOCKER_IMAGE):$(OVMS_CPP_IMAGE_TAG)-ppc64le
