@@ -35,7 +35,7 @@ The default configuration should work in most cases but the parameters can be tu
 
 Running this command starts the container with NPU enabled:
 ```bash
-docker run -d --rm --device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -u $(id -u):$(id -g) -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:2026.1-gpu --rest_port 8000 --model_repository_path /models --source_model OpenVINO/Phi-3.5-vision-instruct-fp16-ov  --task text_generation --target_device NPU
+docker run -d --rm --device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -u $(id -u):$(id -g) -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:latest-gpu --rest_port 8000 --model_repository_path /models --source_model OpenVINO/Phi-3.5-vision-instruct-fp16-ov  --task text_generation --target_device NPU
 ```
 :::
 
@@ -77,15 +77,15 @@ curl http://localhost:8000/v3/models
 
 ```console
 pip3 install requests
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/static/images/zebra.jpeg -o zebra.jpeg
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/common/static/images/zebra.jpeg -o zebra.jpeg
 ```
-![zebra](https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/static/images/zebra.jpeg)
+![zebra](https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/common/static/images/zebra.jpeg)
 
 :::{dropdown} **Unary call with curl using image from local filesystem**
 
 Referring to local filesystem images in requests requires passing additional parameter `--allowed_local_media_path` (described in [Model Server Parameters](../../docs/parameters.md) section) when starting docker container: 
 ```bash
-docker run -d --rm --device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -u $(id -u):$(id -g) -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:2026.1-gpu --rest_port 8000 --model_repository_path /models --source_model OpenVINO/Phi-3.5-vision-instruct-fp16-ov  --task text_generation --target_device NPU  --allowed_local_media_path /images
+docker run -d --rm --device /dev/accel --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -u $(id -u):$(id -g) -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:latest-gpu --rest_port 8000 --model_repository_path /models --source_model OpenVINO/Phi-3.5-vision-instruct-fp16-ov  --task text_generation --target_device NPU  --allowed_local_media_path /images
 ```
 
 ```bash
@@ -237,7 +237,7 @@ python benchmark_serving.py --backend openai-chat --dataset-name hf --dataset-pa
 
 ## Testing the model accuracy over serving API
 
-Check the [guide of using lm-evaluation-harness](https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/demos/continuous_batching/accuracy/README.md)
+Check the [guide of using lm-evaluation-harness](https://github.com/openvinotoolkit/model_server/blob/releases/2026/2/demos/continuous_batching/accuracy/README.md)
 
 ## Limitations
 
