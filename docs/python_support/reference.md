@@ -16,7 +16,7 @@ The publicly available `openvino/model_server` image on Docker Hub supports Pyth
 In that case, your Dockerfile may look like this:
 
 ```dockerfile
-FROM openvino/model_server:2026.1
+FROM openvino/model_server:latest
 USER root
 ENV LD_LIBRARY_PATH=/ovms/lib
 ENV PYTHONPATH=/ovms/lib/python
@@ -25,7 +25,7 @@ RUN pip3 install numpy
 ENTRYPOINT [ `/ovms/bin/ovms` ]
 ```
 
-You can also modify `requirements.txt` from our [python demos](https://github.com/openvinotoolkit/model_server/tree/releases/2026/1/demos/python_demos) and from repository top level directory run `make python_image`
+You can also modify `requirements.txt` from our [python demos](https://github.com/openvinotoolkit/model_server/tree/releases/2026/2/demos/python_demos) and from repository top level directory run `make python_image`
 
 ## `OvmsPythonModel` class
 
@@ -749,6 +749,8 @@ node {
 
 When using generative mode, the `execute` method in [`OvmsPythonModel`](#ovmspythonmodel-class) class must `yield` value.
 
+> **Note:** Generative mode is not compatible with the [graph pool](../mediapipe.md#graph-pool-scalability-feature). Do not add `# OVMS_GRAPH_QUEUE_MAX_SIZE` directive to graphs that use generative Python nodes with LOOPBACK.
+
 ```python
 from pyovms import Tensor
 ...
@@ -1015,4 +1017,4 @@ node {
 }
 ```
 
-See a [CLIP demo](https://github.com/openvinotoolkit/model_server/tree/releases/2026/1/demos/python_demos/clip_image_classification) for a complete example of a graph that uses Python nodes, OV Inference nodes and converter nodes.
+See a [CLIP demo](https://github.com/openvinotoolkit/model_server/tree/releases/2026/2/demos/python_demos/clip_image_classification) for a complete example of a graph that uses Python nodes, OV Inference nodes and converter nodes.

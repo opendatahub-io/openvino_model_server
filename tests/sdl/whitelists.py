@@ -118,7 +118,6 @@ libraries = {
         'libopenvino_hetero_plugin.so',
         'libopenvino_intel_cpu_plugin.so',
         'libopenvino_intel_gpu_plugin.so',
-        'libopenvino_intel_npu_plugin.so',
         'libopenvino_ir_frontend.so',
         'libopenvino_onnx_frontend.so',
         'libopenvino_paddle_frontend.so',
@@ -130,6 +129,8 @@ libraries = {
     },
     OvmsBaseType.UBUNTU: {
         'libopenvino_intel_npu_compiler.so',
+        'libopenvino_intel_npu_compiler_loader.so',
+        'libopenvino_intel_npu_plugin.so',
     },
     OvmsBaseType.UBUNTU22: set(),
     OvmsBaseType.UBUNTU24: set(),
@@ -141,7 +142,7 @@ libraries = {
     OvmsBaseType.WINDOWS: {
         'git2.dll',
         'libcurl-x64.dll',
-        'opencv_world4120.dll',
+        'opencv_world4130.dll',
         'openvino.dll',
         'openvino_auto_batch_plugin.dll',
         'openvino_auto_plugin.dll',
@@ -152,6 +153,7 @@ libraries = {
         'openvino_intel_cpu_plugin.dll',
         'openvino_intel_gpu_plugin.dll',
         'openvino_intel_npu_compiler.dll',
+        'openvino_intel_npu_compiler_loader.dll',
         'openvino_intel_npu_plugin.dll',
         'openvino_ir_frontend.dll',
         'openvino_onnx_frontend.dll',

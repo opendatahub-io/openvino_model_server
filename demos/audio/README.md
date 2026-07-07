@@ -2,6 +2,7 @@
 
 This demo shows how to deploy audio models in the OpenVINO Model Server.
 Speech generation and speech recognition models are exposed via OpenAI API `audio/speech`, `audio/transcriptions` and `audio/translations` endpoints.
+Speech-to-text streaming responses are supported for `audio/transcriptions` endpoint.
 
 Check supported [Speech Recognition Models](https://openvinotoolkit.github.io/openvino.genai/docs/supported-models/#speech-recognition-models-whisper-based) and [Speech Generation Models](https://openvinotoolkit.github.io/openvino.genai/docs/supported-models/#speech-generation-models).
 
@@ -19,10 +20,10 @@ Check supported [Speech Recognition Models](https://openvinotoolkit.github.io/op
 ### Prepare speaker embeddings
 When generating speech you can use default speaker voice or you can prepare your own speaker embedding file. Here you can see how to do it with downloaded file from online repository, but you can try with your own speech recording as well:
 ```console
-pip install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/audio/requirements.txt
+pip install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/audio/requirements.txt
 mkdir audio_samples
 curl --create-dirs "https://www.voiptroubleshooter.com/open_speech/american/OSR_us_000_0032_8k.wav" -o audio_samples/audio.wav
-curl --create-dirs https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/audio/create_speaker_embedding.py -o models/speakers/create_speaker_embedding.py
+curl --create-dirs https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/audio/create_speaker_embedding.py -o models/speakers/create_speaker_embedding.py
 python models/speakers/create_speaker_embedding.py audio_samples/audio.wav models/speakers/voice1.bin
 ```
 
@@ -39,8 +40,8 @@ Execution parameters will be defined inside the `graph.pbtxt` file.
 
 Download export script, install it's dependencies and create directory for the models:
 ```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/common/export_models/export_model.py -o export_model.py
+pip install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/common/export_models/requirements.txt
 mkdir models
 ```
 
@@ -66,7 +67,7 @@ The default configuration should work in most cases but the parameters can be tu
 Running this command starts the container with CPU only target device:
 ```bash
 mkdir -p models
-docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:2026.1 --rest_port 8000 --model_path /models/microsoft/speecht5_tts --model_name microsoft/speecht5_tts
+docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:latest --rest_port 8000 --model_path /models/microsoft/speecht5_tts --model_name microsoft/speecht5_tts
 ```
 
 **Deploying on Bare Metal**
@@ -152,12 +153,11 @@ Play speech.wav file to check generated speech.
 An asynchronous benchmarking client can be used to access the model server performance with various load conditions. Below are execution examples captured on Intel(R) Core(TM) Ultra 7 258V.
 
 ```console
-pip install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/benchmark/v3/requirements.txt
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/benchmark/v3/benchmark.py -o benchmark.py
+pip install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/benchmark/v3/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/benchmark/v3/benchmark.py -o benchmark.py
 python benchmark.py --api_url http://localhost:8000/v3/audio/speech --model microsoft/speecht5_tts --batch_size 1 --limit 100 --request_rate inf --backend text2speech --dataset edinburghcstr/ami --hf-subset ihm --tokenizer openai/whisper-large-v3-turbo --trust-remote-code True
 Number of documents: 100
 100%|████████████████████████████████████████████████████████████████████████████████| 100/100 [01:58<00:00,  1.19s/it]
-Asking to truncate to max_length but no maximum length is provided and the model has no predefined maximum length. Default to no truncation.
 Tokens: 1802
 Success rate: 100.0%. (100/100)
 Throughput - Tokens per second: 15.2
@@ -177,8 +177,8 @@ Execution parameters will be defined inside the `graph.pbtxt` file.
 
 Download export script, install it's dependencies and create directory for the models:
 ```console
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/export_models/export_model.py -o export_model.py
-pip3 install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/export_models/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/common/export_models/export_model.py -o export_model.py
+pip install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/common/export_models/requirements.txt
 mkdir models
 ```
 
@@ -210,7 +210,7 @@ Select deployment option depending on how you prepared models in the previous st
 Running this command starts the container with CPU only target device:
 ```bash
 mkdir -p models
-docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:2026.1 --rest_port 8000 --model_path /models/openai/whisper-large-v3-turbo --model_name openai/whisper-large-v3-turbo
+docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:latest --rest_port 8000 --model_path /models/openai/whisper-large-v3-turbo --model_name openai/whisper-large-v3-turbo
 ```
 **GPU**
 
@@ -219,7 +219,7 @@ to `docker run` command, use the image with GPU support.
 It can be applied using the commands below:
 ```bash
 mkdir -p models
-docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -v $(pwd)/models:/models:rw openvino/model_server:2026.1-gpu --rest_port 8000 --model_path /models/openai/whisper-large-v3-turbo --model_name openai/whisper-large-v3-turbo
+docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -v $(pwd)/models:/models:rw openvino/model_server:latest-gpu --rest_port 8000 --model_path /models/openai/whisper-large-v3-turbo --model_name openai/whisper-large-v3-turbo
 ```
 :::
 
@@ -236,6 +236,8 @@ The default configuration should work in most cases but the parameters can be tu
 
 ### Request Generation 
 Transcript file that was previously generated with audio/speech endpoint.
+
+> **Note:** Streaming responses are supported for `audio/transcriptions`. `audio/translations` does not support streaming.
 
 :::{dropdown} **Unary call with cURL**
 
@@ -274,6 +276,28 @@ print(transcript.text)
 The quick brown fox jumped over the lazy dog.
 ```
 :::
+
+:::{dropdown} **Streaming call with cURL**
+
+```bash
+curl -N http://localhost:8000/v3/audio/transcriptions \
+  -H "Content-Type: multipart/form-data" \
+  -F file="@speech.wav" \
+  -F model="openai/whisper-large-v3-turbo" \
+  -F language="en" \
+  -F stream="true"
+```
+
+Example streamed chunks (SSE format):
+```text
+data: {"type":"transcript.text.delta","delta":"The quick ","logprobs":[]}
+
+data: {"type":"transcript.text.delta","delta":"brown fox ","logprobs":[]}
+
+data: {"type":"transcript.text.done","text":"The quick brown fox jumped over the lazy dog.","logprobs":[]}
+```
+:::
+
 :::{dropdown} **Unary call with timestamps**
 
 
@@ -322,12 +346,11 @@ print(transcript.words)
 An asynchronous benchmarking client can be used to access the model server performance with various load conditions. Below are execution examples captured on Intel(R) Core(TM) Ultra 7 258V.
 
 ```console
-pip install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/benchmark/v3/requirements.txt
-curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/main/demos/benchmark/v3/benchmark.py -o benchmark.py
+pip install -r https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/benchmark/v3/requirements.txt
+curl https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/2/demos/benchmark/v3/benchmark.py -o benchmark.py
 python benchmark.py --api_url http://localhost:8000/v3/audio/transcriptions --model openai/whisper-large-v3-turbo --batch_size 1 --limit 1000 --request_rate inf --dataset edinburghcstr/ami --hf-subset ihm --backend speech2text --trust-remote-code True
 Number of documents: 1000
 100%|██████████████████████████████████████████████████████████████████████████████| 1000/1000 [04:44<00:00,  3.51it/s]
-Asking to truncate to max_length but no maximum length is provided and the model has no predefined maximum length. Default to no truncation.
 Tokens: 10948
 Success rate: 100.0%. (1000/1000)
 Throughput - Tokens per second: 38.5
@@ -346,7 +369,7 @@ mkdir -p models
 
 python export_model.py text2speech --source_model Sandiago21/speecht5_finetuned_facebook_voxpopuli_spanish --weight-format fp16 --model_name speecht5_tts_spanish --config_file_path models/config.json --model_repository_path models --overwrite_models --vocoder microsoft/speecht5_hifigan
 
-docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:2026.1 --rest_port 8000 --model_path /models/speecht5_tts_spanish --model_name speecht5_tts_spanish
+docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:latest --rest_port 8000 --model_path /models/speecht5_tts_spanish --model_name speecht5_tts_spanish
 
 curl http://localhost:8000/v3/audio/speech -H "Content-Type: application/json" -d "{\"model\": \"speecht5_tts_spanish\", \"input\": \"Madrid es la capital de España\"}" -o speech_spanish.wav
 ```
@@ -376,7 +399,7 @@ Select deployment option depending on how you prepared models in the previous st
 Running this command starts the container with CPU only target device:
 ```bash
 mkdir -p models
-docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:2026.1 --rest_port 8000 --source_model OpenVINO/whisper-large-v3-fp16-ov --model_repository_path /models --model_name OpenVINO/whisper-large-v3-fp16-ov --task speech2text
+docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 -v $(pwd)/models:/models:rw openvino/model_server:latest --rest_port 8000 --source_model OpenVINO/whisper-large-v3-fp16-ov --model_repository_path /models --model_name OpenVINO/whisper-large-v3-fp16-ov --task speech2text
 ```
 **GPU**
 
@@ -385,7 +408,7 @@ to `docker run` command, use the image with GPU support.
 It can be applied using the commands below:
 ```bash
 mkdir -p models
-docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -v $(pwd)/models:/models:rw openvino/model_server:2026.1-gpu --rest_port 8000 --source_model OpenVINO/whisper-large-v3-fp16-ov --model_repository_path models --model_name OpenVINO/whisper-large-v3-fp16-ov --task speech2text --target_device GPU
+docker run -d -u $(id -u):$(id -g) --rm -p 8000:8000 --device /dev/dri --group-add=$(stat -c "%g" /dev/dri/render* | head -n 1) -v $(pwd)/models:/models:rw openvino/model_server:latest-gpu --rest_port 8000 --source_model OpenVINO/whisper-large-v3-fp16-ov --model_repository_path models --model_name OpenVINO/whisper-large-v3-fp16-ov --task speech2text --target_device GPU
 ```
 :::
 

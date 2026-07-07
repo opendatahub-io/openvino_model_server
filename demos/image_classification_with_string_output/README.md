@@ -15,23 +15,14 @@ cd model_server/demos/image_classification_with_string_output
 pip install -r requirements.txt
 python download_model.py
 rm model/1/fingerprint.pb
-
-tree model
-model
-└── 1
-    ├── assets
-    ├── saved_model.pb
-    └── variables
-        ├── variables.data-00000-of-00001
-        └── variables.index
 ```
 
 ### Start the OVMS container:
 ```bash
-docker run -d -u $(id -u):$(id -g) -v $(pwd):/workspace -p 8000:8000 openvino/model_server:2026.1 \
+docker run -d -u $(id -u):$(id -g) -v $(pwd):/workspace -p 8000:8000 openvino/model_server:latest \
 --model_path /workspace/model --model_name mobile_net --rest_port 8000
 ```
-Alternatively see (instructions)[https://github.com/openvinotoolkit/model_server/blob/releases/2026/1/docs/deploying_server_baremetal.md] for deployment on bare metal.
+Alternatively see (instructions)[https://github.com/openvinotoolkit/model_server/blob/releases/2026/2/docs/deploying_server_baremetal.md] for deployment on bare metal.
 
 Make sure to:
 
