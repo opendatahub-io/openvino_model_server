@@ -115,13 +115,6 @@ ARG JOBS=40
 ARG VERBOSE_LOGS=OFF
 ARG LTO_ENABLE=OFF
 
-# Set architecture-specific JOBS value
-RUN if [ "$TARGETARCH" = "s390x" ] || [ "$TARGETARCH" = "ppc64le" ]; then \
-        echo "export ARCH_JOBS=8" > /tmp/jobs_override.sh; \
-    else \
-        echo "export ARCH_JOBS=${JOBS:-40}" > /tmp/jobs_override.sh; \
-    fi
-
 # hadolint ignore=DL3041
 RUN if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "x86_64" ] || [ -z "$TARGETARCH" ]; then \
         OPENCL_PKG="https://vault.centos.org/centos/8-stream/PowerTools/x86_64/os/Packages/opencl-headers-2.2-1.20180306gite986688.el8.noarch.rpm"; \
@@ -170,19 +163,21 @@ RUN python3.12 --version && python3.12 -m pip install "numpy<2.0.0" "Jinja2==3.1
 ENV BAZEL_VERSION 6.1.1
 WORKDIR /bazel
 RUN if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "x86_64" ] || [ -z "$TARGETARCH" ]; then \
-        BAZEL_ARCH="x86_64"; \
-    elif [ "$TARGETARCH" = "s390x" ]; then \
-        BAZEL_ARCH="s390x"; \
-    elif [ "$TARGETARCH" = "ppc64le" ]; then \
-        BAZEL_ARCH="ppc64le"; \
+        # Use official installer for x86_64
+        curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
+        curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -o /bazel/LICENSE.txt https://raw.githubusercontent.com/bazelbuild/bazel/master/LICENSE && \
+        chmod +x bazel-*.sh && \
+        ./bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
+        rm -f /bazel/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh; \
     else \
-        BAZEL_ARCH="x86_64"; \
-    fi && \
-    curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-${BAZEL_ARCH}.sh && \
-    curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -o /bazel/LICENSE.txt https://raw.githubusercontent.com/bazelbuild/bazel/master/LICENSE && \
-    chmod +x bazel-*.sh && \
-    ./bazel-$BAZEL_VERSION-installer-linux-${BAZEL_ARCH}.sh && \
-    rm -f /bazel/bazel-$BAZEL_VERSION-installer-linux-${BAZEL_ARCH}.sh
+        # For s390x/ppc64le: use distribution package (pre-built binaries not available)
+        dnf install -y java-11-openjdk-devel unzip zip && \
+        curl -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-dist.zip && \
+        unzip -q bazel-$BAZEL_VERSION-dist.zip && \
+        env EXTRA_BAZEL_ARGS="--tool_java_runtime_version=local_jdk" bash ./compile.sh && \
+        cp output/bazel /usr/local/bin/ && \
+        cd / && rm -rf /bazel; \
+    fi
 
 RUN  dnf install -y https://github.com/linux-test-project/lcov/releases/download/v1.16/lcov-1.16-1.noarch.rpm && dnf clean all
 
@@ -209,11 +204,14 @@ ARG SDL_OPS="-Wl,-z,relro,-z,now,-z,noexecstack -fPIE -pie -fstack-protector-str
 
 # Set architecture-specific flags
 RUN if [ "$TARGETARCH" = "s390x" ]; then \
-        echo "export ARCH_CMAKE_FLAGS='-DCMAKE_CXX_FLAGS=-march=z14 -DENABLE_LTO=OFF -DENABLE_INTEL_CPU=OFF -DENABLE_INTEL_GPU=OFF -DENABLE_AUTO=OFF'" > /tmp/arch_flags.sh; \
+        echo "export ARCH_CXX_EXTRA='-march=z14'" > /tmp/arch_flags.sh; \
+        echo "export ARCH_CMAKE_EXTRA='-DENABLE_LTO=OFF -DENABLE_INTEL_CPU=OFF -DENABLE_INTEL_GPU=OFF -DENABLE_AUTO=OFF'" >> /tmp/arch_flags.sh; \
     elif [ "$TARGETARCH" = "ppc64le" ]; then \
-        echo "export ARCH_CMAKE_FLAGS='-DCMAKE_CXX_FLAGS=-mcpu=power9 -DENABLE_LTO=OFF -DENABLE_INTEL_CPU=OFF -DENABLE_INTEL_GPU=OFF -DENABLE_AUTO=OFF'" > /tmp/arch_flags.sh; \
+        echo "export ARCH_CXX_EXTRA='-mcpu=power9'" > /tmp/arch_flags.sh; \
+        echo "export ARCH_CMAKE_EXTRA='-DENABLE_LTO=OFF -DENABLE_INTEL_CPU=OFF -DENABLE_INTEL_GPU=OFF -DENABLE_AUTO=OFF'" >> /tmp/arch_flags.sh; \
     else \
-        echo "export ARCH_CMAKE_FLAGS=''" > /tmp/arch_flags.sh; \
+        echo "export ARCH_CXX_EXTRA=''" > /tmp/arch_flags.sh; \
+        echo "export ARCH_CMAKE_EXTRA=''" >> /tmp/arch_flags.sh; \
     fi
 
 # hadolint ignore=DL3041
@@ -226,9 +224,9 @@ WORKDIR /openvino/build
 RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; \
     source /tmp/arch_flags.sh ; \
     if ! [[ $debug_bazel_flags == *"py_off"* ]]; then \
-        cmake -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE -DCMAKE_VERBOSE_MAKEFILE="${VERBOSE_LOGS}" -DENABLE_LTO=${LTO_ENABLE} -DENABLE_PYTHON=ON -DENABLE_SAMPLES=0 -DENABLE_INTEL_NPU=OFF -DCMAKE_CXX_FLAGS="  ${SDL_OPS} -Wno-error=parentheses  ${LTO_CXX_FLAGS} " -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" ${ARCH_CMAKE_FLAGS} .. ; \
+        cmake -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE -DCMAKE_VERBOSE_MAKEFILE="${VERBOSE_LOGS}" -DENABLE_LTO=${LTO_ENABLE} -DENABLE_PYTHON=ON -DENABLE_SAMPLES=0 -DENABLE_INTEL_NPU=OFF -DCMAKE_CXX_FLAGS="${SDL_OPS} -Wno-error=parentheses ${LTO_CXX_FLAGS} ${ARCH_CXX_EXTRA}" -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" ${ARCH_CMAKE_EXTRA} .. ; \
     else \
-        cmake -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE -DCMAKE_VERBOSE_MAKEFILE="${VERBOSE_LOGS}" -DENABLE_LTO=${LTO_ENABLE} -DENABLE_SAMPLES=0 -DENABLE_INTEL_NPU=OFF -DCMAKE_CXX_FLAGS="  ${SDL_OPS} -Wno-error=parentheses ${LTO_CXX_FLAGS} " -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" ${ARCH_CMAKE_FLAGS} .. ; \
+        cmake -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE -DCMAKE_VERBOSE_MAKEFILE="${VERBOSE_LOGS}" -DENABLE_LTO=${LTO_ENABLE} -DENABLE_SAMPLES=0 -DENABLE_INTEL_NPU=OFF -DCMAKE_CXX_FLAGS="${SDL_OPS} -Wno-error=parentheses ${LTO_CXX_FLAGS} ${ARCH_CXX_EXTRA}" -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" ${ARCH_CMAKE_EXTRA} .. ; \
     fi && \
     make --jobs=$JOBS && \
     make install
@@ -428,12 +426,9 @@ LABEL "description"="OpenVINO(TM) Model Server is a solution for serving AI mode
 LABEL "maintainer"="dariusz.trawinski@intel.com"
 ARG INSTALL_RPMS_FROM_URL=
 ARG INSTALL_DRIVER_VERSION="24.52.32224"
+# Default to GPU=0, can be overridden for amd64
 ARG GPU=0
 ARG debug_bazel_flags=
-# Force GPU=0 for non-x86 architectures
-RUN if [ "$TARGETARCH" = "s390x" ] || [ "$TARGETARCH" = "ppc64le" ]; then \
-        export GPU=0; \
-    fi
 LABEL bazel-build-flags=${debug_bazel_flags}
 LABEL supported-devices="CPU=1 GPU=${GPU}"
 ARG RELEASE_BASE_IMAGE
