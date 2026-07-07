@@ -21,6 +21,8 @@ ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.7
 
 FROM $BASE_IMAGE as base_build
 ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.7
+ARG TARGETARCH
+ARG TARGETPLATFORM
 
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
 
@@ -104,6 +106,8 @@ RUN if [ "$VERBOSE_LOGS" == "ON" ] ; then export VERBOSE=1 ; fi && OPENCV_VERSIO
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 FROM base_build as build
 ARG BASE_IMAGE
+ARG TARGETARCH
+ARG TARGETPLATFORM
 
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
 
@@ -112,12 +116,19 @@ ARG VERBOSE_LOGS=OFF
 ARG LTO_ENABLE=OFF
 
 # hadolint ignore=DL3041
-RUN dnf install -y -d6 \
-            https://vault.centos.org/centos/8-stream/PowerTools/x86_64/os/Packages/opencl-headers-2.2-1.20180306gite986688.el8.noarch.rpm \
+RUN if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "x86_64" ] || [ -z "$TARGETARCH" ]; then \
+        OPENCL_PKG="https://vault.centos.org/centos/8-stream/PowerTools/x86_64/os/Packages/opencl-headers-2.2-1.20180306gite986688.el8.noarch.rpm"; \
+        LIBGUSB_PKG="libgusb.x86_64"; \
+    else \
+        OPENCL_PKG=""; \
+        LIBGUSB_PKG="libgusb"; \
+    fi && \
+    dnf install -y -d6 \
+            ${OPENCL_PKG:+$OPENCL_PKG} \
             gdb \
             java-11-openjdk-devel \
             tzdata-java \
-            libgusb.x86_64 \
+            $LIBGUSB_PKG \
             libusbx \
             libtool \
             openssl-devel \
@@ -151,11 +162,22 @@ RUN python3.12 --version && python3.12 -m pip install "numpy<2.0.0" "Jinja2==3.1
 # Set up Bazel
 ENV BAZEL_VERSION 6.1.1
 WORKDIR /bazel
-RUN curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
-    curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -o /bazel/LICENSE.txt https://raw.githubusercontent.com/bazelbuild/bazel/master/LICENSE && \
-    chmod +x bazel-*.sh && \
-    ./bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
-    rm -f /bazel/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh
+RUN if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "x86_64" ] || [ -z "$TARGETARCH" ]; then \
+        # Use official installer for x86_64
+        curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
+        curl -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/57.0.2987.133 Safari/537.36" -fSsL -o /bazel/LICENSE.txt https://raw.githubusercontent.com/bazelbuild/bazel/master/LICENSE && \
+        chmod +x bazel-*.sh && \
+        ./bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
+        rm -f /bazel/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh; \
+    else \
+        # For s390x/ppc64le: use distribution package (pre-built binaries not available)
+        dnf install -y java-11-openjdk-devel unzip zip && \
+        curl -fSsL -O https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-dist.zip && \
+        unzip -q bazel-$BAZEL_VERSION-dist.zip && \
+        env EXTRA_BAZEL_ARGS="--tool_java_runtime_version=local_jdk" bash ./compile.sh && \
+        cp output/bazel /usr/local/bin/ && \
+        cd / && rm -rf /bazel; \
+    fi
 
 RUN  dnf install -y https://github.com/linux-test-project/lcov/releases/download/v1.16/lcov-1.16-1.noarch.rpm && dnf clean all
 
@@ -179,6 +201,19 @@ RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && alt
 
 ################### BUILD OPENVINO FROM SOURCE - buildarg ov_use_binary=0  ############################
 ARG SDL_OPS="-Wl,-z,relro,-z,now,-z,noexecstack -fPIE -pie -fstack-protector-strong -fexceptions -fasynchronous-unwind-tables -fcf-protection -fpic -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 -fno-strict-overflow -Wno-unknown-pragmas -Wno-error=sign-compare -fno-delete-null-pointer-checks -fwrapv -fstack-clash-protection -Wformat -Wformat-security -s -D_GLIBCXX_USE_CXX11_ABI=1 -Wuninitialized"
+
+# Set architecture-specific flags
+RUN if [ "$TARGETARCH" = "s390x" ]; then \
+        echo "export ARCH_CXX_EXTRA='-march=z14'" > /tmp/arch_flags.sh; \
+        echo "export ARCH_CMAKE_EXTRA='-DENABLE_LTO=OFF -DENABLE_INTEL_CPU=OFF -DENABLE_INTEL_GPU=OFF -DENABLE_AUTO=OFF'" >> /tmp/arch_flags.sh; \
+    elif [ "$TARGETARCH" = "ppc64le" ]; then \
+        echo "export ARCH_CXX_EXTRA='-mcpu=power9'" > /tmp/arch_flags.sh; \
+        echo "export ARCH_CMAKE_EXTRA='-DENABLE_LTO=OFF -DENABLE_INTEL_CPU=OFF -DENABLE_INTEL_GPU=OFF -DENABLE_AUTO=OFF'" >> /tmp/arch_flags.sh; \
+    else \
+        echo "export ARCH_CXX_EXTRA=''" > /tmp/arch_flags.sh; \
+        echo "export ARCH_CMAKE_EXTRA=''" >> /tmp/arch_flags.sh; \
+    fi
+
 # hadolint ignore=DL3041
 RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && dnf install -y gflags-devel gflags json-devel fdupes && \
     dnf clean all
@@ -187,10 +222,11 @@ RUN if [ "$ov_use_binary" == "0" ] ; then true ; else exit 0 ; fi ; git clone ht
 RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; if ! [[ $debug_bazel_flags == *"py_off"* ]]; then true ; else exit 0 ; fi ; pip3.12 install --no-cache-dir -r /openvino/src/bindings/python/wheel/requirements-dev.txt
 WORKDIR /openvino/build
 RUN if [ "$ov_use_binary" == "0" ]; then true ; else exit 0 ; fi ; \
+    source /tmp/arch_flags.sh ; \
     if ! [[ $debug_bazel_flags == *"py_off"* ]]; then \
-        cmake -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE -DCMAKE_VERBOSE_MAKEFILE="${VERBOSE_LOGS}" -DENABLE_LTO=${LTO_ENABLE} -DENABLE_PYTHON=ON -DENABLE_SAMPLES=0 -DENABLE_INTEL_NPU=OFF -DCMAKE_CXX_FLAGS="  ${SDL_OPS} -Wno-error=parentheses  ${LTO_CXX_FLAGS} " -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" .. ; \
+        cmake -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE -DCMAKE_VERBOSE_MAKEFILE="${VERBOSE_LOGS}" -DENABLE_LTO=${LTO_ENABLE} -DENABLE_PYTHON=ON -DENABLE_SAMPLES=0 -DENABLE_INTEL_NPU=OFF -DCMAKE_CXX_FLAGS="${SDL_OPS} -Wno-error=parentheses ${LTO_CXX_FLAGS} ${ARCH_CXX_EXTRA}" -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" ${ARCH_CMAKE_EXTRA} .. ; \
     else \
-        cmake -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE -DCMAKE_VERBOSE_MAKEFILE="${VERBOSE_LOGS}" -DENABLE_LTO=${LTO_ENABLE} -DENABLE_SAMPLES=0 -DENABLE_INTEL_NPU=OFF -DCMAKE_CXX_FLAGS="  ${SDL_OPS} -Wno-error=parentheses ${LTO_CXX_FLAGS} " -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" .. ; \
+        cmake -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE -DCMAKE_VERBOSE_MAKEFILE="${VERBOSE_LOGS}" -DENABLE_LTO=${LTO_ENABLE} -DENABLE_SAMPLES=0 -DENABLE_INTEL_NPU=OFF -DCMAKE_CXX_FLAGS="${SDL_OPS} -Wno-error=parentheses ${LTO_CXX_FLAGS} ${ARCH_CXX_EXTRA}" -DCMAKE_SHARED_LINKER_FLAGS="${LTO_LD_FLAGS}" ${ARCH_CMAKE_EXTRA} .. ; \
     fi && \
     make --jobs=$JOBS && \
     make install
@@ -259,7 +295,13 @@ WORKDIR /ovms
 COPY .bazelrc .user.bazelr[c] .bazelversion WORKSPACE /ovms/
 # since bazel does not have easy way to pass if down the dependencies to have select the sources
 # for libcurl & ssl we hack it this way
-RUN ln -s /usr/lib64 /usr/lib/x86_64-linux-gnu
+RUN if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "x86_64" ] || [ -z "$TARGETARCH" ]; then \
+        ln -s /usr/lib64 /usr/lib/x86_64-linux-gnu; \
+    elif [ "$TARGETARCH" = "s390x" ]; then \
+        ln -s /usr/lib64 /usr/lib/s390x-linux-gnu; \
+    elif [ "$TARGETARCH" = "ppc64le" ]; then \
+        ln -s /usr/lib64 /usr/lib/powerpc64le-linux-gnu; \
+    fi
 COPY external /ovms/external/
 COPY third_party /ovms/third_party
 
@@ -334,6 +376,7 @@ RUN python3.12 -c "import json; m={'PROJECT_VERSION':'${PROJECT_VERSION}','OPENV
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
 FROM $BUILD_IMAGE as capi-build
+ARG TARGETARCH
 # C api shared library
 ARG CAPI_FLAGS="--strip=always  --config=mp_off_py_off --//:distro=redhat"
 ARG JOBS=40
@@ -355,6 +398,7 @@ RUN make -f MakefileCapi cpp CAPI_FLAGS="${CAPI_FLAGS}" && \
 RUN mkdir -p /ovms_release/lib/ ; find /ovms/bazel-out/k8-*/bin -iname 'libovms_shared.so'  -exec cp -v {} /ovms_release/lib/ \;
 
 FROM $BUILD_IMAGE as pkg
+ARG TARGETARCH
 
 COPY --from=build /usr/local/bin/patchelf /usr/local/bin/patchelf
 
@@ -372,6 +416,7 @@ RUN mkdir /licenses && ln -s /ovms_release/LICENSE /licenses && ln -s /ovms_rele
 
 
 FROM $RELEASE_BASE_IMAGE as release
+ARG TARGETARCH
 LABEL "name"="OVMS"
 LABEL "vendor"="Intel Corporation"
 LABEL "version"="2026.3.0"
@@ -381,12 +426,14 @@ LABEL "description"="OpenVINO(TM) Model Server is a solution for serving AI mode
 LABEL "maintainer"="dariusz.trawinski@intel.com"
 ARG INSTALL_RPMS_FROM_URL=
 ARG INSTALL_DRIVER_VERSION="24.52.32224"
+# Default to GPU=0, can be overridden for amd64
 ARG GPU=0
 ARG debug_bazel_flags=
 LABEL bazel-build-flags=${debug_bazel_flags}
 LABEL supported-devices="CPU=1 GPU=${GPU}"
 ARG RELEASE_BASE_IMAGE
 LABEL base-image=${RELEASE_BASE_IMAGE}
+LABEL architecture=${TARGETARCH}
 
 ENV PYTHONPATH=/ovms/lib/python:/ovms/python_deps
 
